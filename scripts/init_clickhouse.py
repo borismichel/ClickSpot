@@ -18,7 +18,9 @@ client = clickhouse_connect.get_client(
 
 sql = Path(__file__).parent / "init_clickhouse.sql"
 for statement in sql.read_text().split(";"):
-    stmt = statement.strip()
+    # Strip comments and whitespace; skip if nothing left
+    lines = [l for l in statement.strip().splitlines() if not l.strip().startswith("--")]
+    stmt = "\n".join(lines).strip()
     if stmt:
         try:
             client.command(stmt)

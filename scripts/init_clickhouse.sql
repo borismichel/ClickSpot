@@ -1,10 +1,10 @@
 -- Run once to set up the bronze layer in your existing ClickHouse instance.
--- Assumes you are connected as a user with admin privileges (e.g. default).
+-- If your ClickHouse user has access_management=1, uncomment the user/grant lines below.
 
 CREATE DATABASE IF NOT EXISTS bronze;
 
-CREATE USER IF NOT EXISTS hs2ch IDENTIFIED BY 'changeme';
-GRANT SELECT, INSERT, CREATE TABLE ON bronze.* TO hs2ch;
+-- CREATE USER IF NOT EXISTS hs2ch IDENTIFIED BY 'changeme';
+-- GRANT SELECT, INSERT, CREATE TABLE ON bronze.* TO hs2ch;
 
 CREATE TABLE IF NOT EXISTS bronze.hs_contacts
     (_record_id String, _extracted_at DateTime DEFAULT now(), _raw String)
