@@ -1,5 +1,11 @@
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+
+
+def _json_default(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 from dagster import asset, AssetExecutionContext, MaterializeResult, MetadataValue
 
 from resources.hubspot import HubSpotResource
@@ -26,7 +32,7 @@ def _make_crm_asset(object_type: str, table: str):
 
         for batch in hubspot.fetch_crm_objects_batched(object_type, since=since):
             rows = [
-                (str(r["id"]), run_start, json.dumps(r))
+                (str(r["id"]), run_start, json.dumps(r, default=_json_default))
                 for r in batch
             ]
             records_written += ch.insert_records(table, rows)

@@ -4,7 +4,7 @@ from dagster import asset, AssetExecutionContext, MaterializeResult, MetadataVal
 
 from resources.hubspot import HubSpotResource
 from resources.clickhouse import ClickHouseResource
-from assets.crm import _get_high_water_mark
+from assets.crm import _get_high_water_mark, _json_default
 
 
 def _make_marketing_asset(name: str, path: str, table: str, id_field: str = "id"):
@@ -16,7 +16,7 @@ def _make_marketing_asset(name: str, path: str, table: str, id_field: str = "id"
 
         for batch in hubspot.fetch_marketing_list(path, since=since):
             rows = [
-                (str(r[id_field]), run_start, json.dumps(r))
+                (str(r[id_field]), run_start, json.dumps(r, default=_json_default))
                 for r in batch
             ]
             records_written += ch.insert_records(table, rows)
