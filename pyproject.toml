@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hs2ch"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "dagster>=1.9.5",
+    "dagster-webserver",
+    "hubspot-api-client",
+    "clickhouse-connect",
+    "requests",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-mock"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["assets*", "resources*"]
+
+[tool.dagster]
+module_name = "definitions"
