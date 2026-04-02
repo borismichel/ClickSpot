@@ -9,25 +9,26 @@ def make_resource():
 
 # --- CRM Search ---
 
-@patch("resources.hubspot.hubspot.Client.create")
-def test_fetch_crm_yields_all_pages(mock_create):
-    page1 = MagicMock()
-    page1.results = [MagicMock(to_dict=lambda: {"id": "1"})]
-    page1.paging = MagicMock(next=MagicMock(after="cursor-2"))
+@patch("resources.hubspot.requests.get")
+def test_fetch_crm_full_load_uses_list_api(mock_get):
+    """Full load (no since) uses the List API, not Search."""
+    resp1 = MagicMock()
+    resp1.json.return_value = {
+        "results": [{"id": "1"}],
+        "paging": {"next": {"after": "cursor-2"}},
+    }
+    resp2 = MagicMock()
+    resp2.json.return_value = {"results": [{"id": "2"}]}
 
-    page2 = MagicMock()
-    page2.results = [MagicMock(to_dict=lambda: {"id": "2"})]
-    page2.paging = None
-
-    mock_client = MagicMock()
-    mock_client.crm.objects.search_api.do_search.side_effect = [page1, page2]
-    mock_create.return_value = mock_client
+    mock_get.side_effect = [resp1, resp2]
 
     res = make_resource()
     batches = list(res.fetch_crm_objects_batched("contacts"))
 
     assert batches == [[{"id": "1"}], [{"id": "2"}]]
-    assert mock_client.crm.objects.search_api.do_search.call_count == 2
+    assert mock_get.call_count == 2
+    # Verify it called the List API URL
+    assert "crm/v3/objects/contacts" in mock_get.call_args_list[0][0][0]
 
 
 @patch("resources.hubspot.hubspot.Client.create")

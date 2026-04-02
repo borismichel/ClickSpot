@@ -7,6 +7,7 @@ class ClickHouseResource(ConfigurableResource):
     port: int = 8123
     username: str
     password: str
+    database: str = "bronze"
 
     def get_client(self):
         return clickhouse_connect.get_client(
@@ -14,6 +15,7 @@ class ClickHouseResource(ConfigurableResource):
             port=self.port,
             username=self.username,
             password=self.password,
+            database=self.database,
         )
 
     def insert_records(self, table: str, rows: list[tuple]) -> int:
