@@ -1,6 +1,6 @@
 """Run scripts/init_clickhouse.sql against the ClickHouse instance.
 Usage: python scripts/init_clickhouse.py
-Requires CLICKHOUSE_HOST, CLICKHOUSE_USER (admin), CLICKHOUSE_PASSWORD in .env.
+Requires CLICKHOUSE_HOST, CLICKHOUSE_ADMIN_USER, CLICKHOUSE_ADMIN_PASSWORD in .env.
 """
 import os
 from pathlib import Path
@@ -20,7 +20,11 @@ sql = Path(__file__).parent / "init_clickhouse.sql"
 for statement in sql.read_text().split(";"):
     stmt = statement.strip()
     if stmt:
-        client.command(stmt)
-        print(f"OK: {stmt[:60]}...")
+        try:
+            client.command(stmt)
+            print(f"OK: {stmt[:60]}...")
+        except Exception as e:
+            print(f"FAILED: {stmt[:60]}...\nError: {e}")
+            raise
 
 print("ClickHouse bronze layer initialized.")
