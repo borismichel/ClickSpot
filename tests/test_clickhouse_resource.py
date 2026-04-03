@@ -18,14 +18,14 @@ def test_insert_records_calls_client(mock_get_client):
     mock_get_client.return_value = mock_client
 
     res = make_resource()
-    rows = [("id1", datetime(2024, 1, 1), '{"id":"id1"}')]
+    rows = [("id1", datetime(2024, 1, 1), {"email": "a@b.com"}, '{"id":"id1"}')]
     count = res.insert_records("hs_contacts", rows)
 
     assert count == 1
     mock_client.insert.assert_called_once_with(
         "hs_contacts",
-        data=[("id1", datetime(2024, 1, 1), '{"id":"id1"}')],
-        column_names=["_record_id", "_extracted_at", "_raw"],
+        data=[("id1", datetime(2024, 1, 1), {"email": "a@b.com"}, '{"id":"id1"}')],
+        column_names=["_record_id", "_extracted_at", "properties", "_raw"],
     )
 
 

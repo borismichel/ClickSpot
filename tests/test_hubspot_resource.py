@@ -1,17 +1,28 @@
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
-from resources.hubspot import HubSpotResource
+from unittest.mock import MagicMock, patch
+from resources.hubspot import HubSpotResource, API_VERSION
 
 
 def make_resource():
     return HubSpotResource(access_token="test-token")
 
 
-# --- CRM Search ---
+def _mock_properties_response():
+    """Mock response for _get_all_properties call."""
+    resp = MagicMock()
+    resp.json.return_value = {
+        "results": [{"name": "email"}, {"name": "firstname"}]
+    }
+    return resp
 
-@patch("resources.hubspot.requests.get")
-def test_fetch_crm_full_load_uses_list_api(mock_get):
-    """Full load (no since) uses the List API, not Search."""
+
+# --- CRM List (full load) ---
+
+@patch("resources.hubspot.time.sleep")
+@patch("resources.hubspot.requests.request")
+def test_fetch_crm_full_load_uses_versioned_list_api(mock_request, mock_sleep):
+    """Full load (no since) uses the versioned List API with all properties."""
+    props_resp = _mock_properties_response()
     resp1 = MagicMock()
     resp1.json.return_value = {
         "results": [{"id": "1"}],
@@ -20,42 +31,56 @@ def test_fetch_crm_full_load_uses_list_api(mock_get):
     resp2 = MagicMock()
     resp2.json.return_value = {"results": [{"id": "2"}]}
 
-    mock_get.side_effect = [resp1, resp2]
+    mock_request.side_effect = [props_resp, resp1, resp2]
 
     res = make_resource()
     batches = list(res.fetch_crm_objects_batched("contacts"))
 
     assert batches == [[{"id": "1"}], [{"id": "2"}]]
-    assert mock_get.call_count == 2
-    # Verify it called the List API URL
-    assert "crm/v3/objects/contacts" in mock_get.call_args_list[0][0][0]
+    # 1 properties call + 2 list pages
+    assert mock_request.call_count == 3
+    # First call is properties, second is the list API
+    assert f"crm/objects/{API_VERSION}/contacts" in mock_request.call_args_list[1][0][1]
+    # Verify properties are passed
+    list_params = mock_request.call_args_list[1][1].get("params", {})
+    assert "properties" in list_params
 
 
-@patch("resources.hubspot.hubspot.Client.create")
+# --- CRM Search (incremental) ---
+
 @patch("resources.hubspot.time.sleep")
-def test_fetch_crm_applies_since_filter(mock_sleep, mock_create):
-    page = MagicMock()
-    page.results = [MagicMock(to_dict=lambda: {"id": "1"})]
-    page.paging = None
+@patch("resources.hubspot.requests.request")
+def test_fetch_crm_search_uses_versioned_api(mock_request, mock_sleep):
+    """Incremental load uses the versioned Search API with all properties."""
+    props_resp = _mock_properties_response()
 
-    mock_client = MagicMock()
-    mock_client.crm.objects.search_api.do_search.return_value = page
-    mock_create.return_value = mock_client
+    resp = MagicMock()
+    resp.json.return_value = {
+        "results": [{"id": "1"}],
+    }
+
+    mock_request.side_effect = [props_resp, resp]
 
     since = datetime(2024, 1, 15, 12, 0, 0)
     res = make_resource()
-    list(res.fetch_crm_objects_batched("contacts", since=since))
+    batches = list(res.fetch_crm_objects_batched("contacts", since=since))
 
-    call_kwargs = mock_client.crm.objects.search_api.do_search.call_args
-    body = call_kwargs.kwargs["public_object_search_request"]
+    assert batches == [[{"id": "1"}]]
+    # First call is properties (GET), second is search (POST)
+    call_url = mock_request.call_args_list[1][0][1]
+    assert f"crm/objects/{API_VERSION}/contacts/search" in call_url
+
+    body = mock_request.call_args_list[1][1]["json"]
     assert body["filterGroups"][0]["filters"][0]["operator"] == "GTE"
     assert body["filterGroups"][0]["filters"][0]["propertyName"] == "lastmodifieddate"
+    assert body["properties"] == ["email", "firstname"]
 
 
 # --- Marketing list ---
 
-@patch("resources.hubspot.requests.get")
-def test_fetch_marketing_list_yields_all_pages(mock_get):
+@patch("resources.hubspot.time.sleep")
+@patch("resources.hubspot.requests.request")
+def test_fetch_marketing_list_yields_all_pages(mock_request, mock_sleep):
     resp1 = MagicMock()
     resp1.json.return_value = {
         "results": [{"id": "c1"}],
@@ -64,10 +89,56 @@ def test_fetch_marketing_list_yields_all_pages(mock_get):
     resp2 = MagicMock()
     resp2.json.return_value = {"results": [{"id": "c2"}]}
 
-    mock_get.side_effect = [resp1, resp2]
+    mock_request.side_effect = [resp1, resp2]
 
     res = make_resource()
     batches = list(res.fetch_marketing_list("/marketing/v3/campaigns", results_key="results"))
 
     assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
-    assert mock_get.call_count == 2
+    assert mock_request.call_count == 2
+
+
+# --- Associations ---
+
+@patch("resources.hubspot.time.sleep")
+@patch("resources.hubspot.requests.request")
+def test_fetch_associations_batched(mock_request, mock_sleep):
+    resp = MagicMock()
+    resp.json.return_value = {
+        "results": [
+            {
+                "from": {"id": "101"},
+                "to": [
+                    {"id": "201", "associationTypes": [{"label": "Primary"}]},
+                    {"id": "202", "associationTypes": [{"label": ""}]},
+                ],
+            }
+        ]
+    }
+    mock_request.return_value = resp
+
+    res = make_resource()
+    batches = list(res.fetch_associations_batched("contacts", "companies", ["101"]))
+
+    assert len(batches) == 1
+    assert batches[0] == [
+        {"from_id": "101", "to_id": "201", "association_type": "Primary"},
+        {"from_id": "101", "to_id": "202", "association_type": ""},
+    ]
+    call_url = mock_request.call_args_list[0][0][1]
+    assert f"crm/associations/{API_VERSION}/contacts/companies/batch/read" in call_url
+
+
+# --- fetch_all_object_ids ---
+
+@patch("resources.hubspot.time.sleep")
+@patch("resources.hubspot.requests.request")
+def test_fetch_all_object_ids(mock_request, mock_sleep):
+    resp = MagicMock()
+    resp.json.return_value = {"results": [{"id": "1"}, {"id": "2"}]}
+    mock_request.return_value = resp
+
+    res = make_resource()
+    ids = res.fetch_all_object_ids("contacts")
+
+    assert ids == ["1", "2"]
