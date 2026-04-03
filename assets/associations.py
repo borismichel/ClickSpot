@@ -7,14 +7,31 @@ from resources.clickhouse import ClickHouseResource
 
 
 ASSOCIATION_PAIRS = [
+    # CRM ↔ CRM
     ("contacts", "companies", "hs_assoc_contact_company"),
-    ("contacts", "deals", "hs_assoc_contact_deal"),
-    ("deals", "companies", "hs_assoc_deal_company"),
-    ("calls", "contacts", "hs_assoc_call_contact"),
-    ("meetings", "contacts", "hs_assoc_meeting_contact"),
-    ("emails", "contacts", "hs_assoc_email_contact"),
-    ("notes", "contacts", "hs_assoc_note_contact"),
-    ("tasks", "contacts", "hs_assoc_task_contact"),
+    ("contacts", "deals",     "hs_assoc_contact_deal"),
+    ("deals",    "companies", "hs_assoc_deal_company"),
+    ("leads",    "contacts",  "hs_assoc_lead_contact"),
+    ("deals",    "leads",     "hs_assoc_deal_lead"),
+    ("leads",    "companies", "hs_assoc_lead_company"),
+    # Activity ↔ Contacts
+    ("calls",    "contacts",  "hs_assoc_call_contact"),
+    ("meetings", "contacts",  "hs_assoc_meeting_contact"),
+    ("emails",   "contacts",  "hs_assoc_email_contact"),
+    ("notes",    "contacts",  "hs_assoc_note_contact"),
+    ("tasks",    "contacts",  "hs_assoc_task_contact"),
+    # Activity ↔ Companies
+    ("calls",    "companies", "hs_assoc_call_company"),
+    ("meetings", "companies", "hs_assoc_meeting_company"),
+    ("emails",   "companies", "hs_assoc_email_company"),
+    ("notes",    "companies", "hs_assoc_note_company"),
+    ("tasks",    "companies", "hs_assoc_task_company"),
+    # Activity ↔ Deals
+    ("calls",    "deals",     "hs_assoc_call_deal"),
+    ("meetings", "deals",     "hs_assoc_meeting_deal"),
+    ("emails",   "deals",     "hs_assoc_email_deal"),
+    ("notes",    "deals",     "hs_assoc_note_deal"),
+    ("tasks",    "deals",     "hs_assoc_task_deal"),
 ]
 
 
@@ -55,11 +72,28 @@ _association_assets = {
     for from_type, to_type, table in ASSOCIATION_PAIRS
 }
 
+# CRM ↔ CRM
 hs_assoc_contact_company = _association_assets["hs_assoc_contact_company"]
 hs_assoc_contact_deal = _association_assets["hs_assoc_contact_deal"]
 hs_assoc_deal_company = _association_assets["hs_assoc_deal_company"]
+hs_assoc_lead_contact = _association_assets["hs_assoc_lead_contact"]
+hs_assoc_deal_lead = _association_assets["hs_assoc_deal_lead"]
+hs_assoc_lead_company = _association_assets["hs_assoc_lead_company"]
+# Activity ↔ Contacts
 hs_assoc_call_contact = _association_assets["hs_assoc_call_contact"]
 hs_assoc_meeting_contact = _association_assets["hs_assoc_meeting_contact"]
 hs_assoc_email_contact = _association_assets["hs_assoc_email_contact"]
 hs_assoc_note_contact = _association_assets["hs_assoc_note_contact"]
 hs_assoc_task_contact = _association_assets["hs_assoc_task_contact"]
+# Activity ↔ Companies
+hs_assoc_call_company = _association_assets["hs_assoc_call_company"]
+hs_assoc_meeting_company = _association_assets["hs_assoc_meeting_company"]
+hs_assoc_email_company = _association_assets["hs_assoc_email_company"]
+hs_assoc_note_company = _association_assets["hs_assoc_note_company"]
+hs_assoc_task_company = _association_assets["hs_assoc_task_company"]
+# Activity ↔ Deals
+hs_assoc_call_deal = _association_assets["hs_assoc_call_deal"]
+hs_assoc_meeting_deal = _association_assets["hs_assoc_meeting_deal"]
+hs_assoc_email_deal = _association_assets["hs_assoc_email_deal"]
+hs_assoc_note_deal = _association_assets["hs_assoc_note_deal"]
+hs_assoc_task_deal = _association_assets["hs_assoc_task_deal"]

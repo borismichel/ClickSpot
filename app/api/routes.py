@@ -11,9 +11,11 @@ from app.engine.graph import AssociativeGraph
 from app.engine.propagator import Propagator
 from app.engine.state import SelectionState
 from app.engine import sql_builder
+from app.engine.metrics import COMPUTED_METRICS
 from app.api.models import (
     QueryRequest, QueryResponse,
     FieldValueItem, FieldValuesResponse,
+    GroupedMeasureItem, TimeSeriesItem,
     ListResponse,
     SchemaResponse, TableSchema,
     MetadataResponse,
@@ -55,7 +57,6 @@ def query(req: QueryRequest) -> QueryResponse:
         pk = graph.primary_key(table)
         id_filter = reachable.get(table)
 
-        # Get "possible" values (in the reachable set)
         possible_sql = sql_builder.build_field_values_query(
             table, column, pk, id_filter
         )
@@ -64,10 +65,9 @@ def query(req: QueryRequest) -> QueryResponse:
         possible = [
             FieldValueItem(value=str(r["value"]), count=int(r["cnt"]))
             for r in possible_rows
-            if str(r["value"])  # skip empty strings
+            if str(r["value"])
         ]
 
-        # Get "excluded" values (NOT in reachable set, but exist in table)
         excluded = []
         if id_filter:
             all_sql = sql_builder.build_field_values_query(table, column, pk, None)
@@ -82,21 +82,94 @@ def query(req: QueryRequest) -> QueryResponse:
             possible=possible, excluded=excluded
         )
 
-    # Measures
+    # Measures (with optional conditions)
     for m in req.measures:
         if m.table not in TABLES:
             continue
         pk = graph.primary_key(m.table)
         id_filter = reachable.get(m.table)
-        sql = sql_builder.build_measure_query(
-            m.table, m.column, m.agg, pk, id_filter
-        )
+
+        if m.condition:
+            sql = sql_builder.build_conditional_measure_query(
+                m.table, m.column, m.agg, m.condition, pk, id_filter
+            )
+        else:
+            sql = sql_builder.build_measure_query(
+                m.table, m.column, m.agg, pk, id_filter
+            )
         try:
             val = db.query_value(sql)
             key = f"{m.table}.{m.column}.{m.agg}"
             response.measures[key] = float(val) if val is not None else None
         except Exception as e:
             log.warning(f"Measure query failed: {e}")
+
+    # Grouped measures
+    for gm in req.grouped_measures:
+        if gm.table not in TABLES:
+            continue
+        pk = graph.primary_key(gm.table)
+        id_filter = reachable.get(gm.table)
+
+        sql = sql_builder.build_grouped_measure_query(
+            gm.table, gm.column, gm.agg, gm.group_by,
+            pk, id_filter, gm.limit,
+        )
+        try:
+            rows = db.query_rows(sql)
+            key = f"{gm.table}.{gm.column}.{gm.agg}.by.{','.join(gm.group_by)}"
+            response.grouped_measures[key] = [
+                GroupedMeasureItem(
+                    groups={col: str(row[col]) for col in gm.group_by},
+                    value=float(row["value"]) if row["value"] is not None else None,
+                )
+                for row in rows
+            ]
+        except Exception as e:
+            log.warning(f"Grouped measure query failed: {e}")
+
+    # Time series
+    for ts in req.time_series:
+        if ts.table not in TABLES:
+            continue
+        pk = graph.primary_key(ts.table)
+        id_filter = reachable.get(ts.table)
+
+        sql = sql_builder.build_time_series_query(
+            ts.table, ts.measure_column, ts.agg,
+            ts.date_column, ts.granularity,
+            pk, id_filter, ts.date_from, ts.date_to,
+        )
+        try:
+            rows = db.query_rows(sql)
+            key = f"{ts.table}.{ts.measure_column}.{ts.agg}.by.{ts.date_column}.{ts.granularity}"
+            response.time_series[key] = [
+                TimeSeriesItem(
+                    period=str(row["period"]),
+                    value=float(row["value"]) if row["value"] is not None else None,
+                )
+                for row in rows
+            ]
+        except Exception as e:
+            log.warning(f"Time series query failed: {e}")
+
+    # Computed metrics
+    for metric_name in req.computed_metrics:
+        metric = COMPUTED_METRICS.get(metric_name)
+        if not metric:
+            continue
+        table = metric["table"]
+        pk = graph.primary_key(table)
+        id_filter = reachable.get(table)
+        ref = sql_builder._table_ref(table)
+
+        where = f"{pk} IN ({id_filter}) AND archived = 0" if id_filter else "archived = 0"
+        sql = f"SELECT {metric['sql']} FROM {ref} FINAL WHERE {where}"
+        try:
+            val = db.query_value(sql)
+            response.computed_metrics[metric_name] = float(val) if val is not None else None
+        except Exception as e:
+            log.warning(f"Computed metric {metric_name} failed: {e}")
 
     # Lists
     for table, list_req in req.lists.items():
@@ -136,6 +209,15 @@ def schema() -> SchemaResponse:
         edges=GRAPH_EDGES,
         reference_joins=REFERENCE_JOINS,
     )
+
+
+@router.get("/metrics-catalog")
+def metrics_catalog() -> dict:
+    """Return all available computed metrics."""
+    return {
+        name: {"label": m["label"], "format": m["format"], "table": m["table"]}
+        for name, m in COMPUTED_METRICS.items()
+    }
 
 
 @router.get("/metadata", response_model=MetadataResponse)

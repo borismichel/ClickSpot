@@ -10,6 +10,11 @@ silver_job = define_asset_job(
     selection=AssetSelection.groups("silver"),
 )
 
+gold_job = define_asset_job(
+    name="gold_job",
+    selection=AssetSelection.groups("gold"),
+)
+
 full_pipeline_job = define_asset_job(
     name="full_pipeline_job",
     selection=AssetSelection.all(),

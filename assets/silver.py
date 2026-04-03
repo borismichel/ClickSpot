@@ -6,7 +6,8 @@ from resources.clickhouse import ClickHouseResource
 from silver_config import (
     DIM_CONTACTS, DIM_COMPANIES, DIM_DEALS, DIM_LEADS,
     DIM_OWNERS, DIM_PIPELINES, DIM_PIPELINE_STAGES,
-    FACT_ACTIVITIES, BRIDGE_TABLES, BRIDGE_ACTIVITY_CONTACT,
+    FACT_ACTIVITIES, BRIDGE_TABLES,
+    BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
 )
 
 
@@ -323,9 +324,16 @@ FROM bronze.{bronze_table} FINAL
 
 
 # Create bridge assets from config
-bridge_contact_company = _make_bridge_asset("bridge_contact_company", "hs_assoc_contact_company", "contact_id", "company_id")
-bridge_contact_deal = _make_bridge_asset("bridge_contact_deal", "hs_assoc_contact_deal", "contact_id", "deal_id")
-bridge_deal_company = _make_bridge_asset("bridge_deal_company", "hs_assoc_deal_company", "deal_id", "company_id")
+_bridge_assets = {
+    silver_table: _make_bridge_asset(silver_table, bronze_table, from_key, to_key)
+    for silver_table, bronze_table, from_key, to_key in BRIDGE_TABLES
+}
+bridge_contact_company = _bridge_assets["bridge_contact_company"]
+bridge_contact_deal = _bridge_assets["bridge_contact_deal"]
+bridge_deal_company = _bridge_assets["bridge_deal_company"]
+bridge_lead_contact = _bridge_assets["bridge_lead_contact"]
+bridge_deal_lead = _bridge_assets["bridge_deal_lead"]
+bridge_lead_company = _bridge_assets["bridge_lead_company"]
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +392,116 @@ FROM bronze.{bronze_table} FINAL"""
 
 
 # ---------------------------------------------------------------------------
+# Special bridge: bridge_activity_company (UNION ALL across 5 assoc tables)
+# ---------------------------------------------------------------------------
+
+@asset(
+    name="bridge_activity_company",
+    group_name="silver",
+    deps=[
+        AssetKey("hs_assoc_call_company"),
+        AssetKey("hs_assoc_meeting_company"),
+        AssetKey("hs_assoc_email_company"),
+        AssetKey("hs_assoc_note_company"),
+        AssetKey("hs_assoc_task_company"),
+    ],
+)
+def bridge_activity_company(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    context.log.info("Rebuilding silver.bridge_activity_company")
+    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.bridge_activity_company")
+
+    ddl = """
+CREATE TABLE silver.bridge_activity_company (
+    activity_id String,
+    activity_type LowCardinality(String),
+    company_id String,
+    association_type LowCardinality(String),
+    _silver_loaded_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (activity_id, company_id)
+""".strip()
+    ch_silver.execute_sql(ddl)
+
+    union_parts = []
+    for activity_type, bronze_table in BRIDGE_ACTIVITY_COMPANY:
+        part = f"""SELECT
+    _from_id AS activity_id,
+    '{activity_type}' AS activity_type,
+    _to_id AS company_id,
+    _association_type AS association_type,
+    now() AS _silver_loaded_at
+FROM bronze.{bronze_table} FINAL"""
+        union_parts.append(part)
+
+    insert_sql = "INSERT INTO silver.bridge_activity_company\n" + "\nUNION ALL\n".join(union_parts)
+    ch_silver.execute_sql(insert_sql)
+
+    row_count = ch_silver.execute_sql("SELECT count() FROM silver.bridge_activity_company")
+    context.log.info(f"silver.bridge_activity_company: {row_count} rows")
+
+    yield MaterializeResult(
+        metadata={
+            "row_count": MetadataValue.int(int(row_count)),
+            "table": MetadataValue.text("silver.bridge_activity_company"),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Special bridge: bridge_activity_deal (UNION ALL across 5 assoc tables)
+# ---------------------------------------------------------------------------
+
+@asset(
+    name="bridge_activity_deal",
+    group_name="silver",
+    deps=[
+        AssetKey("hs_assoc_call_deal"),
+        AssetKey("hs_assoc_meeting_deal"),
+        AssetKey("hs_assoc_email_deal"),
+        AssetKey("hs_assoc_note_deal"),
+        AssetKey("hs_assoc_task_deal"),
+    ],
+)
+def bridge_activity_deal(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    context.log.info("Rebuilding silver.bridge_activity_deal")
+    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.bridge_activity_deal")
+
+    ddl = """
+CREATE TABLE silver.bridge_activity_deal (
+    activity_id String,
+    activity_type LowCardinality(String),
+    deal_id String,
+    association_type LowCardinality(String),
+    _silver_loaded_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (activity_id, deal_id)
+""".strip()
+    ch_silver.execute_sql(ddl)
+
+    union_parts = []
+    for activity_type, bronze_table in BRIDGE_ACTIVITY_DEAL:
+        part = f"""SELECT
+    _from_id AS activity_id,
+    '{activity_type}' AS activity_type,
+    _to_id AS deal_id,
+    _association_type AS association_type,
+    now() AS _silver_loaded_at
+FROM bronze.{bronze_table} FINAL"""
+        union_parts.append(part)
+
+    insert_sql = "INSERT INTO silver.bridge_activity_deal\n" + "\nUNION ALL\n".join(union_parts)
+    ch_silver.execute_sql(insert_sql)
+
+    row_count = ch_silver.execute_sql("SELECT count() FROM silver.bridge_activity_deal")
+    context.log.info(f"silver.bridge_activity_deal: {row_count} rows")
+
+    yield MaterializeResult(
+        metadata={
+            "row_count": MetadataValue.int(int(row_count)),
+            "table": MetadataValue.text("silver.bridge_activity_deal"),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # DQ metrics (append-only)
 # ---------------------------------------------------------------------------
 
@@ -395,7 +513,8 @@ _ALL_SILVER_DIM_ASSETS = [
 _ALL_SILVER_FACT_ASSETS = ["fact_activities"]
 _ALL_SILVER_BRIDGE_ASSETS = [
     "bridge_contact_company", "bridge_contact_deal", "bridge_deal_company",
-    "bridge_activity_contact",
+    "bridge_lead_contact", "bridge_deal_lead", "bridge_lead_company",
+    "bridge_activity_contact", "bridge_activity_company", "bridge_activity_deal",
 ]
 _ALL_SILVER_TABLES = _ALL_SILVER_DIM_ASSETS + _ALL_SILVER_FACT_ASSETS + _ALL_SILVER_BRIDGE_ASSETS
 
@@ -462,6 +581,17 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
         ("bridge_contact_deal", "deal_id", "dim_deals", "deal_id"),
         ("bridge_deal_company", "deal_id", "dim_deals", "deal_id"),
         ("bridge_deal_company", "company_id", "dim_companies", "company_id"),
+        ("bridge_lead_contact", "lead_id", "dim_leads", "lead_id"),
+        ("bridge_lead_contact", "contact_id", "dim_contacts", "contact_id"),
+        ("bridge_deal_lead", "deal_id", "dim_deals", "deal_id"),
+        ("bridge_deal_lead", "lead_id", "dim_leads", "lead_id"),
+        ("bridge_lead_company", "lead_id", "dim_leads", "lead_id"),
+        ("bridge_lead_company", "company_id", "dim_companies", "company_id"),
+        ("bridge_activity_contact", "activity_id", "fact_activities", "activity_id"),
+        ("bridge_activity_company", "activity_id", "fact_activities", "activity_id"),
+        ("bridge_activity_company", "company_id", "dim_companies", "company_id"),
+        ("bridge_activity_deal", "activity_id", "fact_activities", "activity_id"),
+        ("bridge_activity_deal", "deal_id", "dim_deals", "deal_id"),
     ]
     for bridge_table, bridge_col, dim_table, dim_col in orphan_checks:
         try:
@@ -503,6 +633,7 @@ all_silver_assets = [
     dim_pipelines, dim_pipeline_stages,
     fact_activities,
     bridge_contact_company, bridge_contact_deal, bridge_deal_company,
-    bridge_activity_contact,
+    bridge_lead_contact, bridge_deal_lead, bridge_lead_company,
+    bridge_activity_contact, bridge_activity_company, bridge_activity_deal,
     dq_metrics,
 ]

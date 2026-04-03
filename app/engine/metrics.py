@@ -1,0 +1,80 @@
+"""Computed metrics registry — named business metrics with SQL expressions.
+
+Each metric is a pre-validated SQL expression that can be wrapped with
+the standard WHERE clause from the propagator.
+"""
+
+COMPUTED_METRICS = {
+    "win_rate": {
+        "label": "Win Rate",
+        "format": "percent",
+        "table": "dim_deals",
+        "sql": (
+            "countIf(hs_is_closed_won = 'true') * 1.0 / "
+            "nullIf(countIf(hs_is_closed = 'true'), 0)"
+        ),
+    },
+    "weighted_pipeline": {
+        "label": "Weighted Pipeline",
+        "format": "currency",
+        "table": "dim_deals",
+        "sql": "sum(amount * hs_deal_stage_probability / 100)",
+    },
+    "avg_deal_size": {
+        "label": "Avg Deal Size",
+        "format": "currency",
+        "table": "dim_deals",
+        "sql": "avgIf(amount, hs_is_closed_won = 'true' AND amount > 0)",
+    },
+    "avg_days_to_close": {
+        "label": "Avg Days to Close",
+        "format": "number",
+        "table": "dim_deals",
+        "sql": "avgIf(days_to_close, hs_is_closed_won = 'true' AND days_to_close > 0)",
+    },
+    "total_arr_closed": {
+        "label": "Total ARR Closed",
+        "format": "currency",
+        "table": "dim_deals",
+        "sql": "sumIf(annual_recurring_revenue, hs_is_closed_won = 'true')",
+    },
+    "pipeline_value": {
+        "label": "Open Pipeline Value",
+        "format": "currency",
+        "table": "dim_deals",
+        "sql": "sumIf(amount, hs_is_closed = 'false' OR hs_is_closed = '')",
+    },
+    "new_logo_count": {
+        "label": "New Logos Won",
+        "format": "number",
+        "table": "dim_deals",
+        "sql": "countIf(hs_is_closed_won = 'true' AND new_logo != '')",
+    },
+    "deals_missing_amount": {
+        "label": "Deals Missing Amount",
+        "format": "number",
+        "table": "dim_deals",
+        "sql": "countIf(amount IS NULL OR amount = 0)",
+    },
+    "contacts_missing_email": {
+        "label": "Contacts Missing Email",
+        "format": "number",
+        "table": "dim_contacts",
+        "sql": "countIf(email = '')",
+    },
+    "lead_conversion_rate": {
+        "label": "Lead Conversion Rate",
+        "format": "percent",
+        "table": "dim_leads",
+        "sql": (
+            "countIf(associated_deals != '') * 1.0 / "
+            "nullIf(count(), 0)"
+        ),
+    },
+    "leads_without_outreach": {
+        "label": "Leads Without Outreach",
+        "format": "number",
+        "table": "dim_leads",
+        "sql": "countIf(first_outreach_date = '1970-01-01 00:00:00')",
+    },
+}

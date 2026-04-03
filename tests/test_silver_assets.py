@@ -4,7 +4,8 @@ from assets.silver import _cast_expr, _build_ddl, _build_insert
 from silver_config import (
     DIM_CONTACTS, DIM_COMPANIES, DIM_DEALS, DIM_LEADS,
     DIM_OWNERS, DIM_PIPELINES, DIM_PIPELINE_STAGES,
-    FACT_ACTIVITIES, BRIDGE_TABLES, BRIDGE_ACTIVITY_CONTACT,
+    FACT_ACTIVITIES, BRIDGE_TABLES,
+    BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
 )
 
 
@@ -138,6 +139,28 @@ class TestConfigStructure:
     def test_bridge_activity_contact_are_2_tuples(self):
         for entry in BRIDGE_ACTIVITY_CONTACT:
             assert len(entry) == 2, f"Activity bridge {entry} is not a 2-tuple"
+
+    def test_bridge_activity_company_are_2_tuples(self):
+        for entry in BRIDGE_ACTIVITY_COMPANY:
+            assert len(entry) == 2, f"Activity bridge {entry} is not a 2-tuple"
+
+    def test_bridge_activity_deal_are_2_tuples(self):
+        for entry in BRIDGE_ACTIVITY_DEAL:
+            assert len(entry) == 2, f"Activity bridge {entry} is not a 2-tuple"
+
+    def test_all_bridge_tables_have_6_entries(self):
+        assert len(BRIDGE_TABLES) == 6, f"Expected 6 bridge tables, got {len(BRIDGE_TABLES)}"
+
+    def test_all_activity_bridge_configs_have_5_entries(self):
+        assert len(BRIDGE_ACTIVITY_CONTACT) == 5
+        assert len(BRIDGE_ACTIVITY_COMPANY) == 5
+        assert len(BRIDGE_ACTIVITY_DEAL) == 5
+
+    def test_lead_bridges_exist(self):
+        bridge_names = [b[0] for b in BRIDGE_TABLES]
+        assert "bridge_lead_contact" in bridge_names
+        assert "bridge_deal_lead" in bridge_names
+        assert "bridge_lead_company" in bridge_names
 
     def test_valid_clickhouse_types(self):
         valid_types = {"String", "DateTime", "Nullable(Float64)", "Nullable(Int64)", "UInt32", "UInt8"}

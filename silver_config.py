@@ -16,6 +16,9 @@ DIM_CONTACTS = {
         ("hs_analytics_source_data_1",                "hs_analytics_source_data_1",                "String"),
         ("hs_analytics_source_data_2",                "hs_analytics_source_data_2",                "String"),
         ("hs_object_source_label",                    "hs_object_source_label",                    "String"),
+        ("lifecyclestage",                            "lifecyclestage",                            "String"),
+        ("createdate",                                "createdate",                                "DateTime"),
+        ("hs_analytics_first_timestamp",              "hs_analytics_first_timestamp",              "DateTime"),
     ],
 }
 
@@ -101,6 +104,8 @@ DIM_DEALS = {
         ("createdate",                        "createdate",                        "DateTime"),
         ("hs_lastmodifieddate",               "hs_lastmodifieddate",               "DateTime"),
         ("notes_last_updated",                "notes_last_updated",                "DateTime"),
+        ("hs_is_closed_won",                  "hs_is_closed_won",                  "String"),
+        ("hs_is_closed",                      "hs_is_closed",                      "String"),
     ],
 }
 
@@ -181,9 +186,13 @@ FACT_ACTIVITIES = {
 
 BRIDGE_TABLES = [
     # (silver_table, bronze_table, from_key, to_key)
+    # CRM ↔ CRM
     ("bridge_contact_company", "hs_assoc_contact_company", "contact_id", "company_id"),
     ("bridge_contact_deal",    "hs_assoc_contact_deal",    "contact_id", "deal_id"),
     ("bridge_deal_company",    "hs_assoc_deal_company",    "deal_id",    "company_id"),
+    ("bridge_lead_contact",    "hs_assoc_lead_contact",    "lead_id",    "contact_id"),
+    ("bridge_deal_lead",       "hs_assoc_deal_lead",       "deal_id",    "lead_id"),
+    ("bridge_lead_company",    "hs_assoc_lead_company",    "lead_id",    "company_id"),
 ]
 
 BRIDGE_ACTIVITY_CONTACT = [
@@ -193,4 +202,22 @@ BRIDGE_ACTIVITY_CONTACT = [
     ("email",   "hs_assoc_email_contact"),
     ("note",    "hs_assoc_note_contact"),
     ("task",    "hs_assoc_task_contact"),
+]
+
+BRIDGE_ACTIVITY_COMPANY = [
+    # (activity_type, bronze_assoc_table)
+    ("call",    "hs_assoc_call_company"),
+    ("meeting", "hs_assoc_meeting_company"),
+    ("email",   "hs_assoc_email_company"),
+    ("note",    "hs_assoc_note_company"),
+    ("task",    "hs_assoc_task_company"),
+]
+
+BRIDGE_ACTIVITY_DEAL = [
+    # (activity_type, bronze_assoc_table)
+    ("call",    "hs_assoc_call_deal"),
+    ("meeting", "hs_assoc_meeting_deal"),
+    ("email",   "hs_assoc_email_deal"),
+    ("note",    "hs_assoc_note_deal"),
+    ("task",    "hs_assoc_task_deal"),
 ]
