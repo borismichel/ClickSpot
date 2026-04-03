@@ -66,9 +66,10 @@ def test_campaigns_row_shape():
 
     rows = ch.insert_records.call_args[0][1]
     assert len(rows) == 1
-    record_id, extracted_at, raw = rows[0]
+    record_id, extracted_at, properties, raw = rows[0]
     assert record_id == "camp1"
     assert isinstance(extracted_at, datetime)
+    assert isinstance(properties, dict)
     parsed = json.loads(raw)
     assert parsed["id"] == "camp1"
 

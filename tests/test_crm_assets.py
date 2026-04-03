@@ -47,12 +47,13 @@ def test_contacts_inserts_records_and_emits_metadata():
     table_arg = ch.insert_records.call_args[0][0]
     assert table_arg == "hs_contacts"
 
-    # verify rows have the expected shape: (record_id, datetime, json_str)
+    # verify rows have the expected shape: (record_id, datetime, properties_map, json_str)
     rows = ch.insert_records.call_args[0][1]
     assert len(rows) == 1
-    record_id, extracted_at, raw = rows[0]
+    record_id, extracted_at, properties, raw = rows[0]
     assert record_id == "c1"
     assert isinstance(extracted_at, datetime)
+    assert properties == {"email": "a@b.com"}
     parsed = json.loads(raw)
     assert parsed["id"] == "c1"
 

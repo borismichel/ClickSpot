@@ -24,7 +24,7 @@ def _get_high_water_mark(context: AssetExecutionContext) -> datetime | None:
 
 
 def _make_crm_asset(object_type: str, table: str):
-    @asset(name=table)
+    @asset(name=table, group_name="bronze")
     def _asset(context: AssetExecutionContext, hubspot: HubSpotResource, ch: ClickHouseResource):
         since = _get_high_water_mark(context)
         run_start = datetime.utcnow()
@@ -32,7 +32,12 @@ def _make_crm_asset(object_type: str, table: str):
 
         for batch in hubspot.fetch_crm_objects_batched(object_type, since=since):
             rows = [
-                (str(r["id"]), run_start, json.dumps(r, default=_json_default))
+                (
+                    str(r["id"]),
+                    run_start,
+                    {k: str(v) if v is not None else "" for k, v in r.get("properties", {}).items()},
+                    json.dumps(r, default=_json_default),
+                )
                 for r in batch
             ]
             records_written += ch.insert_records(table, rows)
