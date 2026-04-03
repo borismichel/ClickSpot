@@ -1,7 +1,7 @@
 from dagster import ScheduleDefinition
-from jobs import bronze_job
+from jobs import full_pipeline_job
 
 hourly_schedule = ScheduleDefinition(
-    job=bronze_job,
+    job=full_pipeline_job,
     cron_schedule="0 * * * *",
 )
