@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Card, Col, Row, Statistic, Table } from "antd";
 import {
   CheckCircleOutlined,
@@ -8,67 +9,46 @@ import {
 import { MetricBar } from "../components/charts/MetricBar";
 import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
 import type { ViewProps } from "./types";
+import { findGM, findTS } from "./types";
 
 export default function Forecasting({ queryData, queryLoading }: ViewProps) {
-  const metrics = queryData?.computed_metrics ?? {};
-  const gm = queryData?.grouped_measures ?? {};
-  const ts = queryData?.time_series ?? {};
+  const m = queryData?.computed_metrics ?? {};
   const lists = queryData?.lists ?? {};
 
   const kpis = [
-    {
-      title: "Committed",
-      value: metrics.forecast_committed,
-      prefix: "\u20AC",
-      icon: <CheckCircleOutlined />,
-    },
-    {
-      title: "Best Case",
-      value: metrics.forecast_best_case,
-      prefix: "\u20AC",
-      icon: <StarOutlined />,
-    },
-    {
-      title: "Pipeline",
-      value: metrics.pipeline_value,
-      prefix: "\u20AC",
-      icon: <FundOutlined />,
-    },
-    {
-      title: "Closed Won to Date",
-      value: metrics.total_arr_closed,
-      prefix: "\u20AC",
-      icon: <TrophyOutlined />,
-    },
+    { title: "Commit", value: m.forecast_commit, prefix: "€", icon: <CheckCircleOutlined /> },
+    { title: "Best Case", value: m.forecast_best_case, prefix: "€", icon: <StarOutlined /> },
+    { title: "Open Pipeline", value: m.pipeline_value, prefix: "€", icon: <FundOutlined /> },
+    { title: "Closed Won", value: m.total_closed_won_amount, prefix: "€", icon: <TrophyOutlined /> },
   ];
 
-  // Forecast category breakdown by value
-  const forecastBars = (gm["deals_by_forecast_category"] ?? []).map((row) => ({
-    label: Object.values(row.groups)[0] ?? "Unknown",
+  const forecastBars = findGM(queryData?.grouped_measures, "hs_manual_forecast_category").map((row) => ({
+    label: Object.values(row.groups)[0] || "(none)",
     value: row.value ?? 0,
   }));
 
-  // Deals closing by month
-  const closingSeries = (ts["deals_closing_by_month"] ?? []).map((p) => ({
-    period: p.period,
-    value: p.value,
-  }));
+  const closingSeries = findTS(queryData?.time_series, "closedate")
+    .filter((p) => p.period >= "2024-01-01")
+    .map((p) => ({ period: p.period, value: p.value }));
 
-  // Deals closing this month
-  const closingRows = lists["deals_closing_this_month"]?.rows ?? [];
+  // Deals closing soon (open deals sorted by close date)
+  const closingDeals = useMemo(() => {
+    const dealRows = lists["dim_deals"]?.rows ?? [];
+    return dealRows
+      .filter((d) => d.hs_is_closed !== "true")
+      .sort((a, b) => String(a.closedate ?? "").localeCompare(String(b.closedate ?? "")))
+      .slice(0, 20);
+  }, [lists]);
+
   const closingColumns = [
-    { title: "Deal Name", dataIndex: "deal_name", key: "deal_name", ellipsis: true },
-    { title: "Stage", dataIndex: "dealstage", key: "dealstage" },
-    {
-      title: "Amount",
-      dataIndex: "amount",
-      key: "amount",
-      render: (v: number | null) =>
-        v != null ? `\u20AC${v.toLocaleString()}` : "N/A",
-    },
-    { title: "Close Date", dataIndex: "closedate", key: "closedate" },
-    { title: "Forecast", dataIndex: "forecast_category", key: "forecast_category" },
-    { title: "Owner", dataIndex: "owner_name", key: "owner_name" },
+    { title: "Deal Name", dataIndex: "dealname", key: "dealname", ellipsis: true, width: 250 },
+    { title: "Stage", dataIndex: "dealstage", key: "dealstage", width: 120 },
+    { title: "Amount", dataIndex: "amount", key: "amount", width: 120,
+      render: (v: number | null) => v != null ? `€${Number(v).toLocaleString()}` : "—" },
+    { title: "Close Date", dataIndex: "closedate", key: "closedate", width: 110,
+      render: (v: string) => v ? String(v).slice(0, 10) : "—" },
+    { title: "Forecast", dataIndex: "hs_manual_forecast_category", key: "fc", width: 120 },
+    { title: "Owner", dataIndex: "hubspot_owner_id", key: "owner", width: 100 },
   ];
 
   return (
@@ -80,9 +60,10 @@ export default function Forecasting({ queryData, queryLoading }: ViewProps) {
               <Statistic
                 title={kpi.title}
                 value={kpi.value ?? 0}
-                prefix={kpi.icon || kpi.prefix}
+                prefix={kpi.icon}
                 precision={0}
                 loading={queryLoading}
+                formatter={(val) => kpi.prefix ? `${kpi.prefix}${Number(val).toLocaleString()}` : Number(val).toLocaleString()}
               />
             </Card>
           </Col>
@@ -91,32 +72,22 @@ export default function Forecasting({ queryData, queryLoading }: ViewProps) {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={12}>
-          <MetricBar
-            data={forecastBars}
-            title="Forecast Category Breakdown"
-            loading={queryLoading}
-            valuePrefix="\u20AC"
-          />
+          <MetricBar data={forecastBars} title="Forecast Category (Amount)" loading={queryLoading} valuePrefix="€" />
         </Col>
         <Col xs={24} lg={12}>
-          <TimeSeriesChart
-            data={closingSeries}
-            title="Deals Closing by Month"
-            loading={queryLoading}
-            valuePrefix="\u20AC"
-          />
+          <TimeSeriesChart data={closingSeries} title="Deal Amounts by Close Month" loading={queryLoading} valuePrefix="€" />
         </Col>
       </Row>
 
-      <Card title="Deals Closing This Month" size="small">
+      <Card title="Open Deals (by Close Date)" size="small">
         <Table
-          dataSource={closingRows}
+          dataSource={closingDeals}
           columns={closingColumns}
-          rowKey={(r) => String(r.deal_id ?? r.hs_object_id ?? Math.random())}
+          rowKey={(r) => String(r.deal_id ?? Math.random())}
           size="small"
           pagination={{ pageSize: 10 }}
           loading={queryLoading}
-          locale={{ emptyText: "No deals closing this month" }}
+          locale={{ emptyText: "No open deals" }}
         />
       </Card>
     </div>

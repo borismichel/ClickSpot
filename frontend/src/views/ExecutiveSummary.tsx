@@ -10,68 +10,27 @@ import {
 import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
 import { FunnelChart } from "../components/charts/FunnelChart";
 import type { ViewProps } from "./types";
-
-function fmt(v: number | null | undefined, prefix = ""): string {
-  if (v == null) return "N/A";
-  return `${prefix}${v.toLocaleString()}`;
-}
+import { findGM, findTS } from "./types";
 
 export default function ExecutiveSummary({ queryData, queryLoading }: ViewProps) {
-  const metrics = queryData?.computed_metrics ?? {};
-  const ts = queryData?.time_series ?? {};
-  const gm = queryData?.grouped_measures ?? {};
+  const m = queryData?.computed_metrics ?? {};
+  const counts = queryData?.reachable_counts ?? {};
 
   const kpis = [
-    {
-      title: "ARR Closed",
-      value: metrics.total_arr_closed,
-      prefix: "\u20AC",
-      precision: 0,
-      icon: <DollarOutlined />,
-    },
-    {
-      title: "Pipeline Value",
-      value: metrics.pipeline_value,
-      prefix: "\u20AC",
-      precision: 0,
-      icon: <FundOutlined />,
-    },
-    {
-      title: "Win Rate",
-      value: metrics.win_rate != null ? metrics.win_rate * 100 : null,
-      suffix: "%",
-      precision: 1,
-      icon: <TrophyOutlined />,
-    },
-    {
-      title: "Avg Days to Close",
-      value: metrics.avg_days_to_close,
-      precision: 0,
-      icon: <ClockCircleOutlined />,
-    },
-    {
-      title: "New Logos",
-      value: metrics.new_logo_count,
-      precision: 0,
-      icon: <UserAddOutlined />,
-    },
-    {
-      title: "Avg Deal Size",
-      value: metrics.avg_deal_size,
-      prefix: "\u20AC",
-      precision: 0,
-      icon: <FileTextOutlined />,
-    },
+    { title: "Closed Won", value: m.total_closed_won_amount, prefix: "€", icon: <DollarOutlined /> },
+    { title: "Pipeline Value", value: m.pipeline_value, prefix: "€", icon: <FundOutlined /> },
+    { title: "Win Rate", value: m.win_rate != null ? m.win_rate * 100 : null, suffix: "%", precision: 1, icon: <TrophyOutlined /> },
+    { title: "Avg Days to Close", value: m.avg_days_to_close, precision: 0, icon: <ClockCircleOutlined /> },
+    { title: "New Logos", value: m.new_logo_count, precision: 0, icon: <UserAddOutlined /> },
+    { title: "Avg Deal Size", value: m.avg_deal_size, prefix: "€", icon: <FileTextOutlined /> },
   ];
 
-  // Time series: deal amounts by month
-  const dealTimeSeries = (ts["deal_amount_by_month"] ?? []).map((p) => ({
+  const dealTimeSeries = findTS(queryData?.time_series, "closedate").map((p) => ({
     period: p.period,
     value: p.value,
   }));
 
-  // Funnel: deals by stage
-  const stageFunnel = (gm["deals_by_stage"] ?? []).map((row) => ({
+  const stageFunnel = findGM(queryData?.grouped_measures, "dealstage").map((row) => ({
     label: Object.values(row.groups)[0] ?? "Unknown",
     value: row.value ?? 0,
   }));
@@ -85,15 +44,31 @@ export default function ExecutiveSummary({ queryData, queryLoading }: ViewProps)
               <Statistic
                 title={kpi.title}
                 value={kpi.value ?? undefined}
-                prefix={kpi.icon || kpi.prefix}
+                prefix={kpi.icon}
                 suffix={kpi.suffix}
-                precision={kpi.precision}
+                precision={kpi.precision ?? 0}
                 loading={queryLoading}
-                formatter={(val) =>
-                  kpi.value == null ? "N/A" : fmt(Number(val), kpi.prefix === "\u20AC" ? "\u20AC" : "")
-                }
+                formatter={(val) => {
+                  if (kpi.value == null) return "N/A";
+                  const n = Number(val);
+                  return kpi.prefix ? `${kpi.prefix}${n.toLocaleString()}` : n.toLocaleString();
+                }}
               />
             </Card>
+          </Col>
+        ))}
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        {[
+          { label: "Deals", count: counts.dim_deals },
+          { label: "Contacts", count: counts.dim_contacts },
+          { label: "Companies", count: counts.dim_companies },
+          { label: "Leads", count: counts.dim_leads },
+          { label: "Activities", count: counts.fact_activities },
+        ].map((item) => (
+          <Col key={item.label} xs={8} sm={4}>
+            <Statistic title={item.label} value={item.count ?? 0} loading={queryLoading} />
           </Col>
         ))}
       </Row>
@@ -102,9 +77,9 @@ export default function ExecutiveSummary({ queryData, queryLoading }: ViewProps)
         <Col xs={24} lg={14}>
           <TimeSeriesChart
             data={dealTimeSeries}
-            title="Deal Amounts by Month"
+            title="Deal Amounts by Close Month"
             loading={queryLoading}
-            valuePrefix="\u20AC"
+            valuePrefix="€"
           />
         </Col>
         <Col xs={24} lg={10}>

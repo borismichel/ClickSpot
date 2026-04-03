@@ -1,74 +1,38 @@
-import { Card, Col, Row, Statistic, Table } from "antd";
+import { Card, Col, Row, Statistic } from "antd";
 import {
   UserOutlined,
   ThunderboltOutlined,
   SwapOutlined,
 } from "@ant-design/icons";
 import { MetricBar } from "../components/charts/MetricBar";
+import { FunnelChart } from "../components/charts/FunnelChart";
 import type { ViewProps } from "./types";
+import { findGM } from "./types";
 
 export default function Attribution({ queryData, queryLoading }: ViewProps) {
-  const metrics = queryData?.computed_metrics ?? {};
-  const gm = queryData?.grouped_measures ?? {};
-  const lists = queryData?.lists ?? {};
+  const m = queryData?.computed_metrics ?? {};
 
   const kpis = [
+    { title: "Total MQLs", value: m.total_mqls, icon: <UserOutlined /> },
+    { title: "Total SQLs", value: m.total_sqls, icon: <ThunderboltOutlined /> },
     {
-      title: "Total MQLs",
-      value: metrics.total_mqls,
-      icon: <UserOutlined />,
-    },
-    {
-      title: "Total SQLs",
-      value: metrics.total_sqls,
-      icon: <ThunderboltOutlined />,
-    },
-    {
-      title: "MQL to SQL Rate",
-      value:
-        metrics.mql_to_sql_rate != null
-          ? metrics.mql_to_sql_rate * 100
-          : null,
-      suffix: "%",
-      precision: 1,
-      icon: <SwapOutlined />,
+      title: "MQL → SQL Rate",
+      value: m.mql_to_sql_rate != null ? m.mql_to_sql_rate * 100 : null,
+      suffix: "%", precision: 1, icon: <SwapOutlined />,
     },
   ];
 
-  // Contacts by source
-  const sourceBars = (gm["contacts_by_source"] ?? []).map((row) => ({
-    label: Object.values(row.groups)[0] ?? "Unknown",
+  const sourceBars = findGM(queryData?.grouped_measures, "hs_analytics_source").map((row) => ({
+    label: Object.values(row.groups)[0] || "(none)",
     value: row.value ?? 0,
   }));
 
-  // Attribution table
-  const attrRows = lists["attribution_summary"]?.rows ?? [];
-  const attrColumns = [
-    { title: "Source", dataIndex: "source", key: "source" },
-    {
-      title: "Contacts",
-      dataIndex: "contact_count",
-      key: "contact_count",
-      render: (v: number | null) => (v != null ? v.toLocaleString() : "0"),
-    },
-    {
-      title: "MQLs",
-      dataIndex: "mql_count",
-      key: "mql_count",
-      render: (v: number | null) => (v != null ? v.toLocaleString() : "0"),
-    },
-    {
-      title: "Deals",
-      dataIndex: "deal_count",
-      key: "deal_count",
-      render: (v: number | null) => (v != null ? v.toLocaleString() : "0"),
-    },
-    {
-      title: "Won Deals",
-      dataIndex: "won_deal_count",
-      key: "won_deal_count",
-      render: (v: number | null) => (v != null ? v.toLocaleString() : "0"),
-    },
+  // Simple funnel: Total Contacts → MQLs → SQLs → Deals Won
+  const funnelData = [
+    { label: "Contacts", value: queryData?.reachable_counts?.dim_contacts ?? 0 },
+    { label: "MQLs", value: m.total_mqls ?? 0 },
+    { label: "SQLs", value: m.total_sqls ?? 0 },
+    { label: "Deals Won", value: m.total_deals_closed_won ?? 0 },
   ];
 
   return (
@@ -92,24 +56,10 @@ export default function Attribution({ queryData, queryLoading }: ViewProps) {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={10}>
-          <MetricBar
-            data={sourceBars}
-            title="Contacts by Source"
-            loading={queryLoading}
-          />
+          <FunnelChart data={funnelData} title="Conversion Funnel" loading={queryLoading} />
         </Col>
         <Col xs={24} lg={14}>
-          <Card title="Attribution Summary" size="small">
-            <Table
-              dataSource={attrRows}
-              columns={attrColumns}
-              rowKey={(r) => String(r.source ?? Math.random())}
-              size="small"
-              pagination={false}
-              loading={queryLoading}
-              locale={{ emptyText: "No attribution data" }}
-            />
-          </Card>
+          <MetricBar data={sourceBars} title="Contacts by Source" loading={queryLoading} />
         </Col>
       </Row>
     </div>

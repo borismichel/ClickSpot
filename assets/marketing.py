@@ -43,13 +43,10 @@ hs_campaigns = _make_marketing_asset(
 hs_forms = _make_marketing_asset(
     "forms", "/marketing/v3/forms", "hs_forms"
 )
-hs_ads = _make_marketing_asset(
-    # Fetches ad accounts. For ad campaigns per account, extend this asset later.
-    "ads", "/ads/v3/accounts", "hs_ads"
-)
-hs_marketing_emails = _make_marketing_asset(
-    "marketing_emails", "/marketing/v3/emails/statistics/list", "hs_marketing_emails"
-)
+# BLOCKED: hs_ads and hs_marketing_emails deactivated — API endpoint issues
+# hs_ads = _make_marketing_asset("ads", "/ads/v3/accounts", "hs_ads")
+# hs_marketing_emails = _make_marketing_asset("marketing_emails", "/marketing/v3/emails/statistics/list", "hs_marketing_emails")
+
 hs_pipelines = _make_marketing_asset(
     "pipelines", "/crm/v3/pipelines/deals", "hs_pipelines"
 )

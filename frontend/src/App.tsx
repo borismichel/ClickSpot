@@ -56,11 +56,22 @@ export default function App() {
     fieldValues,
     counts: true,
     computedMetrics: [
+      // Executive Summary
       "win_rate", "total_arr_closed", "pipeline_value",
       "avg_deal_size", "avg_days_to_close", "new_logo_count",
+      // Deal Pipeline
+      "weighted_pipeline", "total_open_deals",
+      // Lead Pipeline
+      "total_leads", "lead_conversion_rate", "leads_without_outreach",
+      // Rep Performance
+      "total_activities",
+      // Forecasting
+      "forecast_commit", "forecast_best_case",
+      "total_closed_won_amount", "total_deals_closed_won",
+      // Attribution
+      "total_mqls", "total_sqls", "mql_to_sql_rate",
+      // Data Quality
       "deals_missing_amount", "contacts_missing_email",
-      "lead_conversion_rate", "leads_without_outreach",
-      "weighted_pipeline",
     ],
     measures: [
       { table: "dim_deals", column: "amount", agg: "sum" },
@@ -71,23 +82,27 @@ export default function App() {
       { table: "dim_deals", column: "deal_id", agg: "count", group_by: ["dealstage"], limit: 30 },
       { table: "dim_deals", column: "amount", agg: "sum", group_by: ["hs_manual_forecast_category"], limit: 10 },
       { table: "dim_deals", column: "deal_id", agg: "count", group_by: ["hubspot_owner_id"], limit: 20 },
+      { table: "dim_deals", column: "amount", agg: "sum", group_by: ["hubspot_owner_id"], limit: 20 },
       { table: "fact_activities", column: "activity_id", agg: "count", group_by: ["activity_type"], limit: 10 },
+      { table: "fact_activities", column: "activity_id", agg: "count", group_by: ["hubspot_owner_id"], limit: 20 },
       { table: "dim_leads", column: "lead_id", agg: "count", group_by: ["hs_lead_status"], limit: 10 },
       { table: "dim_leads", column: "lead_id", agg: "count", group_by: ["disqualification_reason"], limit: 10 },
       { table: "dim_contacts", column: "contact_id", agg: "count", group_by: ["hs_analytics_source"], limit: 15 },
+      { table: "dim_deals", column: "deal_id", agg: "count", group_by: ["closedlost_reason"], limit: 10 },
     ],
     timeSeries: [
       { table: "dim_deals", measure_column: "amount", agg: "sum", date_column: "closedate", granularity: "month" },
       { table: "dim_deals", measure_column: "deal_id", agg: "count", date_column: "createdate", granularity: "month" },
+      { table: "dim_leads", measure_column: "lead_id", agg: "count", date_column: "createdate", granularity: "month" },
     ],
     lists: {
       dim_deals: {
-        columns: ["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", "closedate", "hs_is_closed_won", "hs_is_closed", "hs_manual_forecast_category", "days_to_close"],
-        limit: 50,
+        columns: ["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", "closedate", "hs_is_closed_won", "hs_is_closed", "hs_manual_forecast_category", "days_to_close", "createdate"],
+        limit: 200,
       },
       dim_leads: {
-        columns: ["hs_lead_status", "hs_lead_type", "hubspot_owner_id", "first_outreach_date", "contact_last_engagement_date", "createdate"],
-        limit: 50,
+        columns: ["hs_lead_status", "hs_lead_type", "hubspot_owner_id", "first_outreach_date", "contact_last_engagement_date", "createdate", "associated_deals", "closed_won_deal_amount"],
+        limit: 200,
       },
     },
   });
