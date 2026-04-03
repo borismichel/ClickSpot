@@ -1,0 +1,24 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: hs2ch-clickhouse
+    ports:
+      - "8124:8123"   # HTTP — offset from Langfuse's 8123
+      - "9001:9000"   # Native — offset from Langfuse's 9000
+    environment:
+      CLICKHOUSE_USER: hs2ch
+      CLICKHOUSE_PASSWORD: hs2ch
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_DB: bronze
+    volumes:
+      - hs2ch_ch_data:/var/lib/clickhouse
+      - hs2ch_ch_logs:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    restart: unless-stopped
+
+volumes:
+  hs2ch_ch_data:
+  hs2ch_ch_logs:

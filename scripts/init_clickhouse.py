@@ -1,6 +1,6 @@
 """Run scripts/init_clickhouse.sql against the ClickHouse instance.
 Usage: python scripts/init_clickhouse.py
-Requires CLICKHOUSE_HOST, CLICKHOUSE_ADMIN_USER, CLICKHOUSE_ADMIN_PASSWORD in .env.
+Uses CLICKHOUSE_HOST, CLICKHOUSE_PORT, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD from .env.
 """
 import os
 from pathlib import Path
@@ -12,8 +12,8 @@ load_dotenv()
 client = clickhouse_connect.get_client(
     host=os.environ["CLICKHOUSE_HOST"],
     port=int(os.environ.get("CLICKHOUSE_PORT", 8123)),
-    username=os.environ.get("CLICKHOUSE_ADMIN_USER", "default"),
-    password=os.environ.get("CLICKHOUSE_ADMIN_PASSWORD", ""),
+    username=os.environ["CLICKHOUSE_USER"],
+    password=os.environ["CLICKHOUSE_PASSWORD"],
 )
 
 sql = Path(__file__).parent / "init_clickhouse.sql"
