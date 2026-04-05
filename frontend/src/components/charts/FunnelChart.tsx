@@ -31,9 +31,29 @@ interface FunnelChartProps {
   data: FunnelDatum[];
   title?: string;
   loading?: boolean;
+  /** If provided, sort bars by this label order instead of by value */
+  sortOrder?: string[];
+  /** If provided, show secondary value below the main label */
+  secondaryValues?: Record<string, number>;
+  /** Prefix for formatting secondary values (e.g. "$") */
+  secondaryPrefix?: string;
 }
 
-export function FunnelChart({ data, title, loading = false }: FunnelChartProps) {
+export function FunnelChart({
+  data,
+  title,
+  loading = false,
+  sortOrder,
+  secondaryValues,
+  secondaryPrefix = "",
+}: FunnelChartProps) {
+  const sortedData = sortOrder
+    ? [...data].sort((a, b) => {
+        const ai = sortOrder.indexOf(a.label);
+        const bi = sortOrder.indexOf(b.label);
+        return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+      })
+    : data;
   return (
     <Card title={title} size="small">
       {loading ? (
@@ -41,9 +61,9 @@ export function FunnelChart({ data, title, loading = false }: FunnelChartProps) 
           <Spin />
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={Math.max(data.length * 40, 200)}>
+        <ResponsiveContainer width="100%" height={Math.max(sortedData.length * 40, 200)}>
           <BarChart
-            data={data}
+            data={sortedData}
             layout="vertical"
             margin={{ top: 4, right: 60, bottom: 4, left: 4 }}
           >
@@ -51,8 +71,27 @@ export function FunnelChart({ data, title, loading = false }: FunnelChartProps) 
             <YAxis
               type="category"
               dataKey="label"
-              width={120}
-              tick={{ fontSize: 13 }}
+              width={140}
+              tick={
+                secondaryValues
+                  ? (props: { x: number; y: number; payload: { value: string } }) => {
+                      const { x, y, payload } = props;
+                      const secondary = secondaryValues[payload.value];
+                      return (
+                        <g>
+                          <text x={x} y={y} dy={secondary != null ? -4 : 4} textAnchor="end" fontSize={13} fill="#262626">
+                            {payload.value}
+                          </text>
+                          {secondary != null && (
+                            <text x={x} y={y} dy={12} textAnchor="end" fontSize={11} fill="#8c8c8c">
+                              {secondaryPrefix}{secondary.toLocaleString()}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    }
+                  : { fontSize: 13 }
+              }
             />
             <Tooltip
               formatter={(value: number) => value.toLocaleString()}
@@ -64,7 +103,7 @@ export function FunnelChart({ data, title, loading = false }: FunnelChartProps) 
                 formatter={(v: number) => v.toLocaleString()}
                 style={{ fontSize: 12, fill: "#595959" }}
               />
-              {data.map((entry, i) => (
+              {sortedData.map((entry, i) => (
                 <Cell
                   key={entry.label}
                   fill={entry.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]}

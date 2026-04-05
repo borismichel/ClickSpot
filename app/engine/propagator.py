@@ -7,6 +7,7 @@ by traversing the graph via bridge tables.
 from app.engine.graph import AssociativeGraph
 from app.engine.state import SelectionState
 from app.engine import sql_builder
+from app.engine.sql_builder import _table_ref, _table_final, _archived_condition
 from app.config import TABLES
 
 
@@ -134,16 +135,22 @@ class Propagator:
                 break
 
         if target_table and source_table:
+            t_ref = _table_ref(target_table)
+            t_final = _table_final(target_table)
+            s_ref = _table_ref(source_table)
+            s_final = _table_final(source_table)
             return (
-                f"SELECT DISTINCT {target_key} FROM silver.{target_table} FINAL "
+                f"SELECT DISTINCT {target_key} FROM {t_ref} {t_final} "
                 f"WHERE {target_key} IN ("
-                f"SELECT {source_key} FROM silver.{source_table} FINAL "
+                f"SELECT {source_key} FROM {s_ref} {s_final} "
                 f"WHERE {TABLES[source_table]['primary_key']} IN ({current_ids_sql})"
                 f")"
-            )
+            ).replace("  ", " ")
 
         # Fallback: simple column match
+        fallback_ref = _table_ref(edge['target']) if edge['target'] in TABLES else f"silver.{edge['target']}"
+        fallback_final = _table_final(edge['target']) if edge['target'] in TABLES else "FINAL"
         return (
-            f"SELECT DISTINCT {target_key} FROM silver.{edge['target']} FINAL "
+            f"SELECT DISTINCT {target_key} FROM {fallback_ref} {fallback_final} "
             f"WHERE {target_key} IN ({current_ids_sql})"
-        )
+        ).replace("  ", " ")

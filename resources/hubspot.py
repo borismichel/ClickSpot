@@ -171,6 +171,32 @@ class HubSpotResource(ConfigurableResource):
                 yield rows
             time.sleep(0.1)
 
+    def fetch_owners(self, batch_size: int = 100) -> Iterator[list[dict]]:
+        """Fetch all owners via GET /crm/v3/owners.
+
+        Owners have a flat JSON structure (no properties map).
+        Yields lists of owner dicts with id, email, firstName, lastName, etc.
+        """
+        url = f"{BASE_URL}/crm/v3/owners"
+        params: dict = {"limit": batch_size}
+
+        while True:
+            resp = _request_with_retry("GET", url, headers=self._headers(), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            results = data.get("results", [])
+            if results:
+                yield results
+
+            next_after = (
+                (data.get("paging") or {}).get("next", {}).get("after")
+            )
+            if not next_after:
+                break
+            params["after"] = next_after
+            time.sleep(0.1)
+
     def fetch_all_object_ids(self, object_type: str) -> list[str]:
         """Fetch all record IDs for an object type (for association lookups)."""
         ids = []
@@ -178,6 +204,31 @@ class HubSpotResource(ConfigurableResource):
             for r in batch:
                 ids.append(str(r["id"]))
         return ids
+
+    def fetch_properties(self, object_type: str) -> list[dict]:
+        """Fetch full property metadata for an object type.
+
+        GET /crm/v3/properties/{objectType}
+        Returns list of dicts with: name, label, description, type, fieldType,
+        groupName, options (for enumerations), etc.
+        """
+        url = f"{BASE_URL}/crm/v3/properties/{object_type}"
+        resp = _request_with_retry("GET", url, headers=self._headers())
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("results", []) if isinstance(data, dict) else data
+
+    def fetch_association_types(self, from_type: str, to_type: str) -> list[dict]:
+        """Fetch association type metadata between two object types.
+
+        GET /crm/v4/associations/{from}/{to}/labels
+        Returns list of dicts with: typeId, label, category.
+        """
+        url = f"{BASE_URL}/crm/v4/associations/{from_type}/{to_type}/labels"
+        resp = _request_with_retry("GET", url, headers=self._headers())
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("results", [])
 
     def fetch_marketing_list(
         self,

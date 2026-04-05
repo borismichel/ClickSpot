@@ -115,6 +115,7 @@ DIM_LEADS = {
     "columns": [
         ("hubspot_owner_id",              "hubspot_owner_id",              "String"),
         ("created_by_user_id",            "created_by_user_id",            "String"),
+        ("hs_pipeline",                   "hs_pipeline",                   "String"),
         ("hs_lead_status",                "hs_lead_status",                "String"),
         ("hs_lead_type",                  "hs_lead_type",                  "String"),
         ("disqualification_reason",       "disqualification_reason",       "String"),
@@ -212,6 +213,35 @@ BRIDGE_ACTIVITY_COMPANY = [
     ("note",    "hs_assoc_note_company"),
     ("task",    "hs_assoc_task_company"),
 ]
+
+# Lead pipelines -- extracted from /crm/v3/pipelines/leads
+DIM_LEAD_PIPELINES = {
+    "bronze_table": "hs_lead_pipelines",
+    "primary_key": "pipeline_id",
+    "source": "json",
+    "columns": [
+        ("label",          "label",         "String"),
+        ("display_order",  "displayOrder",  "UInt32"),
+        ("created_at",     "createdAt",     "DateTime"),
+        ("updated_at",     "updatedAt",     "DateTime"),
+    ],
+}
+
+# Lead pipeline stages -- flattened from stages[] array nested in lead pipeline JSON
+DIM_LEAD_PIPELINE_STAGES = {
+    "bronze_table": "hs_lead_pipelines",
+    "primary_key": "stage_id",
+    "source": "nested_stages",
+    "columns": [
+        ("pipeline_id",    "String"),
+        ("label",          "String"),
+        ("display_order",  "UInt32"),
+        ("is_closed",      "String"),
+        ("probability",    "Nullable(Float64)"),
+        ("created_at",     "DateTime"),
+        ("updated_at",     "DateTime"),
+    ],
+}
 
 BRIDGE_ACTIVITY_DEAL = [
     # (activity_type, bronze_assoc_table)

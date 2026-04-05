@@ -75,5 +75,4 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 
 ## Blocked / TODO
 
-- `dim_owners`: needs `crm.objects.owners.read` scope added to HubSpot private app
 - `hs_ads`, `hs_marketing_emails`: bronze assets deactivated (API endpoint issues)

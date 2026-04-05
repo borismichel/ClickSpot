@@ -50,3 +50,6 @@ hs_forms = _make_marketing_asset(
 hs_pipelines = _make_marketing_asset(
     "pipelines", "/crm/v3/pipelines/deals", "hs_pipelines"
 )
+hs_lead_pipelines = _make_marketing_asset(
+    "lead_pipelines", "/crm/v3/pipelines/leads", "hs_lead_pipelines"
+)

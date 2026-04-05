@@ -8,6 +8,7 @@ import {
 } from "@ant-design/icons";
 import { MetricBar } from "../components/charts/MetricBar";
 import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
+import { WaterfallChart } from "../components/charts/WaterfallChart";
 import type { ViewProps } from "./types";
 import { findGM, findTS } from "./types";
 
@@ -16,10 +17,10 @@ export default function Forecasting({ queryData, queryLoading }: ViewProps) {
   const lists = queryData?.lists ?? {};
 
   const kpis = [
-    { title: "Commit", value: m.forecast_commit, prefix: "€", icon: <CheckCircleOutlined /> },
-    { title: "Best Case", value: m.forecast_best_case, prefix: "€", icon: <StarOutlined /> },
-    { title: "Open Pipeline", value: m.pipeline_value, prefix: "€", icon: <FundOutlined /> },
-    { title: "Closed Won", value: m.total_closed_won_amount, prefix: "€", icon: <TrophyOutlined /> },
+    { title: "Commit", value: m.forecast_commit, prefix: "\u20AC", icon: <CheckCircleOutlined /> },
+    { title: "Best Case", value: m.forecast_best_case, prefix: "\u20AC", icon: <StarOutlined /> },
+    { title: "Open Pipeline", value: m.pipeline_value, prefix: "\u20AC", icon: <FundOutlined /> },
+    { title: "Closed Won", value: m.total_closed_won_amount, prefix: "\u20AC", icon: <TrophyOutlined /> },
   ];
 
   const forecastBars = findGM(queryData?.grouped_measures, "hs_manual_forecast_category").map((row) => ({
@@ -30,6 +31,21 @@ export default function Forecasting({ queryData, queryLoading }: ViewProps) {
   const closingSeries = findTS(queryData?.time_series, "closedate")
     .filter((p) => p.period >= "2024-01-01")
     .map((p) => ({ period: p.period, value: p.value }));
+
+  // Forecast waterfall data
+  const waterfallData = useMemo(() => {
+    const closedWon = m.total_closed_won_amount ?? 0;
+    const commit = m.forecast_commit ?? 0;
+    const bestCase = m.forecast_best_case ?? 0;
+    const pipeline = m.pipeline_value ?? 0;
+
+    return [
+      { label: "Closed Won", value: closedWon },
+      { label: "Commit", value: commit },
+      { label: "Best Case", value: bestCase - commit },
+      { label: "Pipeline", value: pipeline },
+    ];
+  }, [m]);
 
   // Deals closing soon (open deals sorted by close date)
   const closingDeals = useMemo(() => {
@@ -42,13 +58,13 @@ export default function Forecasting({ queryData, queryLoading }: ViewProps) {
 
   const closingColumns = [
     { title: "Deal Name", dataIndex: "dealname", key: "dealname", ellipsis: true, width: 250 },
-    { title: "Stage", dataIndex: "dealstage", key: "dealstage", width: 120 },
+    { title: "Stage", dataIndex: "stage_label", key: "stage_label", width: 140 },
     { title: "Amount", dataIndex: "amount", key: "amount", width: 120,
-      render: (v: number | null) => v != null ? `€${Number(v).toLocaleString()}` : "—" },
+      render: (v: number | null) => v != null ? `\u20AC${Number(v).toLocaleString()}` : "\u2014" },
     { title: "Close Date", dataIndex: "closedate", key: "closedate", width: 110,
-      render: (v: string) => v ? String(v).slice(0, 10) : "—" },
+      render: (v: string) => v ? String(v).slice(0, 10) : "\u2014" },
     { title: "Forecast", dataIndex: "hs_manual_forecast_category", key: "fc", width: 120 },
-    { title: "Owner", dataIndex: "hubspot_owner_id", key: "owner", width: 100 },
+    { title: "Owner", dataIndex: "owner_name", key: "owner", width: 140 },
   ];
 
   return (
@@ -72,10 +88,16 @@ export default function Forecasting({ queryData, queryLoading }: ViewProps) {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={12}>
-          <MetricBar data={forecastBars} title="Forecast Category (Amount)" loading={queryLoading} valuePrefix="€" />
+          <MetricBar data={forecastBars} title="Forecast Category (Amount)" loading={queryLoading} valuePrefix="\u20AC" />
         </Col>
         <Col xs={24} lg={12}>
-          <TimeSeriesChart data={closingSeries} title="Deal Amounts by Close Month" loading={queryLoading} valuePrefix="€" />
+          <WaterfallChart data={waterfallData} title="Forecast Waterfall" loading={queryLoading} valuePrefix="\u20AC" />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24}>
+          <TimeSeriesChart data={closingSeries} title="Deal Amounts by Close Month" loading={queryLoading} valuePrefix="\u20AC" />
         </Col>
       </Row>
 

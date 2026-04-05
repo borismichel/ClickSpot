@@ -75,12 +75,37 @@ export default function DataQuality({ queryData, queryLoading }: ViewProps) {
     }
 
     // Deals without owner
-    const noOwner = dealRows.filter((d) => !d.hubspot_owner_id).length;
+    const noOwner = dealRows.filter((d) => !d.owner_name).length;
     if (noOwner > 0) {
       issues.push({
         table: "dim_deals", issue: "Deals without owner",
         count: noOwner, total: dealTotal,
         pct: noOwner / dealTotal,
+      });
+    }
+
+    // Deals with empty stage_label (unrecognized stages)
+    const emptyStageLabel = dealRows.filter(
+      (d) => !d.stage_label || String(d.stage_label).trim() === ""
+    ).length;
+    if (emptyStageLabel > 0) {
+      issues.push({
+        table: "dim_deals", issue: "Unrecognized stage (empty stage_label)",
+        count: emptyStageLabel, total: dealTotal,
+        pct: emptyStageLabel / dealTotal,
+      });
+    }
+
+    // Deals with non-empty hubspot_owner_id but empty owner_name (unresolved owners)
+    const unresolvedOwner = dealRows.filter(
+      (d) => d.hubspot_owner_id && String(d.hubspot_owner_id).trim() !== ""
+        && (!d.owner_name || String(d.owner_name).trim() === "")
+    ).length;
+    if (unresolvedOwner > 0) {
+      issues.push({
+        table: "dim_deals", issue: "Unresolved owner (has ID but no name)",
+        count: unresolvedOwner, total: dealTotal,
+        pct: unresolvedOwner / dealTotal,
       });
     }
 
@@ -116,7 +141,7 @@ export default function DataQuality({ queryData, queryLoading }: ViewProps) {
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {kpis.map((kpi) => {
           const isCritical = (kpi.value ?? 0) > kpi.threshold;
-          const pct = kpi.total ? ((kpi.value ?? 0) / kpi.total * 100).toFixed(1) : "—";
+          const pct = kpi.total ? ((kpi.value ?? 0) / kpi.total * 100).toFixed(1) : "\u2014";
           return (
             <Col key={kpi.title} xs={12} sm={8}>
               <Card size="small" style={isCritical ? { borderColor: "#ff4d4f" } : undefined}>

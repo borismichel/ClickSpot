@@ -6,6 +6,7 @@ from resources.clickhouse import ClickHouseResource
 from silver_config import (
     DIM_CONTACTS, DIM_COMPANIES, DIM_DEALS, DIM_LEADS,
     DIM_OWNERS, DIM_PIPELINES, DIM_PIPELINE_STAGES,
+    DIM_LEAD_PIPELINES, DIM_LEAD_PIPELINE_STAGES,
     FACT_ACTIVITIES, BRIDGE_TABLES,
     BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
 )
@@ -131,10 +132,84 @@ def _make_dim_asset(name: str, config: dict):
 # Create standard dim assets
 dim_contacts = _make_dim_asset("contacts", DIM_CONTACTS)
 dim_companies = _make_dim_asset("companies", DIM_COMPANIES)
-dim_deals = _make_dim_asset("deals", DIM_DEALS)
 dim_leads = _make_dim_asset("leads", DIM_LEADS)
 dim_owners = _make_dim_asset("owners", DIM_OWNERS)
 dim_pipelines = _make_dim_asset("pipelines", DIM_PIPELINES)
+dim_lead_pipelines = _make_dim_asset("lead_pipelines", DIM_LEAD_PIPELINES)
+
+
+# ---------------------------------------------------------------------------
+# Custom dim_deals: standard columns + denormalized labels from lookups
+# ---------------------------------------------------------------------------
+
+@asset(
+    name="dim_deals",
+    group_name="silver",
+    deps=[
+        AssetKey("hs_deals"),
+        AssetKey("dim_pipelines"),
+        AssetKey("dim_pipeline_stages"),
+        AssetKey("dim_owners"),
+    ],
+)
+def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    """dim_deals with denormalized pipeline_label, stage_label, owner_name."""
+    context.log.info("Rebuilding silver.dim_deals (with denormalized labels)")
+    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_deals")
+
+    config = DIM_DEALS
+    primary_key = config["primary_key"]
+    columns = config["columns"]
+
+    # Build DDL with extra label columns
+    col_defs = [f"    {primary_key} String"]
+    for col_name, _prop_key, col_type in columns:
+        col_defs.append(f"    {col_name} {col_type}")
+    col_defs.append("    pipeline_label String")
+    col_defs.append("    stage_label String")
+    col_defs.append("    owner_name String")
+    col_defs.append("    archived UInt8")
+    col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
+
+    ddl = (
+        f"CREATE TABLE silver.dim_deals (\n"
+        + ",\n".join(col_defs)
+        + "\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (deal_id)"
+    )
+    ch_silver.execute_sql(ddl)
+
+    # Build INSERT with JOINs for labels
+    select_exprs = [f"    d._record_id AS {primary_key}"]
+    for col_name, prop_key, col_type in columns:
+        expr = _cast_expr(prop_key, col_type, "properties")
+        select_exprs.append(f"    {expr} AS {col_name}")
+    select_exprs.append("    COALESCE(p.label, '') AS pipeline_label")
+    select_exprs.append("    COALESCE(ps.label, '') AS stage_label")
+    select_exprs.append("    COALESCE(concat(o.first_name, ' ', o.last_name), '') AS owner_name")
+    select_exprs.append("    JSONExtractBool(d._raw, 'archived') AS archived")
+    select_exprs.append("    now() AS _silver_loaded_at")
+
+    select_sql = ",\n".join(select_exprs)
+    insert_sql = (
+        f"INSERT INTO silver.dim_deals\n"
+        f"SELECT\n{select_sql}\n"
+        f"FROM bronze.hs_deals d FINAL\n"
+        f"LEFT JOIN silver.dim_pipelines p FINAL ON d.properties['pipeline'] = p.pipeline_id\n"
+        f"LEFT JOIN silver.dim_pipeline_stages ps FINAL ON d.properties['dealstage'] = ps.stage_id\n"
+        f"LEFT JOIN silver.dim_owners o FINAL ON d.properties['hubspot_owner_id'] = o.owner_id"
+    )
+    context.log.info(f"INSERT: {insert_sql}")
+    ch_silver.execute_sql(insert_sql)
+
+    row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_deals")
+    context.log.info(f"silver.dim_deals: {row_count} rows")
+
+    yield MaterializeResult(
+        metadata={
+            "row_count": MetadataValue.int(int(row_count)),
+            "table": MetadataValue.text("silver.dim_deals"),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +255,51 @@ ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
         metadata={
             "row_count": MetadataValue.int(int(row_count)),
             "table": MetadataValue.text("silver.dim_pipeline_stages"),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Special asset: dim_lead_pipeline_stages (ARRAY JOIN from lead pipelines)
+# ---------------------------------------------------------------------------
+
+@asset(
+    name="dim_lead_pipeline_stages",
+    group_name="silver",
+    deps=[AssetKey("hs_lead_pipelines")],
+)
+def dim_lead_pipeline_stages(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    context.log.info("Rebuilding silver.dim_lead_pipeline_stages")
+    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_lead_pipeline_stages")
+
+    ddl = _build_ddl("dim_lead_pipeline_stages", "stage_id", DIM_LEAD_PIPELINE_STAGES["columns"], "nested_stages")
+    ch_silver.execute_sql(ddl)
+
+    insert_sql = """
+INSERT INTO silver.dim_lead_pipeline_stages
+SELECT
+    JSONExtractString(stage, 'id') AS stage_id,
+    _record_id AS pipeline_id,
+    JSONExtractString(stage, 'label') AS label,
+    toUInt32OrZero(JSONExtractString(stage, 'displayOrder')) AS display_order,
+    JSONExtractString(stage, 'metadata', 'isClosed') AS is_closed,
+    toFloat64OrNull(JSONExtractString(stage, 'metadata', 'probability')) AS probability,
+    parseDateTimeBestEffortOrZero(JSONExtractString(stage, 'createdAt')) AS created_at,
+    parseDateTimeBestEffortOrZero(JSONExtractString(stage, 'updatedAt')) AS updated_at,
+    JSONExtractBool(_raw, 'archived') AS archived,
+    now() AS _silver_loaded_at
+FROM bronze.hs_lead_pipelines FINAL
+ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
+""".strip()
+    ch_silver.execute_sql(insert_sql)
+
+    row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_lead_pipeline_stages")
+    context.log.info(f"silver.dim_lead_pipeline_stages: {row_count} rows")
+
+    yield MaterializeResult(
+        metadata={
+            "row_count": MetadataValue.int(int(row_count)),
+            "table": MetadataValue.text("silver.dim_lead_pipeline_stages"),
         }
     )
 
@@ -507,8 +627,9 @@ FROM bronze.{bronze_table} FINAL"""
 
 _ALL_SILVER_DIM_ASSETS = [
     "dim_contacts", "dim_companies", "dim_deals", "dim_leads",
-    # "dim_owners",  # blocked: needs crm.objects.owners.read scope
+    "dim_owners",
     "dim_pipelines", "dim_pipeline_stages",
+    "dim_lead_pipelines", "dim_lead_pipeline_stages",
 ]
 _ALL_SILVER_FACT_ASSETS = ["fact_activities"]
 _ALL_SILVER_BRIDGE_ASSETS = [
@@ -629,8 +750,9 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
 
 all_silver_assets = [
     dim_contacts, dim_companies, dim_deals, dim_leads,
-    # dim_owners,  # blocked: needs crm.objects.owners.read scope
+    dim_owners,
     dim_pipelines, dim_pipeline_stages,
+    dim_lead_pipelines, dim_lead_pipeline_stages,
     fact_activities,
     bridge_contact_company, bridge_contact_deal, bridge_deal_company,
     bridge_lead_contact, bridge_deal_lead, bridge_lead_company,

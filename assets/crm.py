@@ -57,3 +57,29 @@ hs_contacts = _make_crm_asset("contacts", "hs_contacts")
 hs_companies = _make_crm_asset("companies", "hs_companies")
 hs_deals = _make_crm_asset("deals", "hs_deals")
 hs_leads = _make_crm_asset("leads", "hs_leads")
+
+
+@asset(name="hs_owners", group_name="bronze")
+def hs_owners(context: AssetExecutionContext, hubspot: HubSpotResource, ch: ClickHouseResource):
+    """Extract owners from /crm/v3/owners (flat JSON, no properties map)."""
+    run_start = datetime.utcnow()
+    records_written = 0
+
+    for batch in hubspot.fetch_owners():
+        rows = [
+            (
+                str(r["id"]),
+                run_start,
+                {},  # owners have no properties map
+                json.dumps(r, default=_json_default),
+            )
+            for r in batch
+        ]
+        records_written += ch.insert_records("hs_owners", rows)
+
+    yield MaterializeResult(
+        metadata={
+            "high_water_mark": MetadataValue.text(run_start.isoformat()),
+            "records_written": MetadataValue.int(records_written),
+        }
+    )

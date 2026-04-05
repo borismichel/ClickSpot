@@ -2,9 +2,9 @@ import os
 from dotenv import load_dotenv
 from dagster import Definitions
 
-from assets.crm import hs_contacts, hs_companies, hs_deals, hs_leads
+from assets.crm import hs_contacts, hs_companies, hs_deals, hs_leads, hs_owners
 from assets.activities import hs_calls, hs_meetings, hs_engagement_emails, hs_notes, hs_tasks
-from assets.marketing import hs_campaigns, hs_forms, hs_pipelines
+from assets.marketing import hs_campaigns, hs_forms, hs_pipelines, hs_lead_pipelines
 from assets.associations import (
     # CRM ↔ CRM
     hs_assoc_contact_company, hs_assoc_contact_deal, hs_assoc_deal_company,
@@ -31,7 +31,8 @@ load_dotenv()
 all_assets = [
     hs_contacts, hs_companies, hs_deals, hs_leads,
     hs_calls, hs_meetings, hs_engagement_emails, hs_notes, hs_tasks,
-    hs_campaigns, hs_forms, hs_pipelines,
+    hs_campaigns, hs_forms, hs_pipelines, hs_lead_pipelines,
+    hs_owners,
     # CRM ↔ CRM associations
     hs_assoc_contact_company, hs_assoc_contact_deal, hs_assoc_deal_company,
     hs_assoc_lead_contact, hs_assoc_deal_lead, hs_assoc_lead_company,

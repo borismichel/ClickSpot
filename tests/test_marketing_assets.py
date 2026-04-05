@@ -2,7 +2,9 @@ import json
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from assets.marketing import hs_campaigns, hs_forms, hs_ads, hs_marketing_emails
+import pytest
+
+from assets.marketing import hs_campaigns, hs_forms, hs_lead_pipelines
 from resources.hubspot import HubSpotResource
 from resources.clickhouse import ClickHouseResource
 
@@ -32,11 +34,10 @@ def _call_asset(asset_def, context, **resources):
     return list(fn(context, **resources))
 
 
-def test_all_four_marketing_assets_exist():
+def test_marketing_assets_exist():
     assert hs_campaigns is not None
     assert hs_forms is not None
-    assert hs_ads is not None
-    assert hs_marketing_emails is not None
+    assert hs_lead_pipelines is not None
 
 
 def test_campaigns_inserts_to_correct_table_and_calls_fetch_marketing_list():
@@ -89,34 +90,19 @@ def test_forms_inserts_to_correct_table():
     assert call_args[0][0] == "/marketing/v3/forms"
 
 
-def test_ads_inserts_to_correct_table():
-    hs = _mock_hubspot([[{"id": "acc1", "name": "Ad Account"}]])
+def test_lead_pipelines_inserts_to_correct_table():
+    hs = _mock_hubspot([[{"id": "pipe1", "label": "Default Lead Pipeline", "stages": []}]])
     ch = _mock_clickhouse()
     ctx = _make_mock_context()
 
-    results = _call_asset(hs_ads, ctx, hubspot=hs, ch=ch)
+    results = _call_asset(hs_lead_pipelines, ctx, hubspot=hs, ch=ch)
 
     assert len(results) == 1
     table_arg = ch.insert_records.call_args[0][0]
-    assert table_arg == "hs_ads"
+    assert table_arg == "hs_lead_pipelines"
 
     call_args = hs.fetch_marketing_list.call_args
-    assert call_args[0][0] == "/ads/v3/accounts"
-
-
-def test_marketing_emails_inserts_to_correct_table():
-    hs = _mock_hubspot([[{"id": "email1", "subject": "Hello World"}]])
-    ch = _mock_clickhouse()
-    ctx = _make_mock_context()
-
-    results = _call_asset(hs_marketing_emails, ctx, hubspot=hs, ch=ch)
-
-    assert len(results) == 1
-    table_arg = ch.insert_records.call_args[0][0]
-    assert table_arg == "hs_marketing_emails"
-
-    call_args = hs.fetch_marketing_list.call_args
-    assert call_args[0][0] == "/marketing/v3/emails/statistics/list"
+    assert call_args[0][0] == "/crm/v3/pipelines/leads"
 
 
 def test_campaigns_no_records_still_succeeds():

@@ -45,11 +45,11 @@ export default function LeadPipeline({ queryData, queryLoading }: ViewProps) {
     { title: "Type", dataIndex: "hs_lead_type", key: "type", width: 100 },
     { title: "Owner", dataIndex: "hubspot_owner_id", key: "owner", width: 100 },
     { title: "First Outreach", dataIndex: "first_outreach_date", key: "fo", width: 120,
-      render: (v: string) => v && !v.startsWith("1970") ? String(v).slice(0, 10) : "—" },
+      render: (v: string) => v && !v.startsWith("1970") ? String(v).slice(0, 10) : "\u2014" },
     { title: "Last Engagement", dataIndex: "contact_last_engagement_date", key: "le", width: 120,
-      render: (v: string) => v && !v.startsWith("1970") ? String(v).slice(0, 10) : "—" },
+      render: (v: string) => v && !v.startsWith("1970") ? String(v).slice(0, 10) : "\u2014" },
     { title: "Created", dataIndex: "createdate", key: "created", width: 110,
-      render: (v: string) => v ? String(v).slice(0, 10) : "—" },
+      render: (v: string) => v ? String(v).slice(0, 10) : "\u2014" },
   ];
 
   return (

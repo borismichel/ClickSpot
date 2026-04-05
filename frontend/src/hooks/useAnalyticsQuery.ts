@@ -53,10 +53,12 @@ export interface AnalyticsQueryOptions {
   computedMetrics?: string[];
   lists?: Record<string, { columns: string[]; limit?: number; offset?: number }>;
   counts?: boolean;
+  date_from?: string | null;
+  date_to?: string | null;
 }
 
 export function useAnalyticsQuery(opts: AnalyticsQueryOptions) {
-  const body = {
+  const body: Record<string, unknown> = {
     selections: opts.selections,
     counts: opts.counts ?? true,
     field_values: opts.fieldValues ?? [],
@@ -65,6 +67,8 @@ export function useAnalyticsQuery(opts: AnalyticsQueryOptions) {
     time_series: opts.timeSeries ?? [],
     computed_metrics: opts.computedMetrics ?? [],
     lists: opts.lists ?? {},
+    ...(opts.date_from ? { date_from: opts.date_from } : {}),
+    ...(opts.date_to ? { date_to: opts.date_to } : {}),
   };
 
   return useQuery<QueryResponse>({

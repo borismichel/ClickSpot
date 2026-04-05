@@ -36,20 +36,20 @@ ORDER BY (pipeline_id, stage_id)
     ch_gold.execute_sql("""
 INSERT INTO gold.agg_deal_stage_funnel
 SELECT
-    s.pipeline_id,
-    s.stage_id,
-    s.label AS stage_label,
-    s.display_order,
-    s.is_closed,
+    COALESCE(s.pipeline_id, d.pipeline) AS pipeline_id,
+    COALESCE(s.stage_id, d.dealstage) AS stage_id,
+    COALESCE(s.label, d.dealstage) AS stage_label,
+    COALESCE(s.display_order, 999) AS display_order,
+    COALESCE(s.is_closed, '') AS is_closed,
     count() AS deals_currently_in,
     sum(d.amount) AS total_value,
     sum(d.amount * d.hs_deal_stage_probability / 100) AS weighted_value,
     now() AS _gold_loaded_at
 FROM silver.dim_deals d FINAL
-INNER JOIN silver.dim_pipeline_stages s FINAL ON d.dealstage = s.stage_id
+LEFT JOIN silver.dim_pipeline_stages s FINAL ON d.dealstage = s.stage_id
 WHERE d.archived = 0
-GROUP BY s.pipeline_id, s.stage_id, s.label, s.display_order, s.is_closed
-ORDER BY s.pipeline_id, s.display_order
+GROUP BY pipeline_id, stage_id, stage_label, display_order, is_closed
+ORDER BY pipeline_id, display_order
 """.strip())
 
     row_count = ch_gold.execute_sql("SELECT count() FROM gold.agg_deal_stage_funnel")
@@ -82,8 +82,11 @@ CREATE TABLE gold.agg_deal_health (
     deal_id String,
     dealname String,
     dealstage String,
+    stage_label String,
     pipeline String,
+    pipeline_label String,
     hubspot_owner_id String,
+    owner_name String,
     amount Nullable(Float64),
     days_in_current_stage Nullable(UInt32),
     days_since_last_activity Nullable(UInt32),
@@ -105,8 +108,11 @@ SELECT
     d.deal_id,
     d.dealname,
     d.dealstage,
+    COALESCE(d.stage_label, '') AS stage_label,
     d.pipeline,
+    COALESCE(d.pipeline_label, '') AS pipeline_label,
     d.hubspot_owner_id,
+    COALESCE(d.owner_name, '') AS owner_name,
     d.amount,
     dateDiff('day', greatest(
         d.hs_v2_date_entered_closedwon,
@@ -164,7 +170,11 @@ WHERE d.archived = 0
 @asset(
     name="agg_rep_performance",
     group_name="gold",
-    deps=[AssetKey("dim_deals"), AssetKey("fact_activities")],
+    deps=[
+        AssetKey("dim_deals"),
+        AssetKey("fact_activities"),
+        AssetKey("dim_owners"),
+    ],
 )
 def agg_rep_performance(context: AssetExecutionContext, ch_gold: ClickHouseResource):
     context.log.info("Rebuilding gold.agg_rep_performance")
@@ -173,6 +183,7 @@ def agg_rep_performance(context: AssetExecutionContext, ch_gold: ClickHouseResou
     ch_gold.execute_sql("""
 CREATE TABLE gold.agg_rep_performance (
     hubspot_owner_id String,
+    owner_name String,
     period_start Date,
     deals_won UInt32,
     deals_lost UInt32,
@@ -192,11 +203,11 @@ CREATE TABLE gold.agg_rep_performance (
 ORDER BY (hubspot_owner_id, period_start)
 """.strip())
 
-    # Deal metrics by owner × month
     ch_gold.execute_sql("""
 INSERT INTO gold.agg_rep_performance
 SELECT
     d.hubspot_owner_id,
+    COALESCE(d.owner_name, '') AS owner_name,
     toStartOfMonth(d.createdate) AS period_start,
     countIf(d.hs_is_closed_won = 'true') AS deals_won,
     countIf(d.hs_is_closed = 'true' AND d.hs_is_closed_won != 'true') AS deals_lost,
@@ -208,15 +219,30 @@ SELECT
     avgIf(d.amount, d.hs_is_closed_won = 'true' AND d.amount > 0) AS avg_deal_size,
     avgIf(d.days_to_close, d.hs_is_closed_won = 'true' AND d.days_to_close > 0) AS avg_days_to_close,
     sumIf(d.amount, d.hs_is_closed = 'false' OR d.hs_is_closed = '') AS pipeline_value,
-    0 AS calls_count,
-    0 AS meetings_count,
-    0 AS emails_count,
-    0 AS tasks_count,
-    0 AS total_activities,
+    COALESCE(act.calls_count, 0) AS calls_count,
+    COALESCE(act.meetings_count, 0) AS meetings_count,
+    COALESCE(act.emails_count, 0) AS emails_count,
+    COALESCE(act.tasks_count, 0) AS tasks_count,
+    COALESCE(act.total_activities, 0) AS total_activities,
     now() AS _gold_loaded_at
 FROM silver.dim_deals d FINAL
+LEFT JOIN (
+    SELECT
+        a.hubspot_owner_id,
+        toStartOfMonth(a.hs_timestamp) AS period_start,
+        countIf(a.activity_type = 'call') AS calls_count,
+        countIf(a.activity_type = 'meeting') AS meetings_count,
+        countIf(a.activity_type = 'email') AS emails_count,
+        countIf(a.activity_type = 'task') AS tasks_count,
+        count() AS total_activities
+    FROM silver.fact_activities a FINAL
+    WHERE a.archived = 0 AND a.hubspot_owner_id != '' AND a.hs_timestamp > '1970-01-02'
+    GROUP BY a.hubspot_owner_id, toStartOfMonth(a.hs_timestamp)
+) act ON d.hubspot_owner_id = act.hubspot_owner_id
+    AND toStartOfMonth(d.createdate) = act.period_start
 WHERE d.archived = 0 AND d.hubspot_owner_id != '' AND d.createdate > '1970-01-02'
-GROUP BY d.hubspot_owner_id, toStartOfMonth(d.createdate)
+GROUP BY d.hubspot_owner_id, d.owner_name, toStartOfMonth(d.createdate),
+    act.calls_count, act.meetings_count, act.emails_count, act.tasks_count, act.total_activities
 """.strip())
 
     row_count = ch_gold.execute_sql("SELECT count() FROM gold.agg_rep_performance")
@@ -305,7 +331,7 @@ GROUP BY c.hs_analytics_source, c.hs_analytics_source_data_1
 @asset(
     name="agg_lead_health",
     group_name="gold",
-    deps=[AssetKey("dim_leads")],
+    deps=[AssetKey("dim_leads"), AssetKey("dim_owners")],
 )
 def agg_lead_health(context: AssetExecutionContext, ch_gold: ClickHouseResource):
     context.log.info("Rebuilding gold.agg_lead_health")
@@ -315,6 +341,7 @@ def agg_lead_health(context: AssetExecutionContext, ch_gold: ClickHouseResource)
 CREATE TABLE gold.agg_lead_health (
     lead_id String,
     hubspot_owner_id String,
+    owner_name String,
     hs_lead_status String,
     hs_lead_type String,
     createdate DateTime,
@@ -331,27 +358,29 @@ CREATE TABLE gold.agg_lead_health (
     ch_gold.execute_sql("""
 INSERT INTO gold.agg_lead_health
 SELECT
-    lead_id,
-    hubspot_owner_id,
-    hs_lead_status,
-    hs_lead_type,
-    createdate,
-    dateDiff('day', createdate, today()) AS days_since_creation,
-    if(contact_last_engagement_date > '1970-01-02',
-       dateDiff('day', contact_last_engagement_date, today()),
+    l.lead_id,
+    l.hubspot_owner_id,
+    COALESCE(concat(o.first_name, ' ', o.last_name), '') AS owner_name,
+    l.hs_lead_status,
+    l.hs_lead_type,
+    l.createdate,
+    dateDiff('day', l.createdate, today()) AS days_since_creation,
+    if(l.contact_last_engagement_date > '1970-01-02',
+       dateDiff('day', l.contact_last_engagement_date, today()),
        NULL) AS days_since_last_engagement,
-    if(first_outreach_date > '1970-01-02', 1, 0) AS has_outreach,
-    if(first_outreach_date > '1970-01-02',
-       dateDiff('day', createdate, first_outreach_date),
+    if(l.first_outreach_date > '1970-01-02', 1, 0) AS has_outreach,
+    if(l.first_outreach_date > '1970-01-02',
+       dateDiff('day', l.createdate, l.first_outreach_date),
        NULL) AS days_to_first_outreach,
-    if(associated_deals != '', 1, 0) AS has_associated_deal,
-    if(hs_lead_status NOT IN ('DISQUALIFIED', 'CONVERTED')
-       AND (contact_last_engagement_date <= '1970-01-02'
-            OR dateDiff('day', contact_last_engagement_date, today()) > 7),
+    if(l.associated_deals != '', 1, 0) AS has_associated_deal,
+    if(l.hs_lead_status NOT IN ('DISQUALIFIED', 'CONVERTED')
+       AND (l.contact_last_engagement_date <= '1970-01-02'
+            OR dateDiff('day', l.contact_last_engagement_date, today()) > 7),
        1, 0) AS is_stale,
     now() AS _gold_loaded_at
-FROM silver.dim_leads FINAL
-WHERE archived = 0
+FROM silver.dim_leads l FINAL
+LEFT JOIN silver.dim_owners o FINAL ON l.hubspot_owner_id = o.owner_id
+WHERE l.archived = 0
 """.strip())
 
     row_count = ch_gold.execute_sql("SELECT count() FROM gold.agg_lead_health")

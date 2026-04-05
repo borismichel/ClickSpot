@@ -57,30 +57,36 @@ def query(req: QueryRequest) -> QueryResponse:
         pk = graph.primary_key(table)
         id_filter = reachable.get(table)
 
-        possible_sql = sql_builder.build_field_values_query(
-            table, column, pk, id_filter
-        )
-        possible_rows = db.query_rows(possible_sql)
-        possible_values = {str(r["value"]) for r in possible_rows}
-        possible = [
-            FieldValueItem(value=str(r["value"]), count=int(r["cnt"]))
-            for r in possible_rows
-            if str(r["value"])
-        ]
-
-        excluded = []
-        if id_filter:
-            all_sql = sql_builder.build_field_values_query(table, column, pk, None)
-            all_rows = db.query_rows(all_sql)
-            excluded = [
+        try:
+            possible_sql = sql_builder.build_field_values_query(
+                table, column, pk, id_filter
+            )
+            possible_rows = db.query_rows(possible_sql)
+            possible_values = {str(r["value"]) for r in possible_rows}
+            possible = [
                 FieldValueItem(value=str(r["value"]), count=int(r["cnt"]))
-                for r in all_rows
-                if str(r["value"]) and str(r["value"]) not in possible_values
+                for r in possible_rows
+                if str(r["value"])
             ]
 
-        response.field_values[field_spec] = FieldValuesResponse(
-            possible=possible, excluded=excluded
-        )
+            excluded = []
+            if id_filter:
+                all_sql = sql_builder.build_field_values_query(table, column, pk, None)
+                all_rows = db.query_rows(all_sql)
+                excluded = [
+                    FieldValueItem(value=str(r["value"]), count=int(r["cnt"]))
+                    for r in all_rows
+                    if str(r["value"]) and str(r["value"]) not in possible_values
+                ]
+
+            response.field_values[field_spec] = FieldValuesResponse(
+                possible=possible, excluded=excluded
+            )
+        except Exception as e:
+            log.warning(f"Field values query failed for {field_spec}: {e}")
+            response.field_values[field_spec] = FieldValuesResponse(
+                possible=[], excluded=[]
+            )
 
     # Measures (with optional conditions)
     for m in req.measures:
@@ -114,6 +120,7 @@ def query(req: QueryRequest) -> QueryResponse:
         sql = sql_builder.build_grouped_measure_query(
             gm.table, gm.column, gm.agg, gm.group_by,
             pk, id_filter, gm.limit,
+            date_from=req.date_from, date_to=req.date_to,
         )
         try:
             rows = db.query_rows(sql)
@@ -154,6 +161,14 @@ def query(req: QueryRequest) -> QueryResponse:
             log.warning(f"Time series query failed: {e}")
 
     # Computed metrics
+    # Map table -> default date column for date scoping
+    _DATE_COLUMNS = {
+        "dim_deals": "closedate",
+        "dim_contacts": "createdate",
+        "dim_leads": "createdate",
+        "fact_activities": "hs_timestamp",
+    }
+
     for metric_name in req.computed_metrics:
         metric = COMPUTED_METRICS.get(metric_name)
         if not metric:
@@ -163,8 +178,22 @@ def query(req: QueryRequest) -> QueryResponse:
         id_filter = reachable.get(table)
         ref = sql_builder._table_ref(table)
 
-        where = f"{pk} IN ({id_filter}) AND archived = 0" if id_filter else "archived = 0"
-        sql = f"SELECT {metric['sql']} FROM {ref} FINAL WHERE {where}"
+        conditions = [sql_builder._archived_condition(table)]
+        if id_filter:
+            conditions.append(f"{pk} IN ({id_filter})")
+        # Inject date scoping
+        if req.date_from or req.date_to:
+            date_col = _DATE_COLUMNS.get(table)
+            if date_col:
+                if req.date_from:
+                    conditions.append(f"{date_col} >= '{sql_builder.escape_value(req.date_from)}'")
+                if req.date_to:
+                    conditions.append(f"{date_col} <= '{sql_builder.escape_value(req.date_to)}'")
+                conditions.append(f"{date_col} > '1970-01-02'")
+
+        where = " AND ".join(conditions)
+        final = sql_builder._table_final(table)
+        sql = f"SELECT {metric['sql']} FROM {ref} {final} WHERE {where}".replace("  ", " ")
         try:
             val = db.query_value(sql)
             response.computed_metrics[metric_name] = float(val) if val is not None else None
@@ -178,16 +207,20 @@ def query(req: QueryRequest) -> QueryResponse:
         pk = graph.primary_key(table)
         id_filter = reachable.get(table)
 
-        rows_sql = sql_builder.build_list_query(
-            table, list_req.columns, pk, id_filter,
-            list_req.limit, list_req.offset,
-        )
-        count_sql = sql_builder.build_list_count_query(table, pk, id_filter)
+        try:
+            rows_sql = sql_builder.build_list_query(
+                table, list_req.columns, pk, id_filter,
+                list_req.limit, list_req.offset,
+            )
+            count_sql = sql_builder.build_list_count_query(table, pk, id_filter)
 
-        rows = db.query_rows(rows_sql)
-        total = int(db.query_value(count_sql))
+            rows = db.query_rows(rows_sql)
+            total = int(db.query_value(count_sql))
 
-        response.lists[table] = ListResponse(rows=rows, total=total)
+            response.lists[table] = ListResponse(rows=rows, total=total)
+        except Exception as e:
+            log.warning(f"List query failed for {table}: {e}")
+            response.lists[table] = ListResponse(rows=[], total=0)
 
     elapsed = (time.time() - t0) * 1000
     log.info(f"Query completed in {elapsed:.0f}ms | selections={len(state.selections)} tables")
@@ -226,16 +259,20 @@ def metadata() -> MetadataResponse:
     loaded_at = {}
 
     for table in TABLES:
+        ref = sql_builder._table_ref(table)
         try:
             row_counts[table] = int(db.query_value(
-                f"SELECT count() FROM silver.{table} FINAL WHERE archived = 0"
+                f"SELECT count() FROM {ref} FINAL"
             ))
         except Exception:
             row_counts[table] = 0
 
         try:
+            # Silver tables have _silver_loaded_at, gold tables have _gold_loaded_at
+            meta = TABLES[table]
+            ts_col = "_gold_loaded_at" if meta.get("database") == "gold" else "_silver_loaded_at"
             ts = db.query_value(
-                f"SELECT max(_silver_loaded_at) FROM silver.{table}"
+                f"SELECT max({ts_col}) FROM {ref}"
             )
             loaded_at[table] = str(ts) if ts else ""
         except Exception:

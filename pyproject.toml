@@ -13,6 +13,10 @@ dependencies = [
     "clickhouse-connect",
     "requests",
     "python-dotenv",
+    "fastapi",
+    "uvicorn",
+    "anthropic>=0.40",
+    "openai>=1.50",
 ]
 
 [project.optional-dependencies]

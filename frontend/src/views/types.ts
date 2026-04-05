@@ -1,10 +1,17 @@
 import type { SchemaResponse, QueryResponse, GroupedMeasureRow, TimeSeriesPoint } from "../types/api";
 
+export interface PeriodState {
+  key: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+}
+
 export interface ViewProps {
   schema: SchemaResponse;
   selections: Record<string, string[]>;
   queryData: QueryResponse | undefined;
   queryLoading: boolean;
+  period?: PeriodState;
 }
 
 /**

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Card, Col, Row, Statistic, Table } from "antd";
 import {
   TrophyOutlined,
@@ -11,12 +10,18 @@ import type { ViewProps } from "./types";
 import { findGM } from "./types";
 
 interface RepRow {
-  owner_id: string;
-  deals: number;
-  won: number;
-  lost: number;
-  won_amount: number;
-  activities: number;
+  hubspot_owner_id: string;
+  deals_won: number;
+  deals_lost: number;
+  win_rate: number;
+  total_arr_closed: number;
+  avg_deal_size: number;
+  pipeline_value: number;
+  calls_count: number;
+  meetings_count: number;
+  emails_count: number;
+  tasks_count: number;
+  total_activities: number;
 }
 
 export default function RepPerformance({ queryData, queryLoading }: ViewProps) {
@@ -25,7 +30,7 @@ export default function RepPerformance({ queryData, queryLoading }: ViewProps) {
 
   const kpis = [
     { title: "Win Rate", value: m.win_rate != null ? m.win_rate * 100 : null, suffix: "%", precision: 1, icon: <TrophyOutlined /> },
-    { title: "Avg Deal Size", value: m.avg_deal_size, prefix: "€", icon: <DollarOutlined /> },
+    { title: "Avg Deal Size", value: m.avg_deal_size, prefix: "\u20AC", icon: <DollarOutlined /> },
     { title: "Avg Days to Close", value: m.avg_days_to_close, precision: 0, icon: <ClockCircleOutlined /> },
     { title: "Total Activities", value: m.total_activities, precision: 0, icon: <ThunderboltOutlined /> },
   ];
@@ -36,47 +41,32 @@ export default function RepPerformance({ queryData, queryLoading }: ViewProps) {
     value: row.value ?? 0,
   }));
 
-  // Build rep leaderboard from deal list
-  const repRows = useMemo(() => {
-    const dealRows = lists["dim_deals"]?.rows ?? [];
-    const repMap = new Map<string, RepRow>();
-
-    for (const deal of dealRows) {
-      const ownerId = String(deal.hubspot_owner_id || "(unassigned)");
-      if (!repMap.has(ownerId)) {
-        repMap.set(ownerId, { owner_id: ownerId, deals: 0, won: 0, lost: 0, won_amount: 0, activities: 0 });
-      }
-      const rep = repMap.get(ownerId)!;
-      rep.deals++;
-      if (deal.hs_is_closed_won === "true") {
-        rep.won++;
-        rep.won_amount += Number(deal.amount) || 0;
-      } else if (deal.hs_is_closed === "true") {
-        rep.lost++;
-      }
-    }
-
-    return Array.from(repMap.values())
-      .filter((r) => r.owner_id !== "(unassigned)" && r.owner_id !== "")
-      .sort((a, b) => b.won_amount - a.won_amount);
-  }, [lists]);
+  // Rep leaderboard from the gold layer agg_rep_performance table
+  const repRows = (lists["agg_rep_performance"]?.rows ?? [])
+    .slice()
+    .sort((a, b) => (Number(b.total_arr_closed) || 0) - (Number(a.total_arr_closed) || 0)) as RepRow[];
 
   const repColumns = [
-    { title: "Owner ID", dataIndex: "owner_id", key: "owner_id", width: 120 },
-    { title: "Deals", dataIndex: "deals", key: "deals", width: 80,
-      sorter: (a: RepRow, b: RepRow) => a.deals - b.deals },
-    { title: "Won", dataIndex: "won", key: "won", width: 70,
-      sorter: (a: RepRow, b: RepRow) => a.won - b.won },
-    { title: "Lost", dataIndex: "lost", key: "lost", width: 70 },
-    { title: "Won Amount", dataIndex: "won_amount", key: "won_amount", width: 130,
-      render: (v: number) => `€${v.toLocaleString()}`,
-      sorter: (a: RepRow, b: RepRow) => a.won_amount - b.won_amount },
-    { title: "Win Rate", key: "win_rate", width: 90,
-      render: (_: unknown, r: RepRow) => {
-        const closed = r.won + r.lost;
-        return closed > 0 ? `${((r.won / closed) * 100).toFixed(1)}%` : "—";
-      },
-    },
+    { title: "Owner", dataIndex: "hubspot_owner_id", key: "owner", width: 160,
+      render: (v: string) => v || "(unassigned)" },
+    { title: "Deals Won", dataIndex: "deals_won", key: "deals_won", width: 90,
+      sorter: (a: RepRow, b: RepRow) => a.deals_won - b.deals_won },
+    { title: "Deals Lost", dataIndex: "deals_lost", key: "deals_lost", width: 90 },
+    { title: "Win Rate", dataIndex: "win_rate", key: "win_rate", width: 90,
+      render: (v: number | null) => v != null ? `${(Number(v) * 100).toFixed(1)}%` : "\u2014",
+      sorter: (a: RepRow, b: RepRow) => (a.win_rate || 0) - (b.win_rate || 0) },
+    { title: "ARR Closed", dataIndex: "total_arr_closed", key: "total_arr_closed", width: 130,
+      render: (v: number) => `\u20AC${Number(v || 0).toLocaleString()}`,
+      sorter: (a: RepRow, b: RepRow) => (a.total_arr_closed || 0) - (b.total_arr_closed || 0) },
+    { title: "Avg Deal Size", dataIndex: "avg_deal_size", key: "avg_deal_size", width: 120,
+      render: (v: number) => `\u20AC${Number(v || 0).toLocaleString()}` },
+    { title: "Pipeline Value", dataIndex: "pipeline_value", key: "pipeline_value", width: 130,
+      render: (v: number) => `\u20AC${Number(v || 0).toLocaleString()}` },
+    { title: "Calls", dataIndex: "calls_count", key: "calls_count", width: 70 },
+    { title: "Meetings", dataIndex: "meetings_count", key: "meetings_count", width: 90 },
+    { title: "Emails", dataIndex: "emails_count", key: "emails_count", width: 80 },
+    { title: "Total Activities", dataIndex: "total_activities", key: "total_activities", width: 120,
+      sorter: (a: RepRow, b: RepRow) => (a.total_activities || 0) - (b.total_activities || 0) },
   ];
 
   return (
@@ -101,14 +91,15 @@ export default function RepPerformance({ queryData, queryLoading }: ViewProps) {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={16}>
-          <Card title="Rep Leaderboard (from deal data)" size="small">
+          <Card title="Rep Leaderboard" size="small">
             <Table
               dataSource={repRows}
               columns={repColumns}
-              rowKey={(r) => r.owner_id}
+              rowKey={(r) => r.hubspot_owner_id || String(Math.random())}
               size="small"
               pagination={false}
               loading={queryLoading}
+              scroll={{ x: 1200 }}
               locale={{ emptyText: "No rep data" }}
             />
           </Card>

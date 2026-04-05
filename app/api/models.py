@@ -43,6 +43,8 @@ class QueryRequest(BaseModel):
     time_series: list[TimeSeriesRequest] = Field(default_factory=list)
     computed_metrics: list[str] = Field(default_factory=list)
     lists: dict[str, ListRequest] = Field(default_factory=dict)
+    date_from: str | None = None
+    date_to: str | None = None
 
 
 class FieldValueItem(BaseModel):

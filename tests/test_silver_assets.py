@@ -4,6 +4,7 @@ from assets.silver import _cast_expr, _build_ddl, _build_insert
 from silver_config import (
     DIM_CONTACTS, DIM_COMPANIES, DIM_DEALS, DIM_LEADS,
     DIM_OWNERS, DIM_PIPELINES, DIM_PIPELINE_STAGES,
+    DIM_LEAD_PIPELINES, DIM_LEAD_PIPELINE_STAGES,
     FACT_ACTIVITIES, BRIDGE_TABLES,
     BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
 )
@@ -122,9 +123,22 @@ class TestConfigStructure:
             for col in config["columns"]:
                 assert len(col) == 3, f"{name} column {col} is not a 3-tuple"
 
+    def test_lead_pipeline_configs_have_required_keys(self):
+        for name, config in [
+            ("lead_pipelines", DIM_LEAD_PIPELINES),
+        ]:
+            assert "bronze_table" in config, f"{name} missing bronze_table"
+            assert "primary_key" in config, f"{name} missing primary_key"
+            assert "columns" in config, f"{name} missing columns"
+            assert len(config["columns"]) > 0, f"{name} has empty columns"
+
     def test_pipeline_stages_columns_are_2_tuples(self):
         for col in DIM_PIPELINE_STAGES["columns"]:
             assert len(col) == 2, f"pipeline_stages column {col} is not a 2-tuple"
+
+    def test_lead_pipeline_stages_columns_are_2_tuples(self):
+        for col in DIM_LEAD_PIPELINE_STAGES["columns"]:
+            assert len(col) == 2, f"lead_pipeline_stages column {col} is not a 2-tuple"
 
     def test_fact_activities_all_have_required_keys(self):
         for act_type, mapping in FACT_ACTIVITIES.items():

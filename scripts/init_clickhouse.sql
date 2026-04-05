@@ -62,6 +62,14 @@ CREATE TABLE IF NOT EXISTS bronze.hs_pipelines
     (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
+CREATE TABLE IF NOT EXISTS bronze.hs_owners
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
+
+CREATE TABLE IF NOT EXISTS bronze.hs_lead_pipelines
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
+
 -- Silver database
 CREATE DATABASE IF NOT EXISTS silver;
 
