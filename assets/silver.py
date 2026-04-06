@@ -7,7 +7,7 @@ from silver_config import (
     DIM_CONTACTS, DIM_COMPANIES, DIM_DEALS, DIM_LEADS,
     DIM_OWNERS, DIM_PIPELINES, DIM_PIPELINE_STAGES,
     DIM_LEAD_PIPELINES, DIM_LEAD_PIPELINE_STAGES,
-    FACT_ACTIVITIES, BRIDGE_TABLES,
+    FACT_ACTIVITIES, FACT_FORM_SUBMISSIONS, BRIDGE_TABLES,
     BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
     DICTIONARIES,
 )
@@ -436,6 +436,70 @@ FROM bronze.{bronze_table} FINAL"""
 
 
 # ---------------------------------------------------------------------------
+# Fact: fact_form_submissions (from hs_form_submissions bronze)
+# ---------------------------------------------------------------------------
+
+@asset(
+    name="fact_form_submissions",
+    group_name="silver",
+    deps=[AssetKey("hs_form_submissions")],
+)
+def fact_form_submissions(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    context.log.info("Rebuilding silver.fact_form_submissions")
+    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.fact_form_submissions")
+
+    config = FACT_FORM_SUBMISSIONS
+    primary_key = config["primary_key"]
+    columns = config["columns"]
+
+    # Build DDL
+    col_defs = [f"    {primary_key} String"]
+    for col_name, _prop_key, col_type in columns:
+        col_defs.append(f"    {col_name} {col_type}")
+    col_defs.append("    archived UInt8")
+    col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
+
+    ddl = (
+        f"CREATE TABLE silver.fact_form_submissions (\n"
+        + ",\n".join(col_defs)
+        + "\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (submission_id)"
+    )
+    ch_silver.execute_sql(ddl)
+
+    # Build INSERT — submitted_at is epoch ms, needs fromUnixTimestamp64Milli
+    insert_sql = """
+INSERT INTO silver.fact_form_submissions
+SELECT
+    _record_id AS submission_id,
+    properties['form_id'] AS form_id,
+    properties['form_name'] AS form_name,
+    toDateTime(toUInt64OrZero(properties['submitted_at']) / 1000) AS submitted_at,
+    properties['page_url'] AS page_url,
+    properties['email'] AS email,
+    properties['firstname'] AS firstname,
+    properties['lastname'] AS lastname,
+    properties['company'] AS company,
+    properties['jobtitle'] AS jobtitle,
+    properties['phone'] AS phone,
+    0 AS archived,
+    now() AS _silver_loaded_at
+FROM bronze.hs_form_submissions FINAL
+""".strip()
+    context.log.info(f"INSERT: {insert_sql}")
+    ch_silver.execute_sql(insert_sql)
+
+    row_count = ch_silver.execute_sql("SELECT count() FROM silver.fact_form_submissions")
+    context.log.info(f"silver.fact_form_submissions: {row_count} rows")
+
+    yield MaterializeResult(
+        metadata={
+            "row_count": MetadataValue.int(int(row_count)),
+            "table": MetadataValue.text("silver.fact_form_submissions"),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Bridge factories
 # ---------------------------------------------------------------------------
 
@@ -671,7 +735,7 @@ _ALL_SILVER_DIM_ASSETS = [
     "dim_pipelines", "dim_pipeline_stages",
     "dim_lead_pipelines", "dim_lead_pipeline_stages",
 ]
-_ALL_SILVER_FACT_ASSETS = ["fact_activities"]
+_ALL_SILVER_FACT_ASSETS = ["fact_activities", "fact_form_submissions"]
 _ALL_SILVER_BRIDGE_ASSETS = [
     "bridge_contact_company", "bridge_contact_deal", "bridge_deal_company",
     "bridge_lead_contact", "bridge_deal_lead", "bridge_lead_company",
@@ -793,7 +857,7 @@ all_silver_assets = [
     dim_owners,
     dim_pipelines, dim_pipeline_stages,
     dim_lead_pipelines, dim_lead_pipeline_stages,
-    fact_activities,
+    fact_activities, fact_form_submissions,
     bridge_contact_company, bridge_contact_deal, bridge_deal_company,
     bridge_lead_contact, bridge_deal_lead, bridge_lead_company,
     bridge_activity_contact, bridge_activity_company, bridge_activity_deal,

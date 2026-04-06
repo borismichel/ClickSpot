@@ -64,6 +64,9 @@ Entities:
   ACTIVITIES (silver.fact_activities) — Calls, meetings, emails, notes, tasks.
     activity_type column discriminates type: 'call', 'meeting', 'email', 'note', 'task'.
     "By type" means GROUP BY activity_type or pivot with countIf(activity_type = '...').
+  FORM SUBMISSIONS (silver.fact_form_submissions) — HubSpot form submissions.
+    Each row = one form submission. Has form_id, form_name, submitted_at (DateTime), page_url, and submitter fields (email, firstname, lastname, company, jobtitle, phone).
+    submitted_at is epoch-converted to DateTime. Use toStartOfMonth(submitted_at) etc. for time series.
   OWNERS (silver.dim_owners) — Sales reps / users.
   PIPELINES (silver.dim_pipelines) — Deal pipeline definitions.
   PIPELINE_STAGES (silver.dim_pipeline_stages) — Stages within pipelines.

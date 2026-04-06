@@ -179,6 +179,46 @@ class HubSpotResource(ConfigurableResource):
             time.sleep(0.1)
 
     # ------------------------------------------------------------------
+    # Form submissions (legacy v1 endpoint — no v3 equivalent exists)
+    # ------------------------------------------------------------------
+
+    def fetch_form_submissions(
+        self,
+        form_id: str,
+        batch_size: int = 50,
+    ) -> Iterator[list[dict]]:
+        """Fetch all submissions for a single form.
+
+        GET /form-integrations/v1/submissions/forms/{formId}
+        Max 50 per page, cursor-based pagination.
+        """
+        url = f"{BASE_URL}/form-integrations/v1/submissions/forms/{form_id}"
+        params: dict = {"limit": batch_size}
+
+        while True:
+            resp = _request_with_retry("GET", url, headers=self._headers(), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            results = data.get("results", [])
+            if results:
+                yield results
+
+            next_after = (data.get("paging") or {}).get("next", {}).get("after")
+            if not next_after:
+                break
+            params["after"] = next_after
+            time.sleep(0.1)
+
+    def fetch_all_form_ids(self) -> list[dict]:
+        """Fetch all form IDs and names. Returns [{id, name}, ...]."""
+        forms = []
+        for batch in self.fetch_marketing_list("/marketing/v3/forms"):
+            for f in batch:
+                forms.append({"id": str(f["id"]), "name": f.get("name", "")})
+        return forms
+
+    # ------------------------------------------------------------------
     # Property metadata (for semantic layer)
     # ------------------------------------------------------------------
 

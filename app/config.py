@@ -268,6 +268,22 @@ TABLES = {
             "display_order":  {"type": "UInt32",           "display": "Display Order"},
         },
     },
+    "fact_form_submissions": {
+        "primary_key": "submission_id",
+        "display_name": "Form Submissions",
+        "fields": {
+            "form_id":        {"type": "String",   "display": "Form ID"},
+            "form_name":      {"type": "String",   "display": "Form Name"},
+            "submitted_at":   {"type": "DateTime", "display": "Submitted At"},
+            "page_url":       {"type": "String",   "display": "Page URL"},
+            "email":          {"type": "String",   "display": "Email"},
+            "firstname":      {"type": "String",   "display": "First Name"},
+            "lastname":       {"type": "String",   "display": "Last Name"},
+            "company":        {"type": "String",   "display": "Company"},
+            "jobtitle":       {"type": "String",   "display": "Job Title"},
+            "phone":          {"type": "String",   "display": "Phone"},
+        },
+    },
     # --- Gold tables ---
     "agg_rep_performance": {
         "primary_key": "hubspot_owner_id",

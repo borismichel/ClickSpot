@@ -253,6 +253,27 @@ BRIDGE_ACTIVITY_DEAL = [
 ]
 
 # ---------------------------------------------------------------------------
+# Form submissions — flattened from form-integrations/v1 API
+# ---------------------------------------------------------------------------
+
+FACT_FORM_SUBMISSIONS = {
+    "bronze_table": "hs_form_submissions",
+    "primary_key": "submission_id",
+    "columns": [
+        ("form_id",       "form_id",       "String"),
+        ("form_name",     "form_name",     "String"),
+        ("submitted_at",  "submitted_at",  "DateTime"),
+        ("page_url",      "page_url",      "String"),
+        ("email",         "email",         "String"),
+        ("firstname",     "firstname",     "String"),
+        ("lastname",      "lastname",      "String"),
+        ("company",       "company",       "String"),
+        ("jobtitle",      "jobtitle",      "String"),
+        ("phone",         "phone",         "String"),
+    ],
+}
+
+# ---------------------------------------------------------------------------
 # Dictionaries — in-memory lookups backed by silver tables.
 # Maps silver table name → CREATE DICTIONARY DDL.
 # These are dropped before table refresh and recreated after.
