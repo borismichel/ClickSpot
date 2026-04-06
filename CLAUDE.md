@@ -15,7 +15,11 @@ pip install -e ".[dev]"
 
 Run tests: `pytest -v`
 
-Start Dagster UI: `dagster dev -p 3333` → http://localhost:3333
+Start Dagster UI: `dagster dev -p 8194` → http://localhost:8194
+
+Start backend: `uvicorn app.main:app --port 8192 --reload` → http://localhost:8192
+
+Start frontend: `cd frontend && npm run dev` → http://localhost:8193
 
 ClickHouse init (run once): `python scripts/init_clickhouse.py`
 

@@ -12,6 +12,7 @@ import anthropic
 import openai
 
 from app.llm.config import load_config, get_api_key
+from app.llm.oauth import get_valid_access_token, has_valid_token, OAUTH_EXTRA_HEADERS
 from app.llm.response_schema import ChatSQLResponse
 from app.llm.schema_prompt import build_schema_prompt
 from app.semantic.layer import SemanticLayer, load_cache
@@ -131,39 +132,23 @@ class OpenAIProvider(LLMProvider):
 
 
 class ClaudeOAuthProvider(LLMProvider):
-    """Uses Claude OAuth token from vibespot's ~/.vibespot/claude-oauth.json."""
+    """Uses Claude OAuth token stored at ~/.hs2ch/claude-oauth.json.
 
-    OAUTH_FILE = Path.home() / ".vibespot" / "claude-oauth.json"
+    Token obtained via `claude setup-token`, pasted in Settings.
+    Auto-refreshes when within 5 minutes of expiry.
+    """
 
     def __init__(self, model: str = "claude-sonnet-4-6"):
         self.model = model
-        self._token_data: dict = {}
-        self._load_token()
-
-    def _load_token(self):
-        if self.OAUTH_FILE.exists():
-            self._token_data = json.loads(self.OAUTH_FILE.read_text())
-
-    def _get_access_token(self) -> str:
-        self._load_token()
-        token = self._token_data.get("access_token", "")
-        expires_at = self._token_data.get("expires_at", 0)
-        # expires_at is in ms
-        if expires_at > 1e12:
-            expires_at = expires_at / 1000
-        if expires_at < time.time():
-            raise ValueError("Claude OAuth token expired. Re-authenticate in vibespot.")
-        return token
 
     async def generate(self, messages: list[dict]) -> ChatSQLResponse:
-        token = self._get_access_token()
+        token = await get_valid_access_token()
+        if not token:
+            raise ValueError("Claude OAuth token expired or missing. Re-authenticate in Settings.")
+
         client = anthropic.AsyncAnthropic(
-            api_key=token,
-            default_headers={
-                "user-agent": "claude-cli/2.1.75",
-                "x-app": "cli",
-                "anthropic-beta": "oauth-2025-04-20",
-            },
+            auth_token=token,
+            default_headers=OAUTH_EXTRA_HEADERS,
         )
         schema = _get_schema_prompt()
         llm_messages = self._build_llm_messages(messages)
@@ -197,16 +182,7 @@ class ClaudeOAuthProvider(LLMProvider):
 
     @classmethod
     def is_available(cls) -> bool:
-        if not cls.OAUTH_FILE.exists():
-            return False
-        try:
-            data = json.loads(cls.OAUTH_FILE.read_text())
-            expires_at = data.get("expires_at", 0)
-            if expires_at > 1e12:
-                expires_at = expires_at / 1000
-            return bool(data.get("access_token")) and expires_at > time.time()
-        except Exception:
-            return False
+        return has_valid_token()
 
 
 class ClaudeCLIProvider(LLMProvider):

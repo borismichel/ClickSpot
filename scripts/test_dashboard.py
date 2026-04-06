@@ -5,7 +5,7 @@ Sends the exact same payload the React app sends (from App.tsx), then validates
 that every data key each view expects actually exists and has reasonable data.
 
 Usage:
-    python scripts/test_dashboard.py [--api http://localhost:8000]
+    python scripts/test_dashboard.py [--api http://localhost:8192]
 """
 
 import argparse
@@ -133,7 +133,7 @@ def check_list(lists, key, label, expected_cols=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--api", default="http://localhost:8000")
+    parser.add_argument("--api", default="http://localhost:8192")
     args = parser.parse_args()
     base = args.api.rstrip("/")
 
@@ -147,7 +147,7 @@ def main():
         ok(f"Health: {health}")
     except URLError as e:
         fail(f"API not reachable at {base}: {e}")
-        print(f"\n{RED}Cannot continue without API. Start it with: uvicorn app.main:app --port 8000{RESET}")
+        print(f"\n{RED}Cannot continue without API. Start it with: uvicorn app.main:app --port 8192{RESET}")
         sys.exit(1)
 
     schema = get_json(f"{base}/api/v1/schema")

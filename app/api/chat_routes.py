@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
 from app.db import query_rows, query_value
 from app.llm.config import load_config, save_config, get_api_key, mask_key
+from app.llm.oauth import save_initial_token, get_token_info, clear_tokens, has_valid_token
 from app.llm.providers import get_provider, refresh_schema_prompt, ClaudeOAuthProvider, ClaudeCLIProvider
 from app.llm.sql_validator import validate_sql, ensure_limit
 from app.semantic.layer import load_cache
@@ -152,6 +153,42 @@ def available_providers():
             },
         ]
     }
+
+
+@router.post("/oauth/save")
+def save_oauth_token(body: dict):
+    """Save a Claude OAuth token (from `claude setup-token`)."""
+    access_token = body.get("access_token", "").strip()
+    if not access_token:
+        raise HTTPException(status_code=400, detail="access_token is required")
+    refresh_token = body.get("refresh_token", "").strip()
+    save_initial_token(access_token, refresh_token)
+    # Auto-select claude-oauth as provider
+    config = load_config()
+    if config.get("ai_provider") != "claude-oauth":
+        config["ai_provider"] = "claude-oauth"
+        save_config(config)
+    return {"ok": True}
+
+
+@router.get("/oauth/status")
+def oauth_status():
+    """Return current OAuth authentication status."""
+    info = get_token_info()
+    if not info:
+        return {"authenticated": False, "expires_at": None}
+    return info
+
+
+@router.post("/oauth/logout")
+def oauth_logout():
+    """Clear stored OAuth tokens and reset provider if needed."""
+    clear_tokens()
+    config = load_config()
+    if config.get("ai_provider") == "claude-oauth":
+        config["ai_provider"] = "auto"
+        save_config(config)
+    return {"ok": True}
 
 
 @router.post("/schema/refresh")

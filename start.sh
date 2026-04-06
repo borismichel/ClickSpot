@@ -9,6 +9,9 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
+# Ensure DAGSTER_HOME exists
+mkdir -p "${DAGSTER_HOME:-$ROOT/.dagster_home}"
+
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[start]${NC} $1"; }
@@ -52,29 +55,29 @@ log "Ensuring ClickHouse schemas..."
 python scripts/init_clickhouse.py
 
 # ---------- 3. FastAPI ----------
-log "Starting FastAPI on :8000..."
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info &
+log "Starting FastAPI on :8192..."
+uvicorn app.main:app --host 0.0.0.0 --port 8192 --reload --log-level info &
 PIDS+=($!)
 
 # ---------- 4. Dagster ----------
-log "Starting Dagster on :3333..."
-dagster dev -p 3333 &
+log "Starting Dagster on :8194..."
+dagster dev -p 8194 &
 PIDS+=($!)
 
 # ---------- 5. Frontend dev server ----------
-log "Starting frontend on :5173..."
+log "Starting frontend on :8193..."
 cd frontend
 npm install --silent
-npx vite --port 5173 &
+npx vite --port 8193 &
 PIDS+=($!)
 cd "$ROOT"
 
 echo
 log "All services running:"
 log "  ClickHouse  → http://localhost:${CLICKHOUSE_PORT:-8124}"
-log "  FastAPI     → http://localhost:8000"
-log "  Dagster     → http://localhost:3333"
-log "  Frontend    → http://localhost:5173"
+log "  FastAPI     → http://localhost:8192"
+log "  Dagster     → http://localhost:8194"
+log "  Frontend    → http://localhost:8193"
 echo
 log "Press Ctrl+C to stop all services"
 

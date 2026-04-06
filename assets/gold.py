@@ -88,6 +88,8 @@ CREATE TABLE gold.agg_deal_health (
     hubspot_owner_id String,
     owner_name String,
     amount Nullable(Float64),
+    hs_is_closed String,
+    hs_is_closed_won String,
     days_in_current_stage Nullable(UInt32),
     days_since_last_activity Nullable(UInt32),
     last_activity_date Nullable(DateTime),
@@ -114,6 +116,8 @@ SELECT
     d.hubspot_owner_id,
     COALESCE(d.owner_name, '') AS owner_name,
     d.amount,
+    d.hs_is_closed,
+    d.hs_is_closed_won,
     dateDiff('day', greatest(
         d.hs_v2_date_entered_closedwon,
         d.hs_v2_date_entered_closedlost,

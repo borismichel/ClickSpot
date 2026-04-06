@@ -251,3 +251,76 @@ BRIDGE_ACTIVITY_DEAL = [
     ("note",    "hs_assoc_note_deal"),
     ("task",    "hs_assoc_task_deal"),
 ]
+
+# ---------------------------------------------------------------------------
+# Dictionaries — in-memory lookups backed by silver tables.
+# Maps silver table name → CREATE DICTIONARY DDL.
+# These are dropped before table refresh and recreated after.
+# ---------------------------------------------------------------------------
+
+DICTIONARIES = {
+    "dim_owners": """
+CREATE DICTIONARY IF NOT EXISTS silver.dict_owners (
+    owner_id String,
+    first_name String,
+    last_name String,
+    email String
+) PRIMARY KEY owner_id
+SOURCE(CLICKHOUSE(DB 'silver' TABLE 'dim_owners' WHERE 'archived = 0' USER 'hs2ch' PASSWORD 'hs2ch'))
+LIFETIME(MIN 300 MAX 600)
+LAYOUT(COMPLEX_KEY_HASHED())
+""",
+    "dim_pipelines": """
+CREATE DICTIONARY IF NOT EXISTS silver.dict_pipelines (
+    pipeline_id String,
+    label String
+) PRIMARY KEY pipeline_id
+SOURCE(CLICKHOUSE(DB 'silver' TABLE 'dim_pipelines' WHERE 'archived = 0' USER 'hs2ch' PASSWORD 'hs2ch'))
+LIFETIME(MIN 300 MAX 600)
+LAYOUT(COMPLEX_KEY_HASHED())
+""",
+    "dim_pipeline_stages": """
+CREATE DICTIONARY IF NOT EXISTS silver.dict_pipeline_stages (
+    stage_id String,
+    label String,
+    pipeline_id String,
+    is_closed String,
+    display_order UInt32
+) PRIMARY KEY stage_id
+SOURCE(CLICKHOUSE(DB 'silver' TABLE 'dim_pipeline_stages' WHERE 'archived = 0' USER 'hs2ch' PASSWORD 'hs2ch'))
+LIFETIME(MIN 300 MAX 600)
+LAYOUT(COMPLEX_KEY_HASHED())
+""",
+    "dim_contacts": """
+CREATE DICTIONARY IF NOT EXISTS silver.dict_contacts (
+    contact_id String,
+    full_name String,
+    email String
+) PRIMARY KEY contact_id
+SOURCE(CLICKHOUSE(DB 'silver' TABLE 'dim_contacts' WHERE 'archived = 0' USER 'hs2ch' PASSWORD 'hs2ch'))
+LIFETIME(MIN 300 MAX 600)
+LAYOUT(COMPLEX_KEY_HASHED())
+""",
+    "dim_companies": """
+CREATE DICTIONARY IF NOT EXISTS silver.dict_companies (
+    company_id String,
+    name String,
+    domain String,
+    industry String
+) PRIMARY KEY company_id
+SOURCE(CLICKHOUSE(DB 'silver' TABLE 'dim_companies' WHERE 'archived = 0' USER 'hs2ch' PASSWORD 'hs2ch'))
+LIFETIME(MIN 300 MAX 600)
+LAYOUT(COMPLEX_KEY_HASHED())
+""",
+    "dim_deals": """
+CREATE DICTIONARY IF NOT EXISTS silver.dict_deals (
+    deal_id String,
+    dealname String,
+    amount Nullable(Float64),
+    owner_name String
+) PRIMARY KEY deal_id
+SOURCE(CLICKHOUSE(DB 'silver' TABLE 'dim_deals' WHERE 'archived = 0' USER 'hs2ch' PASSWORD 'hs2ch'))
+LIFETIME(MIN 300 MAX 600)
+LAYOUT(COMPLEX_KEY_HASHED())
+""",
+}

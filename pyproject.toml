@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn",
     "anthropic>=0.40",
     "openai>=1.50",
+    "httpx",
 ]
 
 [project.optional-dependencies]

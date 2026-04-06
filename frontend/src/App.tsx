@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Layout, Button } from "antd";
-import { SettingOutlined } from "@ant-design/icons";
+import { Layout, Button, Space } from "antd";
+import { SettingOutlined, ApartmentOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
 import { ChatContainer } from "./components/chat/ChatContainer";
@@ -10,6 +11,7 @@ import { SettingsDrawer } from "./components/settings/SettingsDrawer";
 const { Header, Sider, Content } = Layout;
 
 export default function App() {
+  const navigate = useNavigate();
   const { messages, isLoading, sendMessage, newChat } = useChat();
   const {
     conversations,
@@ -55,13 +57,22 @@ export default function App() {
         <div style={{ fontWeight: 600, fontSize: 16 }}>
           HubSpot Analytics
         </div>
-        <Button
-          type="text"
-          icon={<SettingOutlined />}
-          onClick={() => setSettingsOpen(true)}
-        >
-          Settings
-        </Button>
+        <Space>
+          <Button
+            type="text"
+            icon={<ApartmentOutlined />}
+            onClick={() => navigate("/architecture")}
+          >
+            Architecture
+          </Button>
+          <Button
+            type="text"
+            icon={<SettingOutlined />}
+            onClick={() => setSettingsOpen(true)}
+          >
+            Settings
+          </Button>
+        </Space>
       </Header>
 
       <Layout>

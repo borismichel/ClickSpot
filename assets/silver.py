@@ -9,7 +9,33 @@ from silver_config import (
     DIM_LEAD_PIPELINES, DIM_LEAD_PIPELINE_STAGES,
     FACT_ACTIVITIES, BRIDGE_TABLES,
     BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
+    DICTIONARIES,
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers: dictionary lifecycle (drop before table DROP, recreate after INSERT)
+# ---------------------------------------------------------------------------
+
+def _drop_dependent_dicts(table_name: str, ch: ClickHouseResource, log) -> list[str]:
+    """Drop dictionaries that depend on this table. Returns list of dict names dropped."""
+    # table_name is e.g. "dim_owners" — lookup in DICTIONARIES config
+    if table_name not in DICTIONARIES:
+        return []
+    dict_name = "dict_" + table_name.removeprefix("dim_")
+    log.info(f"Dropping dependent dictionary silver.{dict_name}")
+    ch.execute_sql(f"DROP DICTIONARY IF EXISTS silver.{dict_name}")
+    return [table_name]
+
+
+def _recreate_dicts(table_names: list[str], ch: ClickHouseResource, log):
+    """Recreate dictionaries for the given table names."""
+    for table_name in table_names:
+        ddl = DICTIONARIES.get(table_name)
+        if ddl:
+            dict_name = "dict_" + table_name.removeprefix("dim_")
+            log.info(f"Recreating dictionary silver.{dict_name}")
+            ch.execute_sql(ddl.strip())
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +130,9 @@ def _make_dim_asset(name: str, config: dict):
         deps=[AssetKey(bronze_table)],
     )
     def _asset(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+        # Drop dependent dictionaries before table DROP
+        dropped = _drop_dependent_dicts(f"dim_{name}", ch_silver, context.log)
+
         # DROP + CREATE + INSERT
         context.log.info(f"Rebuilding silver.dim_{name}")
         ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.dim_{name}")
@@ -115,6 +144,9 @@ def _make_dim_asset(name: str, config: dict):
         insert_sql = _build_insert(f"dim_{name}", primary_key, config)
         context.log.info(f"INSERT: {insert_sql}")
         ch_silver.execute_sql(insert_sql)
+
+        # Recreate dictionaries
+        _recreate_dicts(dropped, ch_silver, context.log)
 
         row_count = ch_silver.execute_sql(f"SELECT count() FROM silver.dim_{name}")
         context.log.info(f"silver.dim_{name}: {row_count} rows")
@@ -154,6 +186,8 @@ dim_lead_pipelines = _make_dim_asset("lead_pipelines", DIM_LEAD_PIPELINES)
 )
 def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     """dim_deals with denormalized pipeline_label, stage_label, owner_name."""
+    dropped = _drop_dependent_dicts("dim_deals", ch_silver, context.log)
+
     context.log.info("Rebuilding silver.dim_deals (with denormalized labels)")
     ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_deals")
 
@@ -201,6 +235,8 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
 
+    _recreate_dicts(dropped, ch_silver, context.log)
+
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_deals")
     context.log.info(f"silver.dim_deals: {row_count} rows")
 
@@ -222,6 +258,8 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     deps=[AssetKey("hs_pipelines")],
 )
 def dim_pipeline_stages(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    dropped = _drop_dependent_dicts("dim_pipeline_stages", ch_silver, context.log)
+
     context.log.info("Rebuilding silver.dim_pipeline_stages")
     ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_pipeline_stages")
 
@@ -247,6 +285,8 @@ ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
 """.strip()
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
+
+    _recreate_dicts(dropped, ch_silver, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_pipeline_stages")
     context.log.info(f"silver.dim_pipeline_stages: {row_count} rows")

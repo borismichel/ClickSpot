@@ -86,7 +86,7 @@ Foreign keys (direct, no bridge):
 
 Gold layer (pre-aggregated, no FINAL needed):
   gold.agg_rep_performance — Monthly per-rep aggregates (hubspot_owner_id, period_start)
-  gold.agg_deal_health — Per-deal health indicators (deal_id, hubspot_owner_id, dealstage, pipeline)
+  gold.agg_deal_health — Per-deal health indicators (deal_id, hubspot_owner_id, dealstage, pipeline, hs_is_closed, hs_is_closed_won)
   gold.agg_source_attribution — Source/channel attribution metrics
   gold.fact_pipeline_snapshots — Historical pipeline state
 
@@ -227,7 +227,8 @@ OTHER CONTEXT:
 - dim_deals has denormalized columns: pipeline_label (human name), stage_label (human name), owner_name (rep full name)
 - hs_manual_forecast_category values: COMMIT, BEST_CASE, MOST_LIKELY, PIPELINE, OMIT
 - gold.agg_rep_performance: keyed by hubspot_owner_id + period_start. Use dictGet for rep names.
-- gold.agg_deal_health: keyed by deal_id, has hubspot_owner_id, dealstage, pipeline (all raw IDs). Use dictGet for names."""
+- gold.agg_deal_health: keyed by deal_id, has hubspot_owner_id, dealstage, pipeline (all raw IDs). Use dictGet for names.
+  IMPORTANT: agg_deal_health contains ALL deals (open AND closed). When the user asks about "open" deals, stale deals, or at-risk deals, filter: hs_is_closed = 'false'"""
 
 
 def _block_examples() -> str:
@@ -240,7 +241,7 @@ Q: "Break that down by rep"
 A: {"sql": "SELECT owner_name, countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0) AS win_rate, countIf(hs_is_closed = 'true') AS total_closed FROM silver.dim_deals FINAL WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND closedate >= '2026-04-01' AND closedate <= '2026-06-30' AND closedate > '1970-01-02' AND owner_name != ' ' GROUP BY owner_name ORDER BY win_rate DESC LIMIT 20", "viz": "bar", "title": "Win Rate by Rep — Q2 2026", "explanation": "Win rate per rep for main pipeline deals closed in Q2 2026."}
 
 Q: "Which deals are at risk?"
-A: {"sql": "SELECT dealname, dictGet('silver.dict_owners', 'first_name', tuple(hubspot_owner_id)) || ' ' || dictGet('silver.dict_owners', 'last_name', tuple(hubspot_owner_id)) AS rep, amount, days_in_current_stage, days_since_last_activity, last_activity_type FROM gold.agg_deal_health WHERE is_stale = 1 AND pipeline = 'default' AND amount > 0 ORDER BY amount DESC LIMIT 50", "viz": "table", "title": "Stale Deals at Risk", "explanation": "Stale main pipeline deals with no recent activity, sorted by value."}
+A: {"sql": "SELECT dealname, dictGet('silver.dict_owners', 'first_name', tuple(hubspot_owner_id)) || ' ' || dictGet('silver.dict_owners', 'last_name', tuple(hubspot_owner_id)) AS rep, amount, days_in_current_stage, days_since_last_activity, last_activity_type FROM gold.agg_deal_health WHERE hs_is_closed = 'false' AND is_stale = 1 AND pipeline = 'default' AND amount > 0 ORDER BY amount DESC LIMIT 50", "viz": "table", "title": "Stale Deals at Risk", "explanation": "Open stale deals in the main pipeline with no recent activity, sorted by value."}
 
 Q: "Show me monthly closed-won revenue for the last 12 months"
 A: {"sql": "SELECT toStartOfMonth(closedate) AS month, sum(amount) AS revenue FROM silver.dim_deals FINAL WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND hs_is_closed_won = 'true' AND closedate >= toDate(now()) - INTERVAL 12 MONTH AND closedate > '1970-01-02' GROUP BY month ORDER BY month LIMIT 12", "viz": "line", "title": "Monthly Closed-Won Revenue", "explanation": "Monthly closed-won revenue from the main sales pipeline."}

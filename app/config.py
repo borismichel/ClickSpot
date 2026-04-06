@@ -300,6 +300,8 @@ TABLES = {
             "pipeline":       {"type": "String",           "display": "Pipeline"},
             "hubspot_owner_id": {"type": "String",         "display": "Owner ID"},
             "amount":         {"type": "Nullable(Float64)", "display": "Amount"},
+            "hs_is_closed":   {"type": "String",            "display": "Is Closed ('true'/'false')"},
+            "hs_is_closed_won": {"type": "String",          "display": "Is Closed Won ('true'/'false')"},
             "days_in_current_stage": {"type": "Nullable(UInt32)", "display": "Days in Stage"},
             "days_since_last_activity": {"type": "Nullable(UInt32)", "display": "Days Since Activity"},
             "last_activity_date": {"type": "Nullable(DateTime)", "display": "Last Activity Date"},
