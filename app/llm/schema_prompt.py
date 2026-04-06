@@ -37,7 +37,7 @@ def _block_rules() -> str:
 RULES:
 - Generate ONLY valid ClickHouse SQL. Never use INSERT, UPDATE, DELETE, DROP, CREATE, ALTER.
 - Silver tables (silver.*): always append FINAL after the table name. Always filter `archived = 0`.
-- Gold tables (gold.*): do NOT use FINAL. No archived column exists.
+- Gold tables (gold.*): do NOT use FINAL. No archived column exists. Gold columns are pre-aggregated at their grain (e.g. monthly per rep). When re-aggregating (e.g. yearly from monthly), NEVER alias an aggregate with the same name as the source column — ClickHouse resolves aliases within SELECT and `sum(deals_won) AS deals_won` then `sum(deals_won)` elsewhere becomes `sum(sum(...))` which is illegal. Use distinct aliases like `total_deals_won`.
 - DateTime fields with value '1970-01-01 00:00:00' mean "not set" — filter with `> '1970-01-02'` to exclude them.
 - String boolean fields (hs_is_closed_won, hs_is_closed) use 'true'/'false' strings, not actual booleans.
 - Currency is EUR. Format amounts as numbers, the frontend handles display formatting.

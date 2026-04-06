@@ -6,7 +6,7 @@ interface Props {
 }
 
 function formatKPI(value: string | number | null, label: string): { display: number | string; prefix: string; suffix: string } {
-  if (value == null) return { display: "-", prefix: "", suffix: "" };
+  if (value == null || value === "\\N" || value === "NULL") return { display: "-", prefix: "", suffix: "" };
   const num = typeof value === "number" ? value : parseFloat(String(value));
   if (isNaN(num)) return { display: String(value), prefix: "", suffix: "" };
 

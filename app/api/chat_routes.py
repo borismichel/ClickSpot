@@ -71,6 +71,8 @@ async def chat(req: ChatRequest):
         kpi_sql = ensure_limit(kpi_sql, max_limit=1)
         try:
             val = query_value(kpi_sql)
+            if val is None or val == "\\N":
+                val = None
             context_results.append(ContextKPIResult(
                 label=kpi.label,
                 value=val,

@@ -11,12 +11,17 @@ log = get_dagster_logger()
 
 
 def _request_with_retry(method: str, url: str, max_retries: int = 5, **kwargs) -> requests.Response:
-    """HTTP request with exponential backoff on 429 rate limits."""
+    """HTTP request with exponential backoff on 429/502/503 errors."""
     for attempt in range(max_retries):
         resp = requests.request(method, url, **kwargs)
         if resp.status_code == 429:
             wait = min(2 ** attempt * 2, 60)
             log.warning(f"Rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+            time.sleep(wait)
+            continue
+        if resp.status_code in (502, 503):
+            wait = min(2 ** attempt * 2, 60)
+            log.warning(f"Server error ({resp.status_code}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
             time.sleep(wait)
             continue
         return resp
@@ -93,7 +98,8 @@ class HubSpotResource(ConfigurableResource):
         properties: list[str] | None = None,
     ) -> Iterator[list[dict]]:
         """Incremental load via Search API — 10k limit OK for hourly deltas."""
-        url = f"{BASE_URL}/crm/objects/{API_VERSION}/{object_type}/search"
+        # Search API only supports /crm/v3/ path, not the date-versioned path
+        url = f"{BASE_URL}/crm/v3/objects/{object_type}/search"
         filters = [{
             "propertyName": "lastmodifieddate",
             "operator": "GTE",
