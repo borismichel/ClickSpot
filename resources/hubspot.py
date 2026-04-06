@@ -14,18 +14,13 @@ def _request_with_retry(method: str, url: str, max_retries: int = 5, **kwargs) -
     """HTTP request with exponential backoff on 429/502/503 errors."""
     for attempt in range(max_retries):
         resp = requests.request(method, url, **kwargs)
-        if resp.status_code == 429:
+        if resp.status_code in (429, 502, 503):
             wait = min(2 ** attempt * 2, 60)
-            log.warning(f"Rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
-            time.sleep(wait)
-            continue
-        if resp.status_code in (502, 503):
-            wait = min(2 ** attempt * 2, 60)
-            log.warning(f"Server error ({resp.status_code}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+            log.warning(f"HTTP {resp.status_code}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
             time.sleep(wait)
             continue
         return resp
-    return resp  # return last response even if still 429
+    return resp
 
 
 class HubSpotResource(ConfigurableResource):
@@ -34,44 +29,40 @@ class HubSpotResource(ConfigurableResource):
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.access_token}"}
 
+    def _crm_url(self, *segments: str) -> str:
+        """Build a CRM API URL: /crm/objects/{API_VERSION}/{segments...}"""
+        return f"{BASE_URL}/crm/objects/{API_VERSION}/{'/'.join(segments)}"
+
+    def _assoc_url(self, *segments: str) -> str:
+        """Build an associations API URL: /crm/associations/{API_VERSION}/{segments...}"""
+        return f"{BASE_URL}/crm/associations/{API_VERSION}/{'/'.join(segments)}"
+
     def _get_all_properties(self, object_type: str) -> list[str]:
         """Fetch all property names for an object type."""
-        url = f"{BASE_URL}/crm/objects/{API_VERSION}/{object_type}/properties"
+        url = self._crm_url(object_type, "properties")
         resp = _request_with_retry("GET", url, headers=self._headers())
         resp.raise_for_status()
         data = resp.json()
-        # API 2026-03 returns a flat list of property name strings;
-        # older versions returned {"results": [{"name": "..."}]}.
         if isinstance(data, list):
             return data
         return [p["name"] for p in data.get("results", [])]
 
+    # ------------------------------------------------------------------
+    # CRM object listing (always full load — ReplacingMergeTree deduplicates)
+    # ------------------------------------------------------------------
+
     def fetch_crm_objects_batched(
         self,
         object_type: str,
-        since: datetime | None = None,
         batch_size: int = 100,
     ) -> Iterator[list[dict]]:
-        """Fetch CRM objects, choosing the right API automatically.
+        """Full load via List API. No 10k limit, no Search API dependency.
 
-        - Full load (since=None): Uses the List API (no 10k limit).
-        - Incremental (since set): Uses the Search API with lastmodifieddate filter.
-
-        Yields lists (batches) of raw API response dicts.
-        Sleeps 0.1s between pages to stay within the 150 req/10s rate limit.
+        ReplacingMergeTree in ClickHouse handles deduplication by _record_id,
+        so full loads are safe and idempotent on every run.
         """
         properties = self._get_all_properties(object_type)
-        if since:
-            yield from self._fetch_crm_search(object_type, since, batch_size, properties)
-        else:
-            yield from self._fetch_crm_list(object_type, batch_size, properties)
-
-    def _fetch_crm_list(
-        self, object_type: str, batch_size: int = 100,
-        properties: list[str] | None = None,
-    ) -> Iterator[list[dict]]:
-        """Full load via GET /crm/objects/{version}/{type} — no 10k limit."""
-        url = f"{BASE_URL}/crm/objects/{API_VERSION}/{object_type}"
+        url = self._crm_url(object_type)
         params: dict = {"limit": batch_size}
         if properties:
             params["properties"] = ",".join(properties)
@@ -85,53 +76,34 @@ class HubSpotResource(ConfigurableResource):
             if results:
                 yield results
 
-            next_after = (
-                (data.get("paging") or {}).get("next", {}).get("after")
-            )
+            next_after = (data.get("paging") or {}).get("next", {}).get("after")
             if not next_after:
                 break
             params["after"] = next_after
             time.sleep(0.1)
 
-    def _fetch_crm_search(
-        self, object_type: str, since: datetime, batch_size: int = 100,
-        properties: list[str] | None = None,
-    ) -> Iterator[list[dict]]:
-        """Incremental load via Search API — 10k limit OK for hourly deltas."""
-        # Search API only supports /crm/v3/ path, not the date-versioned path
-        url = f"{BASE_URL}/crm/v3/objects/{object_type}/search"
-        filters = [{
-            "propertyName": "lastmodifieddate",
-            "operator": "GTE",
-            "value": str(int(since.timestamp() * 1000)),
-        }]
+    # ------------------------------------------------------------------
+    # Associations
+    # ------------------------------------------------------------------
 
-        after = None
+    def fetch_all_object_ids(self, object_type: str) -> list[str]:
+        """Fetch all record IDs for an object type (for association lookups)."""
+        url = self._crm_url(object_type)
+        params: dict = {"limit": 100}
+        ids: list[str] = []
+
         while True:
-            body: dict = {
-                "filterGroups": [{"filters": filters}],
-                "limit": batch_size,
-            }
-            if properties:
-                body["properties"] = properties
-            if after:
-                body["after"] = after
-
-            resp = _request_with_retry("POST", url, headers=self._headers(), json=body)
+            resp = _request_with_retry("GET", url, headers=self._headers(), params=params)
             resp.raise_for_status()
             data = resp.json()
-
-            results = data.get("results", [])
-            if results:
-                yield results
-
-            next_after = (
-                (data.get("paging") or {}).get("next", {}).get("after")
-            )
+            for r in data.get("results", []):
+                ids.append(str(r["id"]))
+            next_after = (data.get("paging") or {}).get("next", {}).get("after")
             if not next_after:
                 break
-            after = next_after
+            params["after"] = next_after
             time.sleep(0.1)
+        return ids
 
     def fetch_associations_batched(
         self,
@@ -144,10 +116,7 @@ class HubSpotResource(ConfigurableResource):
 
         Yields lists of dicts: {from_id, to_id, association_type}.
         """
-        url = (
-            f"{BASE_URL}/crm/associations/{API_VERSION}"
-            f"/{from_type}/{to_type}/batch/read"
-        )
+        url = self._assoc_url(from_type, to_type, "batch/read")
 
         for i in range(0, len(object_ids), batch_size):
             chunk = object_ids[i : i + batch_size]
@@ -177,12 +146,20 @@ class HubSpotResource(ConfigurableResource):
                 yield rows
             time.sleep(0.1)
 
-    def fetch_owners(self, batch_size: int = 100) -> Iterator[list[dict]]:
-        """Fetch all owners via GET /crm/v3/owners.
+    def fetch_association_types(self, from_type: str, to_type: str) -> list[dict]:
+        """Fetch association type metadata between two object types."""
+        url = self._assoc_url(from_type, to_type, "labels")
+        resp = _request_with_retry("GET", url, headers=self._headers())
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("results", [])
 
-        Owners have a flat JSON structure (no properties map).
-        Yields lists of owner dicts with id, email, firstName, lastName, etc.
-        """
+    # ------------------------------------------------------------------
+    # Owners (flat JSON, no properties map)
+    # ------------------------------------------------------------------
+
+    def fetch_owners(self, batch_size: int = 100) -> Iterator[list[dict]]:
+        """Fetch all owners. Flat JSON structure (no properties map)."""
         url = f"{BASE_URL}/crm/v3/owners"
         params: dict = {"limit": batch_size}
 
@@ -195,46 +172,31 @@ class HubSpotResource(ConfigurableResource):
             if results:
                 yield results
 
-            next_after = (
-                (data.get("paging") or {}).get("next", {}).get("after")
-            )
+            next_after = (data.get("paging") or {}).get("next", {}).get("after")
             if not next_after:
                 break
             params["after"] = next_after
             time.sleep(0.1)
 
-    def fetch_all_object_ids(self, object_type: str) -> list[str]:
-        """Fetch all record IDs for an object type (for association lookups)."""
-        ids = []
-        for batch in self._fetch_crm_list(object_type, batch_size=100):
-            for r in batch:
-                ids.append(str(r["id"]))
-        return ids
+    # ------------------------------------------------------------------
+    # Property metadata (for semantic layer)
+    # ------------------------------------------------------------------
 
     def fetch_properties(self, object_type: str) -> list[dict]:
         """Fetch full property metadata for an object type.
 
-        GET /crm/v3/properties/{objectType}
         Returns list of dicts with: name, label, description, type, fieldType,
         groupName, options (for enumerations), etc.
         """
-        url = f"{BASE_URL}/crm/v3/properties/{object_type}"
+        url = self._crm_url(object_type, "properties")
         resp = _request_with_retry("GET", url, headers=self._headers())
         resp.raise_for_status()
         data = resp.json()
-        return data.get("results", []) if isinstance(data, dict) else data
+        return data if isinstance(data, list) else data.get("results", [])
 
-    def fetch_association_types(self, from_type: str, to_type: str) -> list[dict]:
-        """Fetch association type metadata between two object types.
-
-        GET /crm/v4/associations/{from}/{to}/labels
-        Returns list of dicts with: typeId, label, category.
-        """
-        url = f"{BASE_URL}/crm/v4/associations/{from_type}/{to_type}/labels"
-        resp = _request_with_retry("GET", url, headers=self._headers())
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("results", [])
+    # ------------------------------------------------------------------
+    # Marketing endpoints
+    # ------------------------------------------------------------------
 
     def fetch_marketing_list(
         self,
@@ -243,11 +205,7 @@ class HubSpotResource(ConfigurableResource):
         params: dict | None = None,
         since: datetime | None = None,
     ) -> Iterator[list[dict]]:
-        """Paginate a marketing REST list endpoint.
-
-        Yields lists of result dicts. Handles the standard HubSpot
-        `paging.next.after` cursor pattern.
-        """
+        """Paginate a marketing REST list endpoint."""
         url = f"{BASE_URL}{path}"
         p = dict(params or {})
         if since:
@@ -262,9 +220,7 @@ class HubSpotResource(ConfigurableResource):
             if results:
                 yield results
 
-            next_after = (
-                (data.get("paging") or {}).get("next", {}).get("after")
-            )
+            next_after = (data.get("paging") or {}).get("next", {}).get("after")
             if not next_after:
                 break
             p["after"] = next_after

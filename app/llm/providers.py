@@ -19,6 +19,36 @@ from app.semantic.layer import SemanticLayer, load_cache
 
 log = logging.getLogger("app.llm")
 
+
+def _extract_json_object(text: str) -> str:
+    """Extract the first complete JSON object from text, ignoring trailing content."""
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return text[start:]
+
+
 # Shared schema prompt — built once, reused across requests
 _schema_prompt: str | None = None
 _semantic_layer: SemanticLayer | None = None
@@ -228,6 +258,9 @@ Respond with ONLY a JSON object (no markdown, no code fences) with these exact f
             lines = output.split("\n")
             lines = [l for l in lines if not l.startswith("```")]
             output = "\n".join(lines).strip()
+
+        # Extract the JSON object even if trailing text exists
+        output = _extract_json_object(output)
 
         return ChatSQLResponse.model_validate_json(output)
 

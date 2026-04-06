@@ -50,8 +50,8 @@ def test_fetch_crm_full_load_uses_versioned_list_api(mock_request, mock_sleep):
 
 @patch("resources.hubspot.time.sleep")
 @patch("resources.hubspot.requests.request")
-def test_fetch_crm_search_uses_versioned_api(mock_request, mock_sleep):
-    """Incremental load uses the versioned Search API with all properties."""
+def test_fetch_crm_always_uses_list_api(mock_request, mock_sleep):
+    """Full load always uses the List API (no Search API dependency)."""
     props_resp = _mock_properties_response()
 
     resp = MagicMock()
@@ -61,19 +61,16 @@ def test_fetch_crm_search_uses_versioned_api(mock_request, mock_sleep):
 
     mock_request.side_effect = [props_resp, resp]
 
-    since = datetime(2024, 1, 15, 12, 0, 0)
     res = make_resource()
-    batches = list(res.fetch_crm_objects_batched("contacts", since=since))
+    batches = list(res.fetch_crm_objects_batched("contacts"))
 
     assert batches == [[{"id": "1"}]]
-    # First call is properties (GET), second is search (POST)
+    # First call is properties (GET), second is list (GET)
+    call_method = mock_request.call_args_list[1][0][0]
     call_url = mock_request.call_args_list[1][0][1]
-    assert f"crm/objects/{API_VERSION}/contacts/search" in call_url
-
-    body = mock_request.call_args_list[1][1]["json"]
-    assert body["filterGroups"][0]["filters"][0]["operator"] == "GTE"
-    assert body["filterGroups"][0]["filters"][0]["propertyName"] == "lastmodifieddate"
-    assert body["properties"] == ["email", "firstname"]
+    assert call_method == "GET"
+    assert f"crm/objects/{API_VERSION}/contacts" in call_url
+    assert "search" not in call_url
 
 
 # --- Marketing list ---

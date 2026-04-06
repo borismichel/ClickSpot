@@ -1,36 +1,25 @@
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 
 def _json_default(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 from dagster import asset, AssetExecutionContext, MaterializeResult, MetadataValue
 
 from resources.hubspot import HubSpotResource
 from resources.clickhouse import ClickHouseResource
 
 
-def _get_high_water_mark(context: AssetExecutionContext) -> datetime | None:
-    """Read high-water mark from the last successful materialization metadata."""
-    event = context.instance.get_latest_materialization_event(context.asset_key)
-    if event and event.asset_materialization:
-        meta = event.asset_materialization.metadata
-        if "high_water_mark" in meta:
-            hwm = datetime.fromisoformat(meta["high_water_mark"].value)
-            return hwm - timedelta(minutes=5)
-    return None
-
-
 def _make_crm_asset(object_type: str, table: str):
     @asset(name=table, group_name="bronze")
     def _asset(context: AssetExecutionContext, hubspot: HubSpotResource, ch: ClickHouseResource):
-        since = _get_high_water_mark(context)
         run_start = datetime.utcnow()
         records_written = 0
 
-        for batch in hubspot.fetch_crm_objects_batched(object_type, since=since):
+        for batch in hubspot.fetch_crm_objects_batched(object_type):
             rows = [
                 (
                     str(r["id"]),
@@ -42,9 +31,9 @@ def _make_crm_asset(object_type: str, table: str):
             ]
             records_written += ch.insert_records(table, rows)
 
+        context.log.info(f"{table}: {records_written} records written")
         yield MaterializeResult(
             metadata={
-                "high_water_mark": MetadataValue.text(run_start.isoformat()),
                 "records_written": MetadataValue.int(records_written),
                 "object_type": MetadataValue.text(object_type),
             }
@@ -77,9 +66,9 @@ def hs_owners(context: AssetExecutionContext, hubspot: HubSpotResource, ch: Clic
         ]
         records_written += ch.insert_records("hs_owners", rows)
 
+    context.log.info(f"hs_owners: {records_written} records written")
     yield MaterializeResult(
         metadata={
-            "high_water_mark": MetadataValue.text(run_start.isoformat()),
             "records_written": MetadataValue.int(records_written),
         }
     )
