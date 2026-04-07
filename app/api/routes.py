@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter
 
-from app import db
+from app.db import async_query_rows, async_query_value
 from app.config import GRAPH_EDGES, REFERENCE_JOINS, TABLES
 from app.engine.graph import AssociativeGraph
 from app.engine.propagator import Propagator
@@ -29,7 +29,7 @@ propagator = Propagator(graph)
 
 
 @router.post("/query", response_model=QueryResponse)
-def query(req: QueryRequest) -> QueryResponse:
+async def query(req: QueryRequest) -> QueryResponse:
     t0 = time.time()
     state = SelectionState(selections=req.selections)
 
@@ -44,7 +44,7 @@ def query(req: QueryRequest) -> QueryResponse:
             pk = graph.primary_key(table)
             sql = sql_builder.build_count_query(table, pk, reachable.get(table))
             try:
-                response.reachable_counts[table] = int(db.query_value(sql))
+                response.reachable_counts[table] = int(await async_query_value(sql))
             except Exception as e:
                 log.warning(f"Count query failed for {table}: {e}")
                 response.reachable_counts[table] = 0
@@ -61,7 +61,7 @@ def query(req: QueryRequest) -> QueryResponse:
             possible_sql = sql_builder.build_field_values_query(
                 table, column, pk, id_filter
             )
-            possible_rows = db.query_rows(possible_sql)
+            possible_rows = await async_query_rows(possible_sql)
             possible_values = {str(r["value"]) for r in possible_rows}
             possible = [
                 FieldValueItem(value=str(r["value"]), count=int(r["cnt"]))
@@ -72,7 +72,7 @@ def query(req: QueryRequest) -> QueryResponse:
             excluded = []
             if id_filter:
                 all_sql = sql_builder.build_field_values_query(table, column, pk, None)
-                all_rows = db.query_rows(all_sql)
+                all_rows = await async_query_rows(all_sql)
                 excluded = [
                     FieldValueItem(value=str(r["value"]), count=int(r["cnt"]))
                     for r in all_rows
@@ -104,7 +104,7 @@ def query(req: QueryRequest) -> QueryResponse:
                 m.table, m.column, m.agg, pk, id_filter
             )
         try:
-            val = db.query_value(sql)
+            val = await async_query_value(sql)
             key = f"{m.table}.{m.column}.{m.agg}"
             response.measures[key] = float(val) if val is not None else None
         except Exception as e:
@@ -123,7 +123,7 @@ def query(req: QueryRequest) -> QueryResponse:
             date_from=req.date_from, date_to=req.date_to,
         )
         try:
-            rows = db.query_rows(sql)
+            rows = await async_query_rows(sql)
             key = f"{gm.table}.{gm.column}.{gm.agg}.by.{','.join(gm.group_by)}"
             response.grouped_measures[key] = [
                 GroupedMeasureItem(
@@ -148,7 +148,7 @@ def query(req: QueryRequest) -> QueryResponse:
             pk, id_filter, ts.date_from, ts.date_to,
         )
         try:
-            rows = db.query_rows(sql)
+            rows = await async_query_rows(sql)
             key = f"{ts.table}.{ts.measure_column}.{ts.agg}.by.{ts.date_column}.{ts.granularity}"
             response.time_series[key] = [
                 TimeSeriesItem(
@@ -195,7 +195,7 @@ def query(req: QueryRequest) -> QueryResponse:
         final = sql_builder._table_final(table)
         sql = f"SELECT {metric['sql']} FROM {ref} {final} WHERE {where}".replace("  ", " ")
         try:
-            val = db.query_value(sql)
+            val = await async_query_value(sql)
             response.computed_metrics[metric_name] = float(val) if val is not None else None
         except Exception as e:
             log.warning(f"Computed metric {metric_name} failed: {e}")
@@ -214,8 +214,8 @@ def query(req: QueryRequest) -> QueryResponse:
             )
             count_sql = sql_builder.build_list_count_query(table, pk, id_filter)
 
-            rows = db.query_rows(rows_sql)
-            total = int(db.query_value(count_sql))
+            rows = await async_query_rows(rows_sql)
+            total = int(await async_query_value(count_sql))
 
             response.lists[table] = ListResponse(rows=rows, total=total)
         except Exception as e:
@@ -254,14 +254,14 @@ def metrics_catalog() -> dict:
 
 
 @router.get("/metadata", response_model=MetadataResponse)
-def metadata() -> MetadataResponse:
+async def metadata() -> MetadataResponse:
     row_counts = {}
     loaded_at = {}
 
     for table in TABLES:
         ref = sql_builder._table_ref(table)
         try:
-            row_counts[table] = int(db.query_value(
+            row_counts[table] = int(await async_query_value(
                 f"SELECT count() FROM {ref} FINAL"
             ))
         except Exception:
@@ -271,7 +271,7 @@ def metadata() -> MetadataResponse:
             # Silver tables have _silver_loaded_at, gold tables have _gold_loaded_at
             meta = TABLES[table]
             ts_col = "_gold_loaded_at" if meta.get("database") == "gold" else "_silver_loaded_at"
-            ts = db.query_value(
+            ts = await async_query_value(
                 f"SELECT max({ts_col}) FROM {ref}"
             )
             loaded_at[table] = str(ts) if ts else ""

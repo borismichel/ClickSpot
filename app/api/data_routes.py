@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.db import query_rows, query_value, async_query_rows, async_query_value
+from app.db import async_query_rows, async_query_value
 
 router = APIRouter(prefix="/api/v1")
 
@@ -23,13 +23,13 @@ _FORBIDDEN = re.compile(
 # ------------------------------------------------------------------
 
 @router.get("/tables")
-def list_tables():
+async def list_tables():
     """List all tables across bronze, silver, gold databases."""
     result = {}
     for db in _ALLOWED_DATABASES:
         try:
-            rows = query_rows(f"SHOW TABLES FROM {db}")
-            tables = [r[next(iter(r))] for r in rows]  # first column value
+            rows = await async_query_rows(f"SHOW TABLES FROM {db}")
+            tables = [r[next(iter(r))] for r in rows]
             result[db] = sorted(tables)
         except Exception:
             result[db] = []
@@ -37,7 +37,7 @@ def list_tables():
 
 
 @router.get("/tables/{database}/{table}")
-def describe_table(database: str, table: str):
+async def describe_table(database: str, table: str):
     """Get column info and sample rows for a table."""
     if database not in _ALLOWED_DATABASES:
         raise HTTPException(400, f"Database must be one of: {_ALLOWED_DATABASES}")
@@ -50,7 +50,7 @@ def describe_table(database: str, table: str):
 
     # Get columns
     try:
-        cols = query_rows(f"DESCRIBE TABLE {ref}")
+        cols = await async_query_rows(f"DESCRIBE TABLE {ref}")
     except Exception as e:
         raise HTTPException(404, f"Table not found: {ref}")
 
@@ -61,13 +61,13 @@ def describe_table(database: str, table: str):
 
     # Row count
     try:
-        count = int(query_value(f"SELECT count() FROM {ref}"))
+        count = int(await async_query_value(f"SELECT count() FROM {ref}"))
     except Exception:
         count = 0
 
     # Sample rows (first 50)
     try:
-        sample = query_rows(f"SELECT * FROM {ref} LIMIT 50")
+        sample = await async_query_rows(f"SELECT * FROM {ref} LIMIT 50")
     except Exception:
         sample = []
 
