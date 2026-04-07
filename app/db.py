@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _client = None
-_async_client = None
 
 
 def _conn_kwargs() -> dict:
@@ -30,15 +29,6 @@ def get_client():
     return _client
 
 
-def get_async_client():
-    global _async_client
-    if _async_client is None:
-        # Async client defaults to autogenerate_session_id=False,
-        # so concurrent queries don't conflict.
-        _async_client = clickhouse_connect.get_async_client(**_conn_kwargs())
-    return _async_client
-
-
 # --- Sync (used by legacy /api/v1/query route) ---
 
 def query_value(sql: str):
@@ -54,16 +44,18 @@ def query_rows(sql: str) -> list[dict]:
 
 
 # --- Async (used by /api/v1/sql, /api/v1/chat, dashboard) ---
+# Each call creates a fresh client to avoid ClickHouse's
+# "concurrent queries within the same session" restriction.
 
 async def async_query_value(sql: str):
     """Execute SQL and return a single scalar value (async)."""
-    client = get_async_client()
+    client = clickhouse_connect.get_async_client(**_conn_kwargs())
     return await client.command(sql)
 
 
 async def async_query_rows(sql: str) -> list[dict]:
     """Execute SQL and return rows as list of dicts (async)."""
-    client = get_async_client()
+    client = clickhouse_connect.get_async_client(**_conn_kwargs())
     result = await client.query(sql)
     columns = result.column_names
     return [dict(zip(columns, row)) for row in result.result_rows]
