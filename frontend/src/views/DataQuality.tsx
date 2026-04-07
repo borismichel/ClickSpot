@@ -151,7 +151,7 @@ export default function DataQuality({ queryData, queryLoading }: ViewProps) {
                   prefix={kpi.icon}
                   precision={0}
                   loading={queryLoading}
-                  valueStyle={isCritical ? { color: "#ff4d4f" } : undefined}
+                  styles={isCritical ? { content: { color: "#ff4d4f" } } : undefined}
                 />
               </Card>
             </Col>

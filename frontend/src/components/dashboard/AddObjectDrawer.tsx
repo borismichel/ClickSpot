@@ -1,4 +1,4 @@
-import { Drawer, List, Button, Tag, Typography, Empty } from "antd";
+import { Drawer, Button, Tag, Typography, Empty } from "antd";
 import { PlusOutlined, CheckOutlined } from "@ant-design/icons";
 import type { SavedObject, DashboardItem } from "../../types/dashboard";
 
@@ -26,7 +26,7 @@ export function AddObjectDrawer({ open, onClose, objects, dashboardItems, onAdd 
       title="Add to Dashboard"
       open={open}
       onClose={onClose}
-      width={400}
+      styles={{ wrapper: { width: 400 } }}
     >
       {objects.length === 0 ? (
         <Empty
@@ -34,15 +34,32 @@ export function AddObjectDrawer({ open, onClose, objects, dashboardItems, onAdd 
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
-        <List
-          dataSource={objects}
-          renderItem={(obj) => {
+        <div>
+          {objects.map((obj) => {
             const isAdded = addedIds.has(obj.id);
             return (
-              <List.Item
-                actions={[
-                  isAdded ? (
-                    <Button size="small" disabled icon={<CheckOutlined />} key="added">
+              <div
+                key={obj.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "12px 0",
+                  borderBottom: "1px solid #f0f0f0",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div>
+                    {obj.title}{" "}
+                    <Tag color={VIZ_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
+                  </div>
+                  <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
+                    {obj.sql.slice(0, 80)}...
+                  </Typography.Text>
+                </div>
+                <div style={{ marginLeft: 12 }}>
+                  {isAdded ? (
+                    <Button size="small" disabled icon={<CheckOutlined />}>
                       Added
                     </Button>
                   ) : (
@@ -51,30 +68,15 @@ export function AddObjectDrawer({ open, onClose, objects, dashboardItems, onAdd 
                       type="primary"
                       icon={<PlusOutlined />}
                       onClick={() => onAdd(obj.id)}
-                      key="add"
                     >
                       Add
                     </Button>
-                  ),
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <span>
-                      {obj.title}{" "}
-                      <Tag color={VIZ_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
-                    </span>
-                  }
-                  description={
-                    <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
-                      {obj.sql.slice(0, 80)}...
-                    </Typography.Text>
-                  }
-                />
-              </List.Item>
+                  )}
+                </div>
+              </div>
             );
-          }}
-        />
+          })}
+        </div>
       )}
     </Drawer>
   );

@@ -136,7 +136,7 @@ export default function DashboardPage() {
             style={{ width: 200 }}
             placeholder="Select dashboard"
             options={dashboards.map((d) => ({ label: d.title, value: d.id }))}
-            dropdownRender={(menu) => (
+            popupRender={(menu) => (
               <>
                 {menu}
                 <Button

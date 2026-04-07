@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Layout, Button, List, Tag, Typography, Empty, Modal, Popconfirm, Space } from "antd";
+import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, EyeOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useObjectRepo } from "../hooks/useObjectRepo";
@@ -85,22 +85,44 @@ export default function ObjectLibraryPage() {
             </Empty>
           </div>
         ) : (
-          <List
-            dataSource={objects}
-            renderItem={(obj) => (
-              <List.Item
-                style={{ background: "#fff", padding: "12px 16px", marginBottom: 8, borderRadius: 8 }}
-                actions={[
+          <div>
+            {objects.map((obj) => (
+              <div
+                key={obj.id}
+                style={{
+                  background: "#fff",
+                  padding: "12px 16px",
+                  marginBottom: 8,
+                  borderRadius: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div>
+                    {obj.title}{" "}
+                    <Tag color={VIZ_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
+                  </div>
+                  <div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      Saved {new Date(obj.savedAt).toLocaleDateString()}
+                    </Typography.Text>
+                    <br />
+                    <Typography.Text code ellipsis style={{ maxWidth: 500, fontSize: 11 }}>
+                      {obj.sql.slice(0, 120)}
+                    </Typography.Text>
+                  </div>
+                </div>
+                <Space>
                   <Button
-                    key="preview"
                     type="text"
                     icon={<EyeOutlined />}
                     onClick={() => handlePreview(obj)}
                   >
                     Preview
-                  </Button>,
+                  </Button>
                   <Popconfirm
-                    key="delete"
                     title="Remove from library?"
                     description="This will also remove it from any dashboards."
                     onConfirm={() => removeObject(obj.id)}
@@ -108,31 +130,11 @@ export default function ObjectLibraryPage() {
                     <Button type="text" icon={<DeleteOutlined />} danger>
                       Delete
                     </Button>
-                  </Popconfirm>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <span>
-                      {obj.title}{" "}
-                      <Tag color={VIZ_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
-                    </span>
-                  }
-                  description={
-                    <>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        Saved {new Date(obj.savedAt).toLocaleDateString()}
-                      </Typography.Text>
-                      <br />
-                      <Typography.Text code ellipsis style={{ maxWidth: 500, fontSize: 11 }}>
-                        {obj.sql.slice(0, 120)}
-                      </Typography.Text>
-                    </>
-                  }
-                />
-              </List.Item>
-            )}
-          />
+                  </Popconfirm>
+                </Space>
+              </div>
+            ))}
+          </div>
         )}
       </Content>
 

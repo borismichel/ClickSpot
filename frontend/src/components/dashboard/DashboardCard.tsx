@@ -94,7 +94,7 @@ export function DashboardCard({ object, refreshKey, onRemove }: Props) {
       ) : error ? (
         <Alert
           type="error"
-          message={error}
+          title={error}
           showIcon
           action={
             <Button size="small" onClick={fetchData}>

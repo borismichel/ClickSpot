@@ -47,7 +47,7 @@ export function ContextBar({ kpis }: Props) {
               formatter={typeof display === "string" ? () => display : undefined}
               prefix={prefix || undefined}
               suffix={suffix || undefined}
-              valueStyle={{ fontSize: 20 }}
+              styles={{ content: { fontSize: 20 } }}
             />
           </Card>
         );
