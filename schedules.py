@@ -1,8 +1,8 @@
 from dagster import ScheduleDefinition, DefaultScheduleStatus
-from jobs import full_pipeline_job
+from jobs import bronze_job
 
 hourly_schedule = ScheduleDefinition(
-    job=full_pipeline_job,
+    job=bronze_job,
     cron_schedule="0 * * * *",
     default_status=DefaultScheduleStatus.STOPPED,
 )

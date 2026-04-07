@@ -21,8 +21,9 @@ from assets.associations import (
 )
 from assets.silver import all_silver_assets
 from assets.gold import all_gold_assets
-from jobs import bronze_job, silver_job, gold_job, full_pipeline_job
+from jobs import bronze_job, silver_job, gold_job
 from schedules import hourly_schedule
+from sensors import trigger_silver_after_bronze, trigger_gold_after_silver
 from resources.hubspot import HubSpotResource
 from resources.clickhouse import ClickHouseResource
 
@@ -49,8 +50,9 @@ all_assets = [
 
 defs = Definitions(
     assets=all_assets,
-    jobs=[bronze_job, silver_job, gold_job, full_pipeline_job],
+    jobs=[bronze_job, silver_job, gold_job],
     schedules=[hourly_schedule],
+    sensors=[trigger_silver_after_bronze, trigger_gold_after_silver],
     resources={
         "hubspot": HubSpotResource(
             access_token=os.environ["HUBSPOT_TOKEN"],

@@ -130,7 +130,11 @@ SELECT
     d.pipeline,
     COALESCE(d.pipeline_label, '') AS pipeline_label,
     d.hubspot_owner_id,
-    COALESCE(d.owner_name, '') AS owner_name,
+    concat(
+        dictGet('silver.dict_owners', 'first_name', tuple(d.hubspot_owner_id)),
+        ' ',
+        dictGet('silver.dict_owners', 'last_name', tuple(d.hubspot_owner_id))
+    ) AS owner_name,
     d.amount,
     d.hs_is_closed,
     d.hs_is_closed_won,
@@ -232,7 +236,11 @@ ORDER BY (hubspot_owner_id, period_start)
 INSERT INTO gold.{tmp}
 SELECT
     d.hubspot_owner_id,
-    COALESCE(d.owner_name, '') AS owner_name,
+    concat(
+        dictGet('silver.dict_owners', 'first_name', tuple(d.hubspot_owner_id)),
+        ' ',
+        dictGet('silver.dict_owners', 'last_name', tuple(d.hubspot_owner_id))
+    ) AS owner_name,
     toStartOfMonth(d.createdate) AS period_start,
     countIf(d.hs_is_closed_won = 'true') AS deals_won,
     countIf(d.hs_is_closed = 'true' AND d.hs_is_closed_won != 'true') AS deals_lost,
@@ -266,7 +274,7 @@ LEFT JOIN (
 ) act ON d.hubspot_owner_id = act.hubspot_owner_id
     AND toStartOfMonth(d.createdate) = act.period_start
 WHERE d.archived = 0 AND d.hubspot_owner_id != '' AND d.createdate > '1970-01-02'
-GROUP BY d.hubspot_owner_id, d.owner_name, toStartOfMonth(d.createdate),
+GROUP BY d.hubspot_owner_id, owner_name, toStartOfMonth(d.createdate),
     act.calls_count, act.meetings_count, act.emails_count, act.tasks_count, act.total_activities
 """.strip())
 
