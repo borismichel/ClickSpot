@@ -1,5 +1,6 @@
 """ClickHouse connection for the analytics app."""
 
+import asyncio
 import os
 import clickhouse_connect
 from dotenv import load_dotenv
@@ -44,18 +45,32 @@ def query_rows(sql: str) -> list[dict]:
 
 
 # --- Async (used by /api/v1/sql, /api/v1/chat, dashboard) ---
-# Each call creates a fresh client to avoid ClickHouse's
-# "concurrent queries within the same session" restriction.
+# Each call creates a fresh sync client via create_client (no caching)
+# and runs it in a thread. This guarantees no shared session/connection.
+
+def _isolated_query_rows(sql: str) -> list[dict]:
+    client = clickhouse_connect.create_client(**_conn_kwargs(), autogenerate_session_id=False)
+    try:
+        result = client.query(sql)
+        columns = result.column_names
+        return [dict(zip(columns, row)) for row in result.result_rows]
+    finally:
+        client.close()
+
+
+def _isolated_query_value(sql: str):
+    client = clickhouse_connect.create_client(**_conn_kwargs(), autogenerate_session_id=False)
+    try:
+        return client.command(sql)
+    finally:
+        client.close()
+
 
 async def async_query_value(sql: str):
-    """Execute SQL and return a single scalar value (async)."""
-    client = clickhouse_connect.get_async_client(**_conn_kwargs())
-    return await client.command(sql)
+    """Execute SQL and return a single scalar value (async, isolated client)."""
+    return await asyncio.to_thread(_isolated_query_value, sql)
 
 
 async def async_query_rows(sql: str) -> list[dict]:
-    """Execute SQL and return rows as list of dicts (async)."""
-    client = clickhouse_connect.get_async_client(**_conn_kwargs())
-    result = await client.query(sql)
-    columns = result.column_names
-    return [dict(zip(columns, row)) for row in result.result_rows]
+    """Execute SQL and return rows as list of dicts (async, isolated client)."""
+    return await asyncio.to_thread(_isolated_query_rows, sql)
