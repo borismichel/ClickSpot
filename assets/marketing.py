@@ -81,11 +81,11 @@ def hs_form_submissions(
                 props = {
                     "form_id": form_id,
                     "form_name": form_name,
-                    "submitted_at": str(sub.get("submittedAt", "")),
-                    "page_url": sub.get("pageUrl", ""),
+                    "submitted_at": str(sub.get("submittedAt") or ""),
+                    "page_url": str(sub.get("pageUrl") or ""),
                 }
                 for field in sub.get("values", []):
-                    props[field["name"]] = str(field.get("value", ""))
+                    props[field["name"]] = str(field.get("value") or "")
 
                 rows.append((
                     str(sub.get("conversionId", "")),

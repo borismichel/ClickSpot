@@ -76,7 +76,7 @@ class TestBuildInsert:
         assert "_record_id AS contact_id" in sql
         assert "properties['email']" in sql
         assert "parseDateTimeBestEffortOrZero(properties['hs_v2_date_entered_salesqualifiedlead'])" in sql
-        assert "FROM bronze.hs_contacts FINAL" in sql
+        assert "FROM bronze.hs_contacts" in sql
         assert "JSONExtractBool(_raw, 'archived')" in sql
 
     def test_json_source_insert(self):
@@ -85,7 +85,7 @@ class TestBuildInsert:
         assert "JSONExtractString(_raw, 'email')" in sql
         assert "JSONExtractString(_raw, 'firstName')" in sql
         assert "parseDateTimeBestEffortOrZero(JSONExtractString(_raw, 'createdAt'))" in sql
-        assert "FROM bronze.hs_owners FINAL" in sql
+        assert "FROM bronze.hs_owners" in sql
 
     def test_nullable_float_casting(self):
         sql = _build_insert("dim_deals", "deal_id", DIM_DEALS)
@@ -177,7 +177,7 @@ class TestConfigStructure:
         assert "bridge_lead_company" in bridge_names
 
     def test_valid_clickhouse_types(self):
-        valid_types = {"String", "DateTime", "Nullable(Float64)", "Nullable(Int64)", "UInt32", "UInt8"}
+        valid_types = {"String", "LowCardinality(String)", "DateTime", "Nullable(Float64)", "Nullable(Int64)", "UInt32", "UInt8"}
         for name, config in [
             ("contacts", DIM_CONTACTS), ("companies", DIM_COMPANIES),
             ("deals", DIM_DEALS), ("leads", DIM_LEADS),

@@ -35,6 +35,7 @@ Runs on http://localhost:8193. Proxies `/api` requests to the backend at http://
 ```
 /                → App (main chat interface)
 /architecture    → ArchitecturePage (system diagrams)
+/data            → DataExplorerPage (interactive table/query browser)
 ```
 
 Set up in `main.tsx` with `BrowserRouter` from React Router.
@@ -47,7 +48,7 @@ Set up in `main.tsx` with `BrowserRouter` from React Router.
 
 ```
 +-----------------------------------------------------+
-|  hs2ch            [Architecture]  [Schema]  [Settings]|
+|  HubSpot Analytics   [Data]  [Architecture]  [Settings]|
 +----------+------------------------------------------+
 | Sidebar  |                                          |
 |          |   Welcome! Ask me anything about your    |
@@ -142,7 +143,7 @@ Dispatches to the correct visualization based on the `viz` field.
 Large formatted number with label. Auto-detects currency (EUR) and percent formatting from column names.
 
 #### `ResultTable.tsx`
-Ant Design `Table` with sortable columns. Auto-formats currency, percent, and date columns based on column name heuristics.
+Ant Design `Table` with sortable columns. Auto-formats currency, percent, and date columns based on column name heuristics. Epoch dates (`1970-01-01`) are displayed as `"-"` since ClickHouse uses epoch as the default for empty DateTime values.
 
 #### `BarChart.tsx`
 Recharts `BarChart`. First string column = category axis, first numeric column = bar values. Supports currency formatting.
@@ -205,34 +206,30 @@ SVG diagram (900x440 viewBox) showing the query flow:
 Core chat state management.
 
 ```typescript
-const { messages, isLoading, error, sendMessage, clearMessages } = useChat();
+const { messages, isLoading, error, sendMessage, newChat, loadMessages } = useChat();
 ```
 
 - **`sendMessage(text)`** — Appends user message, calls `POST /api/v1/chat`, appends assistant response
-- **History management** — Sends last 10 exchanges as context (questions + SQL only, never results)
+- **`loadMessages(msgs)`** — Restores messages from a saved conversation (used when switching conversations in the sidebar)
+- **`newChat()`** — Clears all messages for a fresh conversation
+- **History management** — Sends conversation history as context (questions + SQL only, never results)
 - **Error handling** — Catches API errors and displays them inline
 
 ### `useConversations()`
-LocalStorage persistence for chat history.
+LocalStorage persistence for chat history. Conversations survive page refreshes and service restarts.
 
 ```typescript
 const {
   conversations,
   activeId,
-  createConversation,
-  updateConversation,
+  saveConversation,
+  loadConversation,
+  startNew,
   deleteConversation,
-  setActiveId,
 } = useConversations();
 ```
 
-Storage key: `hs2ch_conversations`. Each conversation stores `{id, title, messages, createdAt, updatedAt}`.
-
-### `useAnalyticsQuery()`
-Executes requests against the associative `POST /api/v1/query` endpoint. Used by the legacy dashboard views (still available but not the primary interface).
-
-### `useSelectionState()`
-Manages selection state for the associative engine. Tracks which values are selected across tables.
+Storage key: `hs2ch_conversations`. Each conversation stores `{id, title, messages, createdAt, updatedAt}`. Messages include full response data (SQL, results, viz type, context KPIs) so conversations are fully restorable.
 
 ---
 
@@ -316,8 +313,8 @@ The frontend auto-detects value formatting from column names:
 |---------------------|--------|---------|
 | `amount`, `arr`, `revenue`, `value`, `tcv` | EUR currency | `EUR 45,000` |
 | `rate` | Percentage | `35.2%` |
-| `date` | Date | `2026-04-15` |
-| `count`, `days` | Integer | `42` |
+| `days` | Days | `42 days` |
+| `date` (value = `1970-01-01*`) | Empty | `-` |
 | Everything else | Locale string | `1,234.56` |
 
 This heuristic-based approach means the LLM doesn't need to specify formatting — column names carry enough semantic information.

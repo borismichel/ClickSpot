@@ -7,71 +7,71 @@ CREATE DATABASE IF NOT EXISTS bronze;
 -- GRANT SELECT, INSERT, CREATE TABLE ON bronze.* TO hs2ch;
 
 CREATE TABLE IF NOT EXISTS bronze.hs_contacts
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_companies
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_deals
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_leads
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_calls
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_meetings
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_engagement_emails
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_notes
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_tasks
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_campaigns
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_forms
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_ads
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_marketing_emails
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_pipelines
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_owners
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_lead_pipelines
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 CREATE TABLE IF NOT EXISTS bronze.hs_form_submissions
-    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String)
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
 
 -- Silver database

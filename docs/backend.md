@@ -45,7 +45,7 @@ User selects: dim_deals.stage_label = 'Proposal'
 
 A bidirectional graph of all queryable tables and their relationships.
 
-**Nodes:** 14 tables (10 silver dims, 1 silver fact, 3 gold aggregates)
+**Nodes:** Silver dimensions, facts, and gold aggregates
 
 **Edge types:**
 - **Bridge edges:** N:M relationships via bridge tables (e.g., contacts <-> deals via `bridge_contact_deal`)
@@ -87,7 +87,7 @@ Generates ClickHouse SQL for all query types. Handles the differences between si
 
 #### Metrics Registry (`app/engine/metrics.py`)
 
-24 pre-defined computed metrics with SQL expressions, labels, and format hints.
+22 pre-defined computed metrics with SQL expressions, labels, and format hints.
 
 ```python
 COMPUTED_METRICS = {
@@ -97,7 +97,7 @@ COMPUTED_METRICS = {
         "table": "dim_deals",
         "sql": "countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0)",
     },
-    # ... 23 more
+    # ... 21 more
 }
 ```
 
@@ -174,7 +174,7 @@ Returns the full system metadata: table definitions, fields with types and displ
 
 #### `GET /api/v1/metrics-catalog`
 
-Returns the 24 computed metrics with labels, formats, and SQL.
+Returns the 22 computed metrics with labels, formats, and SQL.
 
 #### `GET /api/v1/metadata`
 
@@ -238,10 +238,10 @@ The system prompt sent to the LLM. Built from three sources:
 **Prompt sections:**
 1. **Rules** — ClickHouse SQL dialect, FINAL usage, archived filtering, date handling
 2. **Data model** — Entity descriptions and relationships
-3. **Dictionaries** — Available `dictGet()` lookups
-4. **Tables** — Full column schema with types and descriptions
-5. **Relationships** — Bridge tables and FK joins with key columns
-6. **Metrics** — 24 pre-defined metric SQL patterns
+3. **Dictionaries** — Available `dictGet()` lookups (auto-generated from `DICT_CONFIGS`)
+4. **Tables** — Full column schema with types and descriptions (~197 columns)
+5. **Relationships** — Bridge tables with key columns
+6. **Metrics** — 22 pre-defined metric SQL patterns
 7. **Business context** — Company details, pipeline names, team, currency
 8. **Examples** — Few-shot SQL examples for common question patterns
 9. **Output format** — JSON schema specification
@@ -262,7 +262,7 @@ Validates LLM-generated SQL before execution:
 
 Fetches HubSpot property metadata to enrich the schema prompt with human-readable labels and descriptions.
 
-**Scope:** Only properties that match columns in `silver_config.py` — typically ~80 columns. This prevents the LLM from hallucinating columns that don't exist in ClickHouse.
+**Scope:** Only properties that match columns in `silver_config.py` — ~197 columns across all dimensions. This prevents the LLM from hallucinating columns that don't exist in ClickHouse.
 
 **Cache:** Written to `~/.hs2ch/schema_cache.json`. Rebuilt via `POST /api/v1/schema/refresh`. Loaded from cache on startup — no HubSpot API calls on the hot path.
 

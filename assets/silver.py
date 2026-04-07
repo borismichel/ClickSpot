@@ -14,12 +14,11 @@ from silver_config import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers: dictionary lifecycle (drop before table DROP, recreate after INSERT)
+# Helpers: dictionary lifecycle + atomic table swap
 # ---------------------------------------------------------------------------
 
 def _drop_dependent_dicts(table_name: str, ch: ClickHouseResource, log) -> list[str]:
     """Drop dictionaries that depend on this table. Returns list of dict names dropped."""
-    # table_name is e.g. "dim_owners" — lookup in DICTIONARIES config
     if table_name not in DICTIONARIES:
         return []
     dict_name = "dict_" + table_name.removeprefix("dim_")
@@ -38,6 +37,21 @@ def _recreate_dicts(table_names: list[str], ch: ClickHouseResource, log):
             ch.execute_sql(ddl.strip())
 
 
+def _swap_table(ch: ClickHouseResource, table: str, log):
+    """Atomic swap: silver.{table}_tmp -> silver.{table}. Handles dict lifecycle."""
+    tmp = f"{table}_tmp"
+    # Ensure target exists (first run) — same schema as tmp
+    ch.execute_sql(f"CREATE TABLE IF NOT EXISTS silver.{table} AS silver.{tmp}")
+    # Drop dependent dicts before swap
+    dropped = _drop_dependent_dicts(table, ch, log)
+    # Atomic swap — zero downtime
+    log.info(f"EXCHANGE TABLES silver.{table} AND silver.{tmp}")
+    ch.execute_sql(f"EXCHANGE TABLES silver.{table} AND silver.{tmp}")
+    ch.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+    # Recreate dicts pointing at new data
+    _recreate_dicts(dropped, ch, log)
+
+
 # ---------------------------------------------------------------------------
 # Helpers: SQL generation from config
 # ---------------------------------------------------------------------------
@@ -49,21 +63,26 @@ def _cast_expr(prop_key: str, ch_type: str, source: str = "properties") -> str:
     else:
         raw_expr = f"properties['{prop_key}']"
 
-    if ch_type == "String":
+    # Strip LowCardinality wrapper — casting is the same, encoding handled by DDL
+    inner_type = ch_type
+    if ch_type.startswith("LowCardinality("):
+        inner_type = ch_type[len("LowCardinality("):-1]
+
+    if inner_type == "String":
         return raw_expr
-    elif ch_type == "DateTime":
+    elif inner_type == "DateTime":
         return f"parseDateTimeBestEffortOrZero({raw_expr})"
-    elif ch_type == "Nullable(Float64)":
+    elif inner_type == "Nullable(Float64)":
         return f"toFloat64OrNull({raw_expr})"
-    elif ch_type == "UInt32":
+    elif inner_type == "UInt32":
         return f"toUInt32OrZero({raw_expr})"
-    elif ch_type == "Nullable(Int64)":
+    elif inner_type == "Nullable(Int64)":
         return f"toInt64OrNull({raw_expr})"
     else:
         return raw_expr
 
 
-def _build_ddl(table_name: str, primary_key: str, columns: list, source: str = "properties") -> str:
+def _build_ddl(table_name: str, primary_key: str, columns: list, source: str = "properties", *, order_by: str | None = None) -> str:
     """Build CREATE TABLE DDL from config."""
     col_defs = [f"    {primary_key} String"]
 
@@ -80,10 +99,11 @@ def _build_ddl(table_name: str, primary_key: str, columns: list, source: str = "
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
 
     cols_sql = ",\n".join(col_defs)
+    order_clause = order_by or f"({primary_key})"
     return (
         f"CREATE TABLE silver.{table_name} (\n"
         f"{cols_sql}\n"
-        f") ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY ({primary_key})"
+        f") ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY {order_clause}"
     )
 
 
@@ -111,13 +131,16 @@ def _build_insert(table_name: str, primary_key: str, config: dict) -> str:
     return (
         f"INSERT INTO silver.{table_name}\n"
         f"SELECT\n{select_sql}\n"
-        f"FROM bronze.{bronze_table} FINAL"
+        f"FROM bronze.{bronze_table}"
     )
 
 
 # ---------------------------------------------------------------------------
 # Factory: dimension assets
 # ---------------------------------------------------------------------------
+
+CHUNK_SIZE = 50_000
+
 
 def _make_dim_asset(name: str, config: dict):
     bronze_table = config["bronze_table"]
@@ -130,31 +153,53 @@ def _make_dim_asset(name: str, config: dict):
         deps=[AssetKey(bronze_table)],
     )
     def _asset(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-        # Drop dependent dictionaries before table DROP
-        dropped = _drop_dependent_dicts(f"dim_{name}", ch_silver, context.log)
+        target = f"dim_{name}"
+        tmp = f"{target}_tmp"
 
-        # DROP + CREATE + INSERT
-        context.log.info(f"Rebuilding silver.dim_{name}")
-        ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.dim_{name}")
+        context.log.info(f"Rebuilding silver.{target}")
+        ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
 
-        ddl = _build_ddl(f"dim_{name}", primary_key, config["columns"], source)
+        ddl = _build_ddl(tmp, primary_key, config["columns"], source,
+                         order_by=config.get("order_by"))
         context.log.info(f"DDL: {ddl}")
         ch_silver.execute_sql(ddl)
 
-        insert_sql = _build_insert(f"dim_{name}", primary_key, config)
-        context.log.info(f"INSERT: {insert_sql}")
-        ch_silver.execute_sql(insert_sql)
+        # Count bronze rows to decide chunking
+        bronze_count = int(ch_silver.execute_sql(
+            f"SELECT count() FROM bronze.{bronze_table}"
+        ))
+        context.log.info(f"Bronze {bronze_table}: {bronze_count} rows")
 
-        # Recreate dictionaries
-        _recreate_dicts(dropped, ch_silver, context.log)
+        insert_sql = _build_insert(tmp, primary_key, config)
 
-        row_count = ch_silver.execute_sql(f"SELECT count() FROM silver.dim_{name}")
-        context.log.info(f"silver.dim_{name}: {row_count} rows")
+        if bronze_count <= CHUNK_SIZE:
+            # Small table — single INSERT
+            context.log.info(f"INSERT (single): {insert_sql}")
+            ch_silver.execute_sql(insert_sql)
+        else:
+            # Large table — chunk with LIMIT/OFFSET
+            offset = 0
+            chunk_num = 0
+            while offset < bronze_count:
+                chunk_sql = f"{insert_sql} LIMIT {CHUNK_SIZE} OFFSET {offset}"
+                chunk_num += 1
+                context.log.info(
+                    f"INSERT chunk {chunk_num} (offset {offset}, "
+                    f"limit {CHUNK_SIZE})"
+                )
+                ch_silver.execute_sql(chunk_sql)
+                offset += CHUNK_SIZE
+
+        # Atomic swap
+        _swap_table(ch_silver, target, context.log)
+
+        row_count = ch_silver.execute_sql(f"SELECT count() FROM silver.{target}")
+        context.log.info(f"silver.{target}: {row_count} rows")
 
         yield MaterializeResult(
             metadata={
                 "row_count": MetadataValue.int(int(row_count)),
-                "table": MetadataValue.text(f"silver.dim_{name}"),
+                "table": MetadataValue.text(f"silver.{target}"),
             }
         )
 
@@ -186,14 +231,16 @@ dim_lead_pipelines = _make_dim_asset("lead_pipelines", DIM_LEAD_PIPELINES)
 )
 def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     """dim_deals with denormalized pipeline_label, stage_label, owner_name."""
-    dropped = _drop_dependent_dicts("dim_deals", ch_silver, context.log)
+    target = "dim_deals"
+    tmp = f"{target}_tmp"
 
     context.log.info("Rebuilding silver.dim_deals (with denormalized labels)")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_deals")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
 
     config = DIM_DEALS
     primary_key = config["primary_key"]
     columns = config["columns"]
+    order_by = config.get("order_by", "(deal_id)")
 
     # Build DDL with extra label columns
     col_defs = [f"    {primary_key} String"]
@@ -206,36 +253,40 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
 
     ddl = (
-        f"CREATE TABLE silver.dim_deals (\n"
+        f"CREATE TABLE silver.{tmp} (\n"
         + ",\n".join(col_defs)
-        + "\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (deal_id)"
+        + f"\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY {order_by}"
     )
     ch_silver.execute_sql(ddl)
 
-    # Build INSERT with JOINs for labels
-    select_exprs = [f"    d._record_id AS {primary_key}"]
+    # Build INSERT with dictGet() for denormalized labels (no JOINs)
+    select_exprs = [f"    _record_id AS {primary_key}"]
     for col_name, prop_key, col_type in columns:
         expr = _cast_expr(prop_key, col_type, "properties")
         select_exprs.append(f"    {expr} AS {col_name}")
-    select_exprs.append("    COALESCE(p.label, '') AS pipeline_label")
-    select_exprs.append("    COALESCE(ps.label, '') AS stage_label")
-    select_exprs.append("    COALESCE(concat(o.first_name, ' ', o.last_name), '') AS owner_name")
-    select_exprs.append("    JSONExtractBool(d._raw, 'archived') AS archived")
+    select_exprs.append("    dictGet('silver.dict_pipelines', 'label', tuple(properties['pipeline'])) AS pipeline_label")
+    select_exprs.append("    dictGet('silver.dict_pipeline_stages', 'label', tuple(properties['dealstage'])) AS stage_label")
+    select_exprs.append(
+        "    concat("
+        "dictGet('silver.dict_owners', 'first_name', tuple(properties['hubspot_owner_id'])), "
+        "' ', "
+        "dictGet('silver.dict_owners', 'last_name', tuple(properties['hubspot_owner_id']))"
+        ") AS owner_name"
+    )
+    select_exprs.append("    JSONExtractBool(_raw, 'archived') AS archived")
     select_exprs.append("    now() AS _silver_loaded_at")
 
     select_sql = ",\n".join(select_exprs)
     insert_sql = (
-        f"INSERT INTO silver.dim_deals\n"
+        f"INSERT INTO silver.{tmp}\n"
         f"SELECT\n{select_sql}\n"
-        f"FROM bronze.hs_deals d FINAL\n"
-        f"LEFT JOIN silver.dim_pipelines p FINAL ON d.properties['pipeline'] = p.pipeline_id\n"
-        f"LEFT JOIN silver.dim_pipeline_stages ps FINAL ON d.properties['dealstage'] = ps.stage_id\n"
-        f"LEFT JOIN silver.dim_owners o FINAL ON d.properties['hubspot_owner_id'] = o.owner_id"
+        f"FROM bronze.hs_deals"
     )
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
 
-    _recreate_dicts(dropped, ch_silver, context.log)
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_deals")
     context.log.info(f"silver.dim_deals: {row_count} rows")
@@ -258,17 +309,18 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     deps=[AssetKey("hs_pipelines")],
 )
 def dim_pipeline_stages(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-    dropped = _drop_dependent_dicts("dim_pipeline_stages", ch_silver, context.log)
+    target = "dim_pipeline_stages"
+    tmp = f"{target}_tmp"
 
     context.log.info("Rebuilding silver.dim_pipeline_stages")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_pipeline_stages")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
 
-    ddl = _build_ddl("dim_pipeline_stages", "stage_id", DIM_PIPELINE_STAGES["columns"], "nested_stages")
+    ddl = _build_ddl(tmp, "stage_id", DIM_PIPELINE_STAGES["columns"], "nested_stages")
     context.log.info(f"DDL: {ddl}")
     ch_silver.execute_sql(ddl)
 
-    insert_sql = """
-INSERT INTO silver.dim_pipeline_stages
+    insert_sql = f"""
+INSERT INTO silver.{tmp}
 SELECT
     JSONExtractString(stage, 'id') AS stage_id,
     _record_id AS pipeline_id,
@@ -280,13 +332,14 @@ SELECT
     parseDateTimeBestEffortOrZero(JSONExtractString(stage, 'updatedAt')) AS updated_at,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.hs_pipelines FINAL
+FROM bronze.hs_pipelines
 ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
 """.strip()
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
 
-    _recreate_dicts(dropped, ch_silver, context.log)
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_pipeline_stages")
     context.log.info(f"silver.dim_pipeline_stages: {row_count} rows")
@@ -309,14 +362,17 @@ ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
     deps=[AssetKey("hs_lead_pipelines")],
 )
 def dim_lead_pipeline_stages(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-    context.log.info("Rebuilding silver.dim_lead_pipeline_stages")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.dim_lead_pipeline_stages")
+    target = "dim_lead_pipeline_stages"
+    tmp = f"{target}_tmp"
 
-    ddl = _build_ddl("dim_lead_pipeline_stages", "stage_id", DIM_LEAD_PIPELINE_STAGES["columns"], "nested_stages")
+    context.log.info("Rebuilding silver.dim_lead_pipeline_stages")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+
+    ddl = _build_ddl(tmp, "stage_id", DIM_LEAD_PIPELINE_STAGES["columns"], "nested_stages")
     ch_silver.execute_sql(ddl)
 
-    insert_sql = """
-INSERT INTO silver.dim_lead_pipeline_stages
+    insert_sql = f"""
+INSERT INTO silver.{tmp}
 SELECT
     JSONExtractString(stage, 'id') AS stage_id,
     _record_id AS pipeline_id,
@@ -328,10 +384,12 @@ SELECT
     parseDateTimeBestEffortOrZero(JSONExtractString(stage, 'updatedAt')) AS updated_at,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.hs_lead_pipelines FINAL
+FROM bronze.hs_lead_pipelines
 ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
 """.strip()
     ch_silver.execute_sql(insert_sql)
+
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.dim_lead_pipeline_stages")
     context.log.info(f"silver.dim_lead_pipeline_stages: {row_count} rows")
@@ -370,11 +428,14 @@ _ACTIVITY_BRONZE = {
     ],
 )
 def fact_activities(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-    context.log.info("Rebuilding silver.fact_activities")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.fact_activities")
+    target = "fact_activities"
+    tmp = f"{target}_tmp"
 
-    ddl = """
-CREATE TABLE silver.fact_activities (
+    context.log.info("Rebuilding silver.fact_activities")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+
+    ddl = f"""
+CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     hs_timestamp DateTime,
@@ -387,7 +448,8 @@ CREATE TABLE silver.fact_activities (
     lastmodifieddate DateTime,
     archived UInt8,
     _silver_loaded_at DateTime DEFAULT now()
-) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (activity_id)
+) ENGINE = ReplacingMergeTree(_silver_loaded_at)
+ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
 """.strip()
     ch_silver.execute_sql(ddl)
 
@@ -417,12 +479,15 @@ CREATE TABLE silver.fact_activities (
     parseDateTimeBestEffortOrZero(properties['hs_lastmodifieddate']) AS lastmodifieddate,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table} FINAL"""
+FROM bronze.{bronze_table}"""
         union_parts.append(part)
 
-    insert_sql = "INSERT INTO silver.fact_activities\n" + "\nUNION ALL\n".join(union_parts)
+    insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
+
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.fact_activities")
     context.log.info(f"silver.fact_activities: {row_count} rows")
@@ -445,12 +510,16 @@ FROM bronze.{bronze_table} FINAL"""
     deps=[AssetKey("hs_form_submissions")],
 )
 def fact_form_submissions(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    target = "fact_form_submissions"
+    tmp = f"{target}_tmp"
+
     context.log.info("Rebuilding silver.fact_form_submissions")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.fact_form_submissions")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
 
     config = FACT_FORM_SUBMISSIONS
     primary_key = config["primary_key"]
     columns = config["columns"]
+    order_by = config.get("order_by", "(submission_id)")
 
     # Build DDL
     col_defs = [f"    {primary_key} String"]
@@ -460,15 +529,15 @@ def fact_form_submissions(context: AssetExecutionContext, ch_silver: ClickHouseR
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
 
     ddl = (
-        f"CREATE TABLE silver.fact_form_submissions (\n"
+        f"CREATE TABLE silver.{tmp} (\n"
         + ",\n".join(col_defs)
-        + "\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (submission_id)"
+        + f"\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY {order_by}"
     )
     ch_silver.execute_sql(ddl)
 
     # Build INSERT — submitted_at is epoch ms, needs fromUnixTimestamp64Milli
-    insert_sql = """
-INSERT INTO silver.fact_form_submissions
+    insert_sql = f"""
+INSERT INTO silver.{tmp}
 SELECT
     _record_id AS submission_id,
     properties['form_id'] AS form_id,
@@ -483,10 +552,13 @@ SELECT
     properties['phone'] AS phone,
     0 AS archived,
     now() AS _silver_loaded_at
-FROM bronze.hs_form_submissions FINAL
+FROM bronze.hs_form_submissions
 """.strip()
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
+
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.fact_form_submissions")
     context.log.info(f"silver.fact_form_submissions: {row_count} rows")
@@ -510,11 +582,14 @@ def _make_bridge_asset(silver_table: str, bronze_table: str, from_key: str, to_k
         deps=[AssetKey(bronze_table)],
     )
     def _asset(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-        context.log.info(f"Rebuilding silver.{silver_table}")
-        ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{silver_table}")
+        target = silver_table
+        tmp = f"{target}_tmp"
+
+        context.log.info(f"Rebuilding silver.{target}")
+        ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
 
         ddl = f"""
-CREATE TABLE silver.{silver_table} (
+CREATE TABLE silver.{tmp} (
     {from_key} String,
     {to_key} String,
     association_type LowCardinality(String),
@@ -524,23 +599,26 @@ CREATE TABLE silver.{silver_table} (
         ch_silver.execute_sql(ddl)
 
         insert_sql = f"""
-INSERT INTO silver.{silver_table}
+INSERT INTO silver.{tmp}
 SELECT
     _from_id AS {from_key},
     _to_id AS {to_key},
     _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table} FINAL
+FROM bronze.{bronze_table}
 """.strip()
         ch_silver.execute_sql(insert_sql)
 
-        row_count = ch_silver.execute_sql(f"SELECT count() FROM silver.{silver_table}")
-        context.log.info(f"silver.{silver_table}: {row_count} rows")
+        # Atomic swap
+        _swap_table(ch_silver, target, context.log)
+
+        row_count = ch_silver.execute_sql(f"SELECT count() FROM silver.{target}")
+        context.log.info(f"silver.{target}: {row_count} rows")
 
         yield MaterializeResult(
             metadata={
                 "row_count": MetadataValue.int(int(row_count)),
-                "table": MetadataValue.text(f"silver.{silver_table}"),
+                "table": MetadataValue.text(f"silver.{target}"),
             }
         )
 
@@ -576,11 +654,14 @@ bridge_lead_company = _bridge_assets["bridge_lead_company"]
     ],
 )
 def bridge_activity_contact(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-    context.log.info("Rebuilding silver.bridge_activity_contact")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.bridge_activity_contact")
+    target = "bridge_activity_contact"
+    tmp = f"{target}_tmp"
 
-    ddl = """
-CREATE TABLE silver.bridge_activity_contact (
+    context.log.info("Rebuilding silver.bridge_activity_contact")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+
+    ddl = f"""
+CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     contact_id String,
@@ -598,11 +679,14 @@ CREATE TABLE silver.bridge_activity_contact (
     _to_id AS contact_id,
     _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table} FINAL"""
+FROM bronze.{bronze_table}"""
         union_parts.append(part)
 
-    insert_sql = "INSERT INTO silver.bridge_activity_contact\n" + "\nUNION ALL\n".join(union_parts)
+    insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
     ch_silver.execute_sql(insert_sql)
+
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.bridge_activity_contact")
     context.log.info(f"silver.bridge_activity_contact: {row_count} rows")
@@ -631,11 +715,14 @@ FROM bronze.{bronze_table} FINAL"""
     ],
 )
 def bridge_activity_company(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-    context.log.info("Rebuilding silver.bridge_activity_company")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.bridge_activity_company")
+    target = "bridge_activity_company"
+    tmp = f"{target}_tmp"
 
-    ddl = """
-CREATE TABLE silver.bridge_activity_company (
+    context.log.info("Rebuilding silver.bridge_activity_company")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+
+    ddl = f"""
+CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     company_id String,
@@ -653,11 +740,14 @@ CREATE TABLE silver.bridge_activity_company (
     _to_id AS company_id,
     _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table} FINAL"""
+FROM bronze.{bronze_table}"""
         union_parts.append(part)
 
-    insert_sql = "INSERT INTO silver.bridge_activity_company\n" + "\nUNION ALL\n".join(union_parts)
+    insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
     ch_silver.execute_sql(insert_sql)
+
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.bridge_activity_company")
     context.log.info(f"silver.bridge_activity_company: {row_count} rows")
@@ -686,11 +776,14 @@ FROM bronze.{bronze_table} FINAL"""
     ],
 )
 def bridge_activity_deal(context: AssetExecutionContext, ch_silver: ClickHouseResource):
-    context.log.info("Rebuilding silver.bridge_activity_deal")
-    ch_silver.execute_sql("DROP TABLE IF EXISTS silver.bridge_activity_deal")
+    target = "bridge_activity_deal"
+    tmp = f"{target}_tmp"
 
-    ddl = """
-CREATE TABLE silver.bridge_activity_deal (
+    context.log.info("Rebuilding silver.bridge_activity_deal")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+
+    ddl = f"""
+CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     deal_id String,
@@ -708,11 +801,14 @@ CREATE TABLE silver.bridge_activity_deal (
     _to_id AS deal_id,
     _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table} FINAL"""
+FROM bronze.{bronze_table}"""
         union_parts.append(part)
 
-    insert_sql = "INSERT INTO silver.bridge_activity_deal\n" + "\nUNION ALL\n".join(union_parts)
+    insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
     ch_silver.execute_sql(insert_sql)
+
+    # Atomic swap
+    _swap_table(ch_silver, target, context.log)
 
     row_count = ch_silver.execute_sql("SELECT count() FROM silver.bridge_activity_deal")
     context.log.info(f"silver.bridge_activity_deal: {row_count} rows")
@@ -849,6 +945,147 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
 
 
 # ---------------------------------------------------------------------------
+# Fact: fact_stage_history — unpivots HubSpot stage enter/exit timestamps
+# Covers leads, deals, and contacts in a single table.
+# Property names embed stage IDs (e.g. hs_date_entered_4967489725) which are
+# discovered dynamically from the bronze properties map at build time.
+# ---------------------------------------------------------------------------
+
+# (bronze_table, entity_type, id_column, stage_lookup_table)
+_STAGE_HISTORY_SOURCES = [
+    ("hs_leads",    "lead",    "_record_id", "dim_lead_pipeline_stages"),
+    ("hs_deals",    "deal",    "_record_id", "dim_pipeline_stages"),
+    ("hs_contacts", "contact", "_record_id", None),  # lifecycle stages, no lookup table
+]
+
+
+@asset(
+    name="fact_stage_history",
+    group_name="silver",
+    deps=[
+        AssetKey("hs_leads"),
+        AssetKey("hs_deals"),
+        AssetKey("hs_contacts"),
+        AssetKey("dim_lead_pipeline_stages"),
+        AssetKey("dim_pipeline_stages"),
+    ],
+)
+def fact_stage_history(context: AssetExecutionContext, ch_silver: ClickHouseResource):
+    target = "fact_stage_history"
+    tmp = f"{target}_tmp"
+
+    context.log.info("Rebuilding silver.fact_stage_history")
+    ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
+
+    ch_silver.execute_sql(f"""
+CREATE TABLE silver.{tmp} (
+    entity_type LowCardinality(String),
+    entity_id String,
+    stage_id String,
+    stage_label String,
+    entered_at DateTime,
+    exited_at Nullable(DateTime),
+    duration_ms Nullable(Int64),
+    _silver_loaded_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(_silver_loaded_at)
+ORDER BY (entity_type, stage_id, entity_id)
+""".strip())
+
+    total_rows = 0
+    for bronze_table, entity_type, id_col, stage_table in _STAGE_HISTORY_SOURCES:
+        # Discover all stage IDs from hs_date_entered_* or hs_v2_date_entered_* properties.
+        # Subquery materializes a single record first, then arrayJoin expands its keys.
+        stage_ids_rows = ch_silver.execute_sql(f"""
+SELECT DISTINCT
+    replaceRegexpOne(k, '^hs_(v2_)?date_entered_', '') AS stage_id
+FROM (
+    SELECT arrayJoin(mapKeys(props)) AS k
+    FROM (SELECT properties AS props FROM bronze.{bronze_table} LIMIT 1)
+)
+WHERE match(k, '^hs_(v2_)?date_entered_')
+  AND k NOT IN ('hs_v2_date_entered_current_stage', 'hs_date_entered_current_stage')
+""")
+        if not stage_ids_rows:
+            context.log.info(f"No stage enter properties found for {bronze_table}")
+            continue
+
+        # Parse comma/newline separated result
+        if isinstance(stage_ids_rows, str):
+            stage_ids = [s.strip() for s in stage_ids_rows.replace("\n", ",").split(",") if s.strip()]
+        else:
+            stage_ids = [str(stage_ids_rows)]
+
+        context.log.info(f"{bronze_table}: found {len(stage_ids)} stage IDs")
+
+        # Build UNION ALL: one SELECT per stage ID.
+        # HubSpot uses both hs_date_entered_* and hs_v2_date_entered_* patterns;
+        # try both and use coalesce to pick whichever has data.
+        union_parts = []
+        for stage_id in stage_ids:
+            entered_v1 = f"hs_date_entered_{stage_id}"
+            entered_v2 = f"hs_v2_date_entered_{stage_id}"
+            exited_v1 = f"hs_date_exited_{stage_id}"
+            exited_v2 = f"hs_v2_date_exited_{stage_id}"
+            time_v1 = f"hs_time_in_{stage_id}"
+            time_v2 = f"hs_v2_latest_time_in_{stage_id}"
+
+            entered_expr = f"if(properties['{entered_v2}'] != '', properties['{entered_v2}'], properties['{entered_v1}'])"
+            exited_expr = f"if(properties['{exited_v2}'] != '', properties['{exited_v2}'], properties['{exited_v1}'])"
+            time_expr = f"if(properties['{time_v2}'] != '', properties['{time_v2}'], properties['{time_v1}'])"
+
+            # Build stage_label expression.
+            # Property suffixes may differ from dim table stage IDs:
+            #   property: "new_stage_id_1318266061"  →  dim: "new-stage-id"
+            # Normalize: strip trailing _DIGITS, replace _ with -
+            import re as _re
+            normalized = _re.sub(r'_\d+$', '', stage_id).replace('_', '-')
+
+            if stage_table:
+                label_expr = (
+                    f"ifNull((SELECT label FROM silver.{stage_table} "
+                    f"WHERE stage_id IN ('{stage_id}', '{normalized}') AND archived = 0 LIMIT 1), '{stage_id}')"
+                )
+            else:
+                # Contacts: stage_id IS the label slug (e.g. 'marketingqualifiedlead')
+                label_expr = f"'{stage_id}'"
+
+            union_parts.append(f"""
+SELECT
+    '{entity_type}' AS entity_type,
+    {id_col} AS entity_id,
+    '{stage_id}' AS stage_id,
+    {label_expr} AS stage_label,
+    parseDateTimeBestEffortOrZero({entered_expr}) AS entered_at,
+    if({exited_expr} != '',
+       parseDateTimeBestEffortOrZero({exited_expr}),
+       NULL) AS exited_at,
+    toInt64OrNull({time_expr}) AS duration_ms,
+    now() AS _silver_loaded_at
+FROM bronze.{bronze_table}
+WHERE properties['{entered_v1}'] != '' OR properties['{entered_v2}'] != ''
+""".strip())
+
+        insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
+        ch_silver.execute_sql(insert_sql)
+
+        count = ch_silver.execute_sql(
+            f"SELECT count() FROM silver.{tmp} WHERE entity_type = '{entity_type}'"
+        )
+        context.log.info(f"{entity_type}: {count} stage history rows")
+        total_rows += int(count) if count else 0
+
+    _swap_table(ch_silver, target, context.log)
+
+    row_count = ch_silver.execute_sql(f"SELECT count() FROM silver.{target}")
+    context.log.info(f"silver.{target}: {row_count} rows total")
+
+    yield MaterializeResult(metadata={
+        "row_count": MetadataValue.int(int(row_count)),
+        "table": MetadataValue.text(f"silver.{target}"),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Export all assets for definitions.py
 # ---------------------------------------------------------------------------
 
@@ -857,7 +1094,7 @@ all_silver_assets = [
     dim_owners,
     dim_pipelines, dim_pipeline_stages,
     dim_lead_pipelines, dim_lead_pipeline_stages,
-    fact_activities, fact_form_submissions,
+    fact_activities, fact_form_submissions, fact_stage_history,
     bridge_contact_company, bridge_contact_deal, bridge_deal_company,
     bridge_lead_contact, bridge_deal_lead, bridge_lead_company,
     bridge_activity_contact, bridge_activity_company, bridge_activity_deal,

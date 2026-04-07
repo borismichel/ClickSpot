@@ -7,11 +7,12 @@ interface Props {
 
 function formatKPI(value: string | number | null, label: string): { display: number | string; prefix: string; suffix: string } {
   if (value == null || value === "\\N" || value === "NULL") return { display: "-", prefix: "", suffix: "" };
+  if (typeof value === "string" && value.startsWith("1970-01-01")) return { display: "-", prefix: "", suffix: "" };
   const num = typeof value === "number" ? value : parseFloat(String(value));
   if (isNaN(num)) return { display: String(value), prefix: "", suffix: "" };
 
   const lower = label.toLowerCase();
-  if (lower.includes("rate") || lower.includes("%") || lower.includes("percent")) {
+  if (lower.match(/\brate\b/) || lower.includes("%") || lower.includes("percent")) {
     const pct = num < 1 && num > -1 ? num * 100 : num;
     return { display: Math.round(pct * 10) / 10, prefix: "", suffix: "%" };
   }

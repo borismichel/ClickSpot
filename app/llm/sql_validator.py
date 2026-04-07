@@ -31,7 +31,7 @@ _TABLE_REF_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-MAX_LIMIT = 10000
+MAX_LIMIT = 1000
 
 
 def validate_sql(sql: str) -> tuple[bool, str | None]:
@@ -44,6 +44,10 @@ def validate_sql(sql: str) -> tuple[bool, str | None]:
     # Must start with SELECT or WITH (for CTEs)
     if not re.match(r"^(SELECT|WITH)\b", stripped, re.IGNORECASE):
         return False, "Query must start with SELECT or WITH"
+
+    # Reject SELECT * — ClickHouse is columnar, enumerate columns explicitly
+    if re.search(r"\bSELECT\s+\*\s+FROM\b", stripped, re.IGNORECASE):
+        return False, "SELECT * is not allowed — enumerate columns explicitly"
 
     # Check for forbidden mutation keywords
     match = _FORBIDDEN.search(stripped)

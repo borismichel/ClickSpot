@@ -85,10 +85,15 @@ export function useChat() {
     [messages]
   );
 
+  const loadMessages = useCallback((msgs: ChatMessage[]) => {
+    setMessages(msgs);
+    setError(null);
+  }, []);
+
   const newChat = useCallback(() => {
     setMessages([]);
     setError(null);
   }, []);
 
-  return { messages, isLoading, error, sendMessage, newChat };
+  return { messages, isLoading, error, sendMessage, newChat, loadMessages };
 }

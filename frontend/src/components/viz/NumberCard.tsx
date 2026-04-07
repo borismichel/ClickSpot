@@ -12,7 +12,7 @@ function formatValue(val: unknown, colName: string): { value: number | string; p
 
   if (isNaN(num)) return { value: String(val), prefix: "", suffix: "" };
 
-  if (lower.includes("rate") || lower.includes("percent") || lower.includes("pct")) {
+  if (lower.match(/\brate\b/) || lower.includes("percent") || lower.includes("pct")) {
     // If value < 1, it's a ratio — multiply by 100
     const pct = num < 1 && num > -1 ? num * 100 : num;
     return { value: Math.round(pct * 10) / 10, prefix: "", suffix: "%" };

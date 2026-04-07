@@ -1,6 +1,6 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:24.8-lts
     container_name: hs2ch-clickhouse
     ports:
       - "8124:8123"   # HTTP — offset from Langfuse's 8123

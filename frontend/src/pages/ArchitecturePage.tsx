@@ -132,7 +132,7 @@ export default function ArchitecturePage() {
               </div>
             </div>
             <div style={statBox}>
-              <div style={{ fontSize: 22, fontWeight: 600 }}>20</div>
+              <div style={{ fontSize: 22, fontWeight: 600 }}>21</div>
               <Text type="secondary" style={{ fontSize: 11 }}>Association Types</Text>
               <div style={{ fontSize: 11, color: "#8c8c8c" }}>
                 N:M links between all entity pairs
@@ -198,7 +198,7 @@ export default function ArchitecturePage() {
                 <Tag color="orange" style={{ marginRight: 6 }}>Bronze</Tag>
                 Raw extraction
               </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>34 tables</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>38 tables</Text>
             </div>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
               Raw HubSpot data preserved as-is. Properties stored in a{" "}
@@ -209,8 +209,8 @@ export default function ArchitecturePage() {
               anything goes wrong downstream, the raw data is always available.
             </Paragraph>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              <Tag>14 object tables</Tag>
-              <Tag>20 association tables</Tag>
+              <Tag>17 object tables</Tag>
+              <Tag>21 association tables</Tag>
             </div>
           </div>
 
@@ -221,26 +221,28 @@ export default function ArchitecturePage() {
                 <Tag color="blue" style={{ marginRight: 6 }}>Silver</Tag>
                 Clean, typed, config-driven
               </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>20 tables</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>22 assets</Text>
             </div>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
-              1:1 mapping from bronze properties to typed ClickHouse columns.
-              Defined declaratively in <code>silver_config.py</code> — adding
-              a HubSpot property is a one-line tuple{" "}
-              <code>(silver_name, bronze_key, type)</code>. Full refresh (DROP
-              + CREATE + INSERT) on each run. Uses <code>FINAL</code> to
-              deduplicate on read.
+              1:1 mapping from bronze properties to typed ClickHouse columns
+              (~197 columns across dimensions). Defined declaratively in{" "}
+              <code>silver_config.py</code> — adding a HubSpot property is a
+              one-line tuple <code>(silver_name, bronze_key, type)</code>. Full
+              refresh (DROP + CREATE + INSERT) on each run. Uses{" "}
+              <code>FINAL</code> to deduplicate on read.
             </Paragraph>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              <Tag>9 dimensions</Tag>
-              <Tag>1 fact table</Tag>
+              <Tag>10 dimensions</Tag>
+              <Tag>2 fact tables</Tag>
               <Tag>9 bridge tables</Tag>
               <Tag>1 DQ metrics</Tag>
             </div>
             <Paragraph type="secondary" style={{ fontSize: 11, margin: "8px 0 0" }}>
               Dimensions: contacts, companies, deals, leads, owners, pipelines,
               pipeline_stages, lead_pipelines, lead_pipeline_stages.{" "}
-              Fact: fact_activities (UNION ALL of 5 activity types).{" "}
+              Facts: fact_activities (UNION ALL of 5 activity types),
+              fact_stage_history (stage enter/exit tracking for leads, deals,
+              contacts).{" "}
               Bridges: contact-deal, contact-company, deal-company,
               lead-contact, deal-lead, lead-company, activity-contact,
               activity-company, activity-deal.
@@ -254,7 +256,7 @@ export default function ArchitecturePage() {
                 <Tag color="geekblue" style={{ marginRight: 6 }}>Dict</Tag>
                 In-memory lookups
               </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>6 dictionaries</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>8 dictionaries</Text>
             </div>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
               ClickHouse dictionaries backed by silver dimension tables.
@@ -267,6 +269,8 @@ export default function ArchitecturePage() {
               <Tag>dict_owners</Tag>
               <Tag>dict_pipelines</Tag>
               <Tag>dict_pipeline_stages</Tag>
+              <Tag>dict_lead_pipelines</Tag>
+              <Tag>dict_lead_pipeline_stages</Tag>
               <Tag>dict_contacts</Tag>
               <Tag>dict_companies</Tag>
               <Tag>dict_deals</Tag>

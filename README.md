@@ -93,9 +93,9 @@ Three-layer medallion architecture:
 
 | Layer | Tables | Engine | Strategy |
 |-------|--------|--------|----------|
-| **Bronze** | 13 objects + 15 associations | `ReplacingMergeTree` | Incremental (HWM) |
-| **Silver** | 10 dimensions + 1 fact + 9 bridges | `ReplacingMergeTree` | Full rebuild |
-| **Gold** | 4 aggregates | `ReplacingMergeTree` | Full rebuild |
+| **Bronze** | 17 objects + 21 associations | `ReplacingMergeTree` | Incremental (HWM) |
+| **Silver** | 10 dimensions + 2 facts + 9 bridges + 8 dicts | `ReplacingMergeTree` | Full rebuild |
+| **Gold** | 7 aggregates | `ReplacingMergeTree` | Full rebuild |
 
 ### Chat Interface
 
@@ -181,7 +181,7 @@ cd frontend && npm run dev                           # Frontend
 ```
 hs2ch/
 |-- app/                  # FastAPI backend (API + engine + LLM)
-|-- assets/               # Dagster assets (bronze + silver + gold ETL)
+|-- assets/               # Dagster assets (bronze + silver + gold ELT)
 |-- resources/            # Dagster resources (HubSpot + ClickHouse clients)
 |-- frontend/             # React application
 |-- scripts/              # Initialization scripts
@@ -214,10 +214,13 @@ hs2ch/
 
 | | Count |
 |---|---|
-| Dagster assets | 38 |
-| ClickHouse tables | 24 (14 queryable + 9 bridges + DQ) |
-| Graph relationships | 17 edges (9 bridge + 8 reference) |
-| API endpoints | 14 |
-| Computed metrics | 24 |
+| Bronze tables | 38 (17 objects + 21 associations) |
+| Silver assets | 22 (10 dims + 2 facts + 9 bridges + DQ) |
+| Gold tables | 7 |
+| Dictionaries | 8 (in-memory lookups from silver dims) |
+| Silver columns | ~197 (across all dimensions) |
+| Graph relationships | 9 bridge edges |
+| API endpoints | 13 |
+| Computed metrics | 22 |
 | LLM providers | 4 |
-| Frontend components | 20+ |
+| Frontend components | 27 |

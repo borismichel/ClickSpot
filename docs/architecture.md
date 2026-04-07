@@ -182,7 +182,7 @@ Auto-detection means the system works out of the box for developers (CLI) and is
 
 ## Relationship Graph
 
-The core data model is a graph of 14 queryable tables connected by 9 bridge tables and 8+ reference joins.
+The core data model is a graph of queryable tables connected by 9 bridge tables. ID-to-label resolution uses 8 ClickHouse dictionaries (via `dictGet()`) instead of JOINs.
 
 ### Entities
 
@@ -216,18 +216,20 @@ The core data model is a graph of 14 queryable tables connected by 9 bridge tabl
 | `bridge_activity_company` | Activities <-> Companies | `activity_id`, `company_id` |
 | `bridge_activity_deal` | Activities <-> Deals | `activity_id`, `deal_id` |
 
-### Reference Joins (FK Relationships)
+### Dictionaries (ID-to-Label Resolution)
 
-| From | To | Join |
-|------|----|------|
-| `dim_deals.pipeline` | `dim_pipelines.pipeline_id` | Pipeline name lookup |
-| `dim_deals.dealstage` | `dim_pipeline_stages.stage_id` | Stage name lookup |
-| `dim_deals.hubspot_owner_id` | `dim_owners.owner_id` | Deal owner lookup |
-| `dim_leads.hubspot_owner_id` | `dim_owners.owner_id` | Lead owner lookup |
-| `dim_companies.hubspot_owner_id` | `dim_owners.owner_id` | Company owner lookup |
-| `fact_activities.hubspot_owner_id` | `dim_owners.owner_id` | Activity owner lookup |
-| `dim_leads.hs_pipeline` | `dim_lead_pipelines.pipeline_id` | Lead pipeline lookup |
-| `dim_leads.hs_lead_status` | `dim_lead_pipeline_stages.stage_id` | Lead stage lookup |
+Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution. 8 dictionaries backed by silver dimension tables:
+
+| Dictionary | Key(s) | Resolves |
+|-----------|--------|----------|
+| `dict_owners` | `owner_id` | Owner full name, email |
+| `dict_pipelines` | `pipeline_id` | Deal pipeline label |
+| `dict_pipeline_stages` | `stage_id` | Deal stage label, is_closed, display_order |
+| `dict_lead_pipelines` | `pipeline_id` | Lead pipeline label |
+| `dict_lead_pipeline_stages` | `(pipeline_id, stage_id)` | Lead stage label (composite key) |
+| `dict_contacts` | `contact_id` | Contact full name, email |
+| `dict_companies` | `company_id` | Company name, domain, industry |
+| `dict_deals` | `deal_id` | Deal name, amount, owner_name |
 
 ---
 
@@ -249,7 +251,7 @@ hs2ch/
 |   |   |-- propagator.py         # Selection propagation
 |   |   |-- state.py              # SelectionState dataclass
 |   |   |-- sql_builder.py        # SQL generation functions
-|   |   |-- metrics.py            # 24 computed metrics registry
+|   |   |-- metrics.py            # 22 computed metrics registry
 |   |-- llm/
 |   |   |-- config.py             # Multi-provider config (~/.hs2ch/config.json)
 |   |   |-- providers.py          # Anthropic, OpenAI, OAuth, CLI providers
@@ -264,10 +266,10 @@ hs2ch/
 |-- assets/                       # Dagster assets (ETL)
 |   |-- crm.py                    # CRM object extraction (5 assets)
 |   |-- activities.py             # Activity extraction (5 assets)
-|   |-- marketing.py              # Marketing extraction (3 assets)
-|   |-- associations.py           # Association bridges (15 assets)
-|   |-- silver.py                 # Silver transform (10 dim + 1 fact + 9 bridge + DQ)
-|   |-- gold.py                   # Gold aggregates (4 assets)
+|   |-- marketing.py              # Marketing extraction (4 assets)
+|   |-- associations.py           # Association bridges (21 assets)
+|   |-- silver.py                 # Silver transform (10 dim + 2 fact + 9 bridge + DQ)
+|   |-- gold.py                   # Gold aggregates (7 assets)
 |
 |-- resources/                    # Dagster resources
 |   |-- hubspot.py                # HubSpot API client
@@ -282,9 +284,9 @@ hs2ch/
 |   |   |   |-- viz/              # Visualizations (number, table, bar, line, funnel)
 |   |   |   |-- settings/         # Settings drawer
 |   |   |   |-- diagrams/         # Architecture SVG diagrams
-|   |   |-- hooks/                # useChat, useConversations, useAnalyticsQuery
+|   |   |-- hooks/                # useChat, useConversations, useSettings
 |   |   |-- types/                # TypeScript interfaces
-|   |   |-- pages/                # ArchitecturePage
+|   |   |-- pages/                # ArchitecturePage, DataExplorerPage
 |   |-- vite.config.ts            # Dev server + proxy config
 |   |-- package.json
 |

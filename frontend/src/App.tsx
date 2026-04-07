@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Layout, Button, Space } from "antd";
-import { SettingOutlined, ApartmentOutlined } from "@ant-design/icons";
+import { SettingOutlined, ApartmentOutlined, DatabaseOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
@@ -12,7 +12,7 @@ const { Header, Sider, Content } = Layout;
 
 export default function App() {
   const navigate = useNavigate();
-  const { messages, isLoading, sendMessage, newChat } = useChat();
+  const { messages, isLoading, sendMessage, newChat, loadMessages } = useChat();
   const {
     conversations,
     activeId,
@@ -37,9 +37,11 @@ export default function App() {
 
   const handleSelectConversation = (id: string) => {
     const msgs = loadConversation(id);
-    // Note: useChat doesn't have a setMessages — for MVP, new chat only
-    // In a future iteration, this would restore messages
-    if (msgs.length === 0) handleNewChat();
+    if (msgs.length > 0) {
+      loadMessages(msgs);
+    } else {
+      handleNewChat();
+    }
   };
 
   return (
@@ -58,6 +60,13 @@ export default function App() {
           HubSpot Analytics
         </div>
         <Space>
+          <Button
+            type="text"
+            icon={<DatabaseOutlined />}
+            onClick={() => navigate("/data")}
+          >
+            Data
+          </Button>
           <Button
             type="text"
             icon={<ApartmentOutlined />}

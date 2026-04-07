@@ -14,7 +14,7 @@ HubSpot CRM API
   | BRONZE  | --> | SILVER  | --> |  GOLD   |
   |  (raw)  |    | (typed) |    |  (agg)  |
   +---------+     +---------+     +---------+
-   13 tables       20 tables       4 tables
+   38 tables       22 assets       7 tables
 ```
 
 | Layer | Purpose | Engine | Refresh Strategy |
@@ -47,7 +47,7 @@ CREATE TABLE bronze.<table_name> (
 
 ### Assets
 
-#### CRM Objects (5 assets)
+#### CRM Objects (4 assets)
 
 | Asset | HubSpot API | Notes |
 |-------|-------------|-------|
@@ -71,7 +71,7 @@ Built with `_make_crm_asset()` factory in `assets/crm.py`.
 
 Built with the same `_make_crm_asset()` factory in `assets/activities.py`.
 
-#### Marketing (3 assets)
+#### Marketing & Pipelines (4 assets)
 
 | Asset | HubSpot API | Notes |
 |-------|-------------|-------|
@@ -82,7 +82,7 @@ Built with the same `_make_crm_asset()` factory in `assets/activities.py`.
 
 Built with `_make_marketing_asset()` factory in `assets/marketing.py`.
 
-#### Associations (15 bridge assets)
+#### Associations (21 bridge assets)
 
 HubSpot associations are **N:M:N** — a contact can be associated with many deals, and a deal with many contacts, each with a typed association label.
 
@@ -90,9 +90,9 @@ HubSpot associations are **N:M:N** — a contact can be associated with many dea
 - `hs_assoc_contact_company`, `hs_assoc_contact_deal`, `hs_assoc_deal_company`
 - `hs_assoc_lead_contact`, `hs_assoc_deal_lead`, `hs_assoc_lead_company`
 
-**Activity-to-CRM (9):**
+**Activity-to-CRM (15):**
 - 5 activity types x 3 CRM objects (contacts, companies, deals):
-  `hs_assoc_call_contact`, `hs_assoc_meeting_contact`, `hs_assoc_email_contact`, etc.
+  `hs_assoc_call_contact`, `hs_assoc_call_company`, `hs_assoc_call_deal`, etc.
 
 Each association record contains `(_from_id, _to_id, _association_type)`.
 
@@ -139,29 +139,30 @@ DIM_DEALS = {
 
 ### Dimension Tables (10)
 
-| Table | Source | Primary Key | Key Columns |
-|-------|--------|-------------|-------------|
-| `dim_contacts` | `hs_contacts` | `contact_id` | `full_name`, `email`, `lifecyclestage`, `hs_analytics_source` |
-| `dim_companies` | `hs_companies` | `company_id` | `name`, `domain`, `industry`, `country` |
-| `dim_deals` | `hs_deals` | `deal_id` | `dealname`, `amount`, `dealstage`, `pipeline`, `closedate`, `owner_name` (denormalized) |
-| `dim_leads` | `hs_leads` | `lead_id` | `hs_pipeline`, `hs_lead_status`, `hs_lead_type` |
-| `dim_owners` | `hs_owners` | `owner_id` | `first_name`, `last_name`, `email` |
-| `dim_pipelines` | `hs_pipelines` | `pipeline_id` | `label` |
-| `dim_pipeline_stages` | `hs_pipelines` (ARRAY JOIN) | `stage_id` | `label`, `pipeline_id`, `is_closed`, `display_order` |
-| `dim_lead_pipelines` | `hs_lead_pipelines` | `pipeline_id` | `label` |
-| `dim_lead_pipeline_stages` | `hs_lead_pipelines` (ARRAY JOIN) | `stage_id` | `label`, `pipeline_id`, `is_closed` |
+| Table | Source | Primary Key | Column Count | Key Columns |
+|-------|--------|-------------|-------------|-------------|
+| `dim_contacts` | `hs_contacts` | `contact_id` | 43 | `full_name`, `email`, `lifecyclestage`, sales activity/email/sequence dates |
+| `dim_companies` | `hs_companies` | `company_id` | 41 | `name`, `domain`, `industry`, sales activity dates, meeting/call/email dates |
+| `dim_deals` | `hs_deals` | `deal_id` | 70 | `dealname`, `amount`, `dealstage`, `pipeline`, financial metrics, stage dates |
+| `dim_leads` | `hs_leads` | `lead_id` | 35 | `hs_lead_name`, `hs_pipeline`, `hs_pipeline_stage`, engagement dates (lead/contact/company level) |
+| `dim_owners` | `hs_owners` | `owner_id` | 8 | `first_name`, `last_name`, `email` |
+| `dim_pipelines` | `hs_pipelines` | `pipeline_id` | 4 | `label` |
+| `dim_pipeline_stages` | `hs_pipelines` (ARRAY JOIN) | `stage_id` | — | `label`, `pipeline_id`, `is_closed`, `display_order` |
+| `dim_lead_pipelines` | `hs_lead_pipelines` | `pipeline_id` | — | `label` |
+| `dim_lead_pipeline_stages` | `hs_lead_pipelines` (ARRAY JOIN) | — | — | `label`, `pipeline_id`, `is_closed` |
+
+**~197 total columns** across the 5 main dimension tables, including comprehensive date/timestamp and activity type fields from HubSpot at lead, contact, and company levels.
 
 **Special cases:**
-- **`dim_deals`** denormalizes `pipeline_label`, `stage_label`, and `owner_name` via LEFT JOINs to pipelines, stages, and owners at load time.
+- **`dim_deals`** denormalizes `pipeline_label`, `stage_label`, and `owner_name` via LEFT JOINs at load time.
 - **`dim_pipeline_stages`** and **`dim_lead_pipeline_stages`** use `ARRAY JOIN` to flatten nested stage arrays from pipeline records.
 
-### Fact Table (1)
+### Fact Tables (2)
 
-| Table | Source | Primary Key | Discriminator |
-|-------|--------|-------------|---------------|
-| `fact_activities` | 5 bronze activity tables | `activity_id` | `activity_type` ('call', 'meeting', 'email', 'note', 'task') |
-
-Built as a UNION ALL across all 5 activity bronze tables, with a `activity_type` discriminator column.
+| Table | Source | Primary Key | Description |
+|-------|--------|-------------|-------------|
+| `fact_activities` | 5 bronze activity tables | `activity_id` | UNION ALL with `activity_type` discriminator ('call', 'meeting', 'email', 'note', 'task') |
+| `fact_stage_history` | bronze leads/deals/contacts | composite | Stage enter/exit tracking. Dynamically discovers stage IDs from bronze property keys (`hs_v2_date_entered_*`, `hs_date_entered_*`). Columns: `entity_type`, `stage_id`, `stage_label`, `entered_at`, `exited_at`, `duration_ms` |
 
 ### Bridge Tables (9)
 
@@ -177,20 +178,22 @@ Built as a UNION ALL across all 5 activity bronze tables, with a `activity_type`
 | `bridge_activity_company` | `activity_id` | `company_id` | 5 activity-company assoc tables |
 | `bridge_activity_deal` | `activity_id` | `deal_id` | 5 activity-deal assoc tables |
 
-### ClickHouse Dictionaries (6)
+### ClickHouse Dictionaries (8)
 
-Silver tables that serve as lookup references have in-memory dictionaries for fast joins:
+Silver tables that serve as lookup references have in-memory dictionaries for fast `dictGet()` lookups, replacing JOINs:
 
-| Dictionary | Source Table | Key | Values |
-|-----------|-------------|-----|--------|
-| `dict_owners` | `dim_owners` | `owner_id` | `first_name`, `last_name`, `email` |
-| `dict_pipelines` | `dim_pipelines` | `pipeline_id` | `label` |
-| `dict_pipeline_stages` | `dim_pipeline_stages` | `stage_id` | `label`, `pipeline_id`, `is_closed`, `display_order` |
-| `dict_contacts` | `dim_contacts` | `contact_id` | `full_name`, `email` |
-| `dict_companies` | `dim_companies` | `company_id` | `name`, `domain`, `industry` |
-| `dict_deals` | `dim_deals` | `deal_id` | `dealname`, `amount`, `owner_name` |
+| Dictionary | Source Table | Key(s) | Layout | Values |
+|-----------|-------------|--------|--------|--------|
+| `dict_owners` | `dim_owners` | `owner_id` | HASHED | `first_name`, `last_name`, `email` |
+| `dict_pipelines` | `dim_pipelines` | `pipeline_id` | HASHED | `label` |
+| `dict_pipeline_stages` | `dim_pipeline_stages` | `stage_id` | HASHED | `label`, `pipeline_id`, `is_closed`, `display_order` |
+| `dict_lead_pipelines` | `dim_lead_pipelines` | `pipeline_id` | HASHED | `label` |
+| `dict_lead_pipeline_stages` | `dim_lead_pipeline_stages` | `(pipeline_id, stage_id)` | COMPLEX_KEY_HASHED | `label`, `display_order`, `is_closed` |
+| `dict_contacts` | `dim_contacts` | `contact_id` | HASHED | `full_name`, `email` |
+| `dict_companies` | `dim_companies` | `company_id` | HASHED | `name`, `domain`, `industry` |
+| `dict_deals` | `dim_deals` | `deal_id` | HASHED | `dealname`, `amount`, `owner_name` |
 
-Dictionaries use `COMPLEX_KEY_HASHED` layout and auto-refresh every 5-10 minutes. During silver refresh, dependent dictionaries are dropped before the table and recreated after.
+Dictionary config is defined in `DICT_CONFIGS` in `silver_config.py`, which serves dual purpose: DDL generation (`_build_dict_ddl()`) and LLM prompt generation (auto-generates `dictGet()` examples per table). During silver refresh, dependent dictionaries are dropped before the table and recreated after via `EXCHANGE TABLES`.
 
 ### Data Quality
 
@@ -222,7 +225,7 @@ This avoids migration complexity. ClickHouse's columnar storage makes full rebui
 
 Gold tables contain pre-computed aggregates optimized for analytics dashboards. They join multiple silver tables and compute business metrics.
 
-### Aggregate Tables (4)
+### Aggregate Tables (7)
 
 #### `agg_rep_performance`
 
@@ -267,6 +270,28 @@ Lead source attribution funnel.
 | `contacts_count` / `mql_count` / `sql_count` | UInt32 | Funnel stage counts |
 | `deals_associated` / `deals_won` | UInt32 | Deal conversion counts |
 | `closed_won_value` | Float64 | Total closed-won deal value |
+
+#### `agg_lead_health`
+
+Per-lead health indicators with denormalized pipeline/stage labels via dictionaries.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `lead_id` | String | Lead identifier |
+| `lead_name` / `owner_name` | String | Denormalized via `dictGet()` |
+| `pipeline_label` / `stage_label` | String | Via `dict_lead_pipelines` / `dict_lead_pipeline_stages` |
+| `days_in_current_stage` | Nullable(UInt32) | Days since entering current stage |
+| `days_since_last_engagement` | Nullable(UInt32) | Days since last engagement |
+| `has_outreach` / `has_associated_deal` | UInt8 | Boolean flags |
+| `is_stale` | UInt8 | Not closed AND no engagement in 7+ days |
+
+#### `agg_deal_cohorts`
+
+Monthly deal cohort analysis grouped by close month and pipeline.
+
+#### `agg_deal_stage_funnel`
+
+Deal counts per stage for funnel visualization.
 
 #### `fact_pipeline_snapshots`
 

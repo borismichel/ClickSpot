@@ -2,6 +2,9 @@ import clickhouse_connect
 from dagster import ConfigurableResource
 
 
+_client_cache: dict = {}
+
+
 class ClickHouseResource(ConfigurableResource):
     host: str
     port: int = 8123
@@ -10,13 +13,19 @@ class ClickHouseResource(ConfigurableResource):
     database: str = "bronze"
 
     def get_client(self):
-        return clickhouse_connect.get_client(
-            host=self.host,
-            port=self.port,
-            username=self.username,
-            password=self.password,
-            database=self.database,
-        )
+        cache_key = (self.host, self.port, self.username, self.password, self.database)
+        client = _client_cache.get(cache_key)
+        if client is None:
+            client = clickhouse_connect.get_client(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                database=self.database,
+                send_receive_timeout=600,
+            )
+            _client_cache[cache_key] = client
+        return client
 
     def insert_records(self, table: str, rows: list[tuple]) -> int:
         """Insert rows as (record_id, extracted_at, properties_map, raw_json) tuples.

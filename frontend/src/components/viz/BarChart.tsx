@@ -22,7 +22,7 @@ interface Props {
 
 function formatValue(v: number, colName: string): string {
   const l = colName.toLowerCase();
-  if (l.includes("rate") || l.includes("percent")) {
+  if (l.match(/\brate\b/) || l.includes("percent")) {
     const pct = v < 1 && v > -1 ? v * 100 : v;
     return `${(Math.round(pct * 10) / 10)}%`;
   }

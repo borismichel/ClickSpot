@@ -225,10 +225,11 @@ class HubSpotResource(ConfigurableResource):
     def fetch_properties(self, object_type: str) -> list[dict]:
         """Fetch full property metadata for an object type.
 
+        Uses /crm/v3/properties/{objectType} (NOT the v4 objects endpoint).
         Returns list of dicts with: name, label, description, type, fieldType,
         groupName, options (for enumerations), etc.
         """
-        url = self._crm_url(object_type, "properties")
+        url = f"{BASE_URL}/crm/v3/properties/{object_type}"
         resp = _request_with_retry("GET", url, headers=self._headers())
         resp.raise_for_status()
         data = resp.json()
