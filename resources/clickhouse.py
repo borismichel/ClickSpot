@@ -16,13 +16,14 @@ class ClickHouseResource(ConfigurableResource):
         cache_key = (self.host, self.port, self.username, self.password, self.database)
         client = _client_cache.get(cache_key)
         if client is None:
-            client = clickhouse_connect.get_client(
+            client = clickhouse_connect.create_client(
                 host=self.host,
                 port=self.port,
                 username=self.username,
                 password=self.password,
                 database=self.database,
                 send_receive_timeout=600,
+                autogenerate_session_id=False,
             )
             _client_cache[cache_key] = client
         return client
