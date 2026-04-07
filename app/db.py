@@ -32,8 +32,11 @@ def get_client():
             username=os.environ.get("CLICKHOUSE_USER", "default"),
             password=os.environ.get("CLICKHOUSE_PASSWORD", ""),
             database="silver",
+            autogenerate_session_id=False,
             settings={"cancel_http_readonly_queries_on_client_close": "0"},
         )
+        # Verify no session leaked in — this would cause concurrent query errors
+        assert "session_id" not in _client.params, f"session_id leaked: {_client.params}"
     return _client
 
 
