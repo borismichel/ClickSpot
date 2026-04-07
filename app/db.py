@@ -21,6 +21,10 @@ def _conn_kwargs() -> dict:
         password=os.environ.get("CLICKHOUSE_PASSWORD", ""),
         database="silver",
         autogenerate_session_id=False,
+        # Disable cancel_http_readonly_queries_on_client_close — it forces
+        # ClickHouse to create an implicit session per connection, which
+        # causes "concurrent queries in same session" when connections are reused.
+        settings={"cancel_http_readonly_queries_on_client_close": "0"},
     )
 
 

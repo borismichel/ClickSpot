@@ -24,6 +24,7 @@ class ClickHouseResource(ConfigurableResource):
                 database=self.database,
                 send_receive_timeout=600,
                 autogenerate_session_id=False,
+                settings={"cancel_http_readonly_queries_on_client_close": "0"},
             )
             _client_cache[cache_key] = client
         return client
