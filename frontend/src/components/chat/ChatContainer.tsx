@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Spin } from "antd";
 import type { ChatMessage as ChatMsg } from "../../types/chat";
+import type { VizType } from "../../types/dashboard";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { SuggestedQuestions } from "./SuggestedQuestions";
@@ -9,9 +10,10 @@ interface Props {
   messages: ChatMsg[];
   isLoading: boolean;
   onSend: (text: string) => void;
+  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string }[] }) => boolean;
 }
 
-export function ChatContainer({ messages, isLoading, onSend }: Props) {
+export function ChatContainer({ messages, isLoading, onSend, onSaveToRepo }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,7 +28,7 @@ export function ChatContainer({ messages, isLoading, onSend }: Props) {
         ) : (
           <div style={{ maxWidth: 800, margin: "0 auto" }}>
             {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} />
+              <ChatMessage key={msg.id} message={msg} onSaveToRepo={onSaveToRepo} />
             ))}
             {isLoading && (
               <div style={{ padding: "16px 0", display: "flex", gap: 12, alignItems: "center" }}>

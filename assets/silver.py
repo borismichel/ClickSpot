@@ -131,7 +131,7 @@ def _build_insert(table_name: str, primary_key: str, config: dict) -> str:
     return (
         f"INSERT INTO silver.{table_name}\n"
         f"SELECT\n{select_sql}\n"
-        f"FROM bronze.{bronze_table}"
+        f"FROM bronze.{bronze_table} FINAL"
     )
 
 
@@ -164,31 +164,16 @@ def _make_dim_asset(name: str, config: dict):
         context.log.info(f"DDL: {ddl}")
         ch_silver.execute_sql(ddl)
 
-        # Count bronze rows to decide chunking
+        # Count unique bronze records to decide chunking (not total rows which includes dupes)
         bronze_count = int(ch_silver.execute_sql(
-            f"SELECT count() FROM bronze.{bronze_table}"
+            f"SELECT uniq(_record_id) FROM bronze.{bronze_table}"
         ))
-        context.log.info(f"Bronze {bronze_table}: {bronze_count} rows")
+        context.log.info(f"Bronze {bronze_table}: {bronze_count} unique records")
 
         insert_sql = _build_insert(tmp, primary_key, config)
 
-        if bronze_count <= CHUNK_SIZE:
-            # Small table — single INSERT
-            context.log.info(f"INSERT (single): {insert_sql}")
-            ch_silver.execute_sql(insert_sql)
-        else:
-            # Large table — chunk with LIMIT/OFFSET
-            offset = 0
-            chunk_num = 0
-            while offset < bronze_count:
-                chunk_sql = f"{insert_sql} LIMIT {CHUNK_SIZE} OFFSET {offset}"
-                chunk_num += 1
-                context.log.info(
-                    f"INSERT chunk {chunk_num} (offset {offset}, "
-                    f"limit {CHUNK_SIZE})"
-                )
-                ch_silver.execute_sql(chunk_sql)
-                offset += CHUNK_SIZE
+        context.log.info(f"INSERT: {insert_sql}")
+        ch_silver.execute_sql(insert_sql)
 
         # Atomic swap
         _swap_table(ch_silver, target, context.log)
@@ -280,7 +265,7 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     insert_sql = (
         f"INSERT INTO silver.{tmp}\n"
         f"SELECT\n{select_sql}\n"
-        f"FROM bronze.hs_deals"
+        f"FROM bronze.hs_deals FINAL"
     )
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
@@ -332,7 +317,7 @@ SELECT
     parseDateTimeBestEffortOrZero(JSONExtractString(stage, 'updatedAt')) AS updated_at,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.hs_pipelines
+FROM bronze.hs_pipelines FINAL
 ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
 """.strip()
     context.log.info(f"INSERT: {insert_sql}")
@@ -384,7 +369,7 @@ SELECT
     parseDateTimeBestEffortOrZero(JSONExtractString(stage, 'updatedAt')) AS updated_at,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.hs_lead_pipelines
+FROM bronze.hs_lead_pipelines FINAL
 ARRAY JOIN JSONExtractArrayRaw(_raw, 'stages') AS stage
 """.strip()
     ch_silver.execute_sql(insert_sql)
@@ -479,7 +464,7 @@ ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
     parseDateTimeBestEffortOrZero(properties['hs_lastmodifieddate']) AS lastmodifieddate,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table}"""
+FROM bronze.{bronze_table} FINAL"""
         union_parts.append(part)
 
     insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
@@ -552,7 +537,7 @@ SELECT
     properties['phone'] AS phone,
     0 AS archived,
     now() AS _silver_loaded_at
-FROM bronze.hs_form_submissions
+FROM bronze.hs_form_submissions FINAL
 """.strip()
     context.log.info(f"INSERT: {insert_sql}")
     ch_silver.execute_sql(insert_sql)
@@ -592,7 +577,6 @@ def _make_bridge_asset(silver_table: str, bronze_table: str, from_key: str, to_k
 CREATE TABLE silver.{tmp} (
     {from_key} String,
     {to_key} String,
-    association_type LowCardinality(String),
     _silver_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY ({from_key}, {to_key})
 """.strip()
@@ -600,12 +584,11 @@ CREATE TABLE silver.{tmp} (
 
         insert_sql = f"""
 INSERT INTO silver.{tmp}
-SELECT
+SELECT DISTINCT
     _from_id AS {from_key},
     _to_id AS {to_key},
-    _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table}
+FROM bronze.{bronze_table} FINAL
 """.strip()
         ch_silver.execute_sql(insert_sql)
 
@@ -665,7 +648,6 @@ CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     contact_id String,
-    association_type LowCardinality(String),
     _silver_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (activity_id, contact_id)
 """.strip()
@@ -677,9 +659,8 @@ CREATE TABLE silver.{tmp} (
     _from_id AS activity_id,
     '{activity_type}' AS activity_type,
     _to_id AS contact_id,
-    _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table}"""
+FROM bronze.{bronze_table} FINAL"""
         union_parts.append(part)
 
     insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
@@ -726,7 +707,6 @@ CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     company_id String,
-    association_type LowCardinality(String),
     _silver_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (activity_id, company_id)
 """.strip()
@@ -738,9 +718,8 @@ CREATE TABLE silver.{tmp} (
     _from_id AS activity_id,
     '{activity_type}' AS activity_type,
     _to_id AS company_id,
-    _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table}"""
+FROM bronze.{bronze_table} FINAL"""
         union_parts.append(part)
 
     insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
@@ -787,7 +766,6 @@ CREATE TABLE silver.{tmp} (
     activity_id String,
     activity_type LowCardinality(String),
     deal_id String,
-    association_type LowCardinality(String),
     _silver_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY (activity_id, deal_id)
 """.strip()
@@ -799,9 +777,8 @@ CREATE TABLE silver.{tmp} (
     _from_id AS activity_id,
     '{activity_type}' AS activity_type,
     _to_id AS deal_id,
-    _association_type AS association_type,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table}"""
+FROM bronze.{bronze_table} FINAL"""
         union_parts.append(part)
 
     insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
@@ -1017,10 +994,10 @@ WHERE match(k, '^hs_(v2_)?date_entered_')
 
         context.log.info(f"{bronze_table}: found {len(stage_ids)} stage IDs")
 
-        # Build UNION ALL: one SELECT per stage ID.
-        # HubSpot uses both hs_date_entered_* and hs_v2_date_entered_* patterns;
-        # try both and use coalesce to pick whichever has data.
-        union_parts = []
+        # Insert one stage at a time to avoid a massive UNION ALL that
+        # triggers N concurrent FINAL scans of the same bronze table.
+        # HubSpot uses both hs_date_entered_* and hs_v2_date_entered_* patterns.
+        import re as _re
         for stage_id in stage_ids:
             entered_v1 = f"hs_date_entered_{stage_id}"
             entered_v2 = f"hs_v2_date_entered_{stage_id}"
@@ -1033,11 +1010,6 @@ WHERE match(k, '^hs_(v2_)?date_entered_')
             exited_expr = f"if(properties['{exited_v2}'] != '', properties['{exited_v2}'], properties['{exited_v1}'])"
             time_expr = f"if(properties['{time_v2}'] != '', properties['{time_v2}'], properties['{time_v1}'])"
 
-            # Build stage_label expression.
-            # Property suffixes may differ from dim table stage IDs:
-            #   property: "new_stage_id_1318266061"  →  dim: "new-stage-id"
-            # Normalize: strip trailing _DIGITS, replace _ with -
-            import re as _re
             normalized = _re.sub(r'_\d+$', '', stage_id).replace('_', '-')
 
             if stage_table:
@@ -1046,10 +1018,10 @@ WHERE match(k, '^hs_(v2_)?date_entered_')
                     f"WHERE stage_id IN ('{stage_id}', '{normalized}') AND archived = 0 LIMIT 1), '{stage_id}')"
                 )
             else:
-                # Contacts: stage_id IS the label slug (e.g. 'marketingqualifiedlead')
                 label_expr = f"'{stage_id}'"
 
-            union_parts.append(f"""
+            insert_sql = f"""
+INSERT INTO silver.{tmp}
 SELECT
     '{entity_type}' AS entity_type,
     {id_col} AS entity_id,
@@ -1061,12 +1033,10 @@ SELECT
        NULL) AS exited_at,
     toInt64OrNull({time_expr}) AS duration_ms,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table}
+FROM bronze.{bronze_table} FINAL
 WHERE properties['{entered_v1}'] != '' OR properties['{entered_v2}'] != ''
-""".strip())
-
-        insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
-        ch_silver.execute_sql(insert_sql)
+""".strip()
+            ch_silver.execute_sql(insert_sql)
 
         count = ch_silver.execute_sql(
             f"SELECT count() FROM silver.{tmp} WHERE entity_type = '{entity_type}'"

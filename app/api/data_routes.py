@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.db import query_rows, query_value
+from app.db import query_rows, query_value, async_query_rows, async_query_value
 
 router = APIRouter(prefix="/api/v1")
 
@@ -97,7 +97,7 @@ class SQLResponse(BaseModel):
 
 
 @router.post("/sql", response_model=SQLResponse)
-def execute_sql(req: SQLRequest):
+async def execute_sql(req: SQLRequest):
     """Execute a read-only SQL query."""
     sql = req.sql.strip().rstrip(";").strip()
 
@@ -124,7 +124,7 @@ def execute_sql(req: SQLRequest):
 
     t0 = time.time()
     try:
-        rows = query_rows(sql)
+        rows = await async_query_rows(sql)
         elapsed = int((time.time() - t0) * 1000)
         columns = list(rows[0].keys()) if rows else []
         return SQLResponse(

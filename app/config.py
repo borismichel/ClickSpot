@@ -396,6 +396,7 @@ TABLES = {
         "display_name": "Rep Performance (monthly aggregates per rep)",
         "database": "gold",
         "fields": {
+            "owner_name":     {"type": "String",           "display": "Rep Name (use directly, no dictGet needed)"},
             "period_start":   {"type": "Date",             "display": "Period Start"},
             "deals_won":      {"type": "UInt32",           "display": "Deals Won"},
             "deals_lost":     {"type": "UInt32",           "display": "Deals Lost"},
@@ -418,9 +419,12 @@ TABLES = {
         "database": "gold",
         "fields": {
             "dealname":       {"type": "String",           "display": "Deal Name"},
-            "dealstage":      {"type": "String",           "display": "Deal Stage"},
-            "pipeline":       {"type": "String",           "display": "Pipeline"},
+            "dealstage":      {"type": "String",           "display": "Deal Stage ID"},
+            "stage_label":    {"type": "String",           "display": "Stage Label (use directly, no dictGet needed)"},
+            "pipeline":       {"type": "String",           "display": "Pipeline ID"},
+            "pipeline_label": {"type": "String",           "display": "Pipeline Label (use directly, no dictGet needed)"},
             "hubspot_owner_id": {"type": "String",         "display": "Owner ID"},
+            "owner_name":     {"type": "String",           "display": "Owner Name (use directly, no dictGet needed)"},
             "amount":         {"type": "Nullable(Float64)", "display": "Amount"},
             "hs_is_closed":   {"type": "String",            "display": "Is Closed ('true'/'false')"},
             "hs_is_closed_won": {"type": "String",          "display": "Is Closed Won ('true'/'false')"},

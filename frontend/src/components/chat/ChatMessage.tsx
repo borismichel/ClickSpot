@@ -1,12 +1,16 @@
 import { Typography, Alert, Tag, Space } from "antd";
 import { UserOutlined, RobotOutlined, ClockCircleOutlined, DatabaseOutlined, TableOutlined } from "@ant-design/icons";
 import type { ChatMessage as ChatMsg } from "../../types/chat";
+import type { VizType } from "../../types/dashboard";
 import { SQLPreview } from "./SQLPreview";
 import { VizRouter } from "../viz/VizRouter";
 import { ContextBar } from "../viz/ContextBar";
+import { ExportButtons } from "../viz/ExportButtons";
+import { SaveToRepoButton } from "../viz/SaveToRepoButton";
 
 interface Props {
   message: ChatMsg;
+  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string }[] }) => boolean;
 }
 
 function formatMs(ms: number): string {
@@ -14,7 +18,7 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function ChatMessage({ message }: Props) {
+export function ChatMessage({ message, onSaveToRepo }: Props) {
   const isUser = message.role === "user";
 
   return (
@@ -74,6 +78,22 @@ export function ChatMessage({ message }: Props) {
                 {message.context && message.context.length > 0 && (
                   <ContextBar kpis={message.context} />
                 )}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4, gap: 4 }}>
+                  {onSaveToRepo && message.sql && message.viz && (
+                    <SaveToRepoButton
+                      title={message.title || "Untitled"}
+                      sql={message.sql}
+                      viz={message.viz}
+                      contextKPIs={(message.context || []).map((k) => ({ label: k.label, sql: k.sql }))}
+                      onSave={onSaveToRepo}
+                    />
+                  )}
+                  <ExportButtons
+                    results={message.results}
+                    columns={message.columns}
+                    title={message.title || "export"}
+                  />
+                </div>
                 <VizRouter
                   viz={message.viz}
                   results={message.results}

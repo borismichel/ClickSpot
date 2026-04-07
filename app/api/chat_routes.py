@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
-from app.db import query_rows, query_value
+from app.db import async_query_rows, async_query_value
 from app.llm.config import load_config, save_config, get_api_key, mask_key
 from app.llm.oauth import save_initial_token, get_token_info, clear_tokens, has_valid_token
 from app.llm.providers import get_provider, refresh_schema_prompt, ClaudeOAuthProvider, ClaudeCLIProvider
@@ -50,7 +50,7 @@ async def chat(req: ChatRequest):
     # 5. Execute on ClickHouse
     t1 = time.time()
     try:
-        rows = query_rows(sql)
+        rows = await async_query_rows(sql)
     except Exception as e:
         log.error(f"ClickHouse query failed: {e}\nSQL: {sql}")
         raise HTTPException(
@@ -70,7 +70,7 @@ async def chat(req: ChatRequest):
             continue
         kpi_sql = ensure_limit(kpi_sql, max_limit=1)
         try:
-            val = query_value(kpi_sql)
+            val = await async_query_value(kpi_sql)
             if val is None or val == "\\N":
                 val = None
             context_results.append(ContextKPIResult(

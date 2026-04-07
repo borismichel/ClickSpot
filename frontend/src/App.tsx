@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { Layout, Button, Space } from "antd";
-import { SettingOutlined, ApartmentOutlined, DatabaseOutlined } from "@ant-design/icons";
+import { SettingOutlined, ApartmentOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
+import { useObjectRepo } from "./hooks/useObjectRepo";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { SettingsDrawer } from "./components/settings/SettingsDrawer";
@@ -21,6 +22,7 @@ export default function App() {
     startNew,
     deleteConversation,
   } = useConversations();
+  const { addObject } = useObjectRepo();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Save conversation whenever messages change (debounced by effect)
@@ -60,6 +62,20 @@ export default function App() {
           HubSpot Analytics
         </div>
         <Space>
+          <Button
+            type="text"
+            icon={<AppstoreOutlined />}
+            onClick={() => navigate("/library")}
+          >
+            Library
+          </Button>
+          <Button
+            type="text"
+            icon={<DashboardOutlined />}
+            onClick={() => navigate("/dashboard")}
+          >
+            Dashboard
+          </Button>
           <Button
             type="text"
             icon={<DatabaseOutlined />}
@@ -114,6 +130,7 @@ export default function App() {
             messages={messages}
             isLoading={isLoading}
             onSend={sendMessage}
+            onSaveToRepo={addObject}
           />
         </Content>
       </Layout>

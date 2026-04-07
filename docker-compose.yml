@@ -1,6 +1,6 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8-lts
+    image: clickhouse/clickhouse-server:latest
     container_name: hs2ch-clickhouse
     ports:
       - "8124:8123"   # HTTP — offset from Langfuse's 8123
@@ -10,6 +10,10 @@ services:
       CLICKHOUSE_PASSWORD: hs2ch
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
       CLICKHOUSE_DB: bronze
+    deploy:
+      resources:
+        limits:
+          memory: 6g
     volumes:
       - hs2ch_ch_data:/var/lib/clickhouse
       - hs2ch_ch_logs:/var/log/clickhouse-server

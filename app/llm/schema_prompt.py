@@ -44,8 +44,16 @@ RULES:
 - Currency is EUR. Format amounts as numbers, the frontend handles display formatting.
 - Always include LIMIT (max 1000 for tables, not needed for single-value aggregates).
 - Use ClickHouse functions: countIf(), sumIf(), avgIf(), toDate(), toStartOfMonth(), toStartOfQuarter(), toStartOfYear(), dateDiff().
-- For date bucketing use: toDate(), toStartOfWeek(), toStartOfMonth(), toStartOfQuarter(), toStartOfYear().
+- For date bucketing in SELECT/GROUP BY: toDate(), toStartOfWeek(), toStartOfMonth(), toStartOfQuarter(), toStartOfYear().
 - When the user says "this quarter", compute the current calendar quarter boundaries.
+- NEVER wrap columns in functions inside WHERE — it prevents ClickHouse from using ORDER BY index pruning. Use range predicates instead:
+    BAD:  WHERE toYear(createdate) = 2026
+    GOOD: WHERE createdate >= '2026-01-01' AND createdate < '2027-01-01'
+    BAD:  WHERE toMonth(closedate) = 4
+    GOOD: WHERE closedate >= '2026-04-01' AND closedate < '2026-05-01'
+    BAD:  WHERE toDate(createdate) = today()
+    GOOD: WHERE createdate >= today() AND createdate < today() + 1
+  Function calls in SELECT expressions and GROUP BY are fine (e.g. toStartOfMonth(closedate) AS month).
 - Use dictGet() for ID→name lookups instead of JOINs (see DICTIONARIES section).
 - Filter out blank/empty names: WHERE owner_name != '' AND owner_name != ' ' (similar for other name fields).
 - When the user says "by X" or "per X", the SQL MUST actually GROUP BY that dimension. The explanation must match what the SQL does — never claim a breakdown that isn't in the query.
@@ -53,7 +61,13 @@ RULES:
 - NEVER use SELECT * — always enumerate columns explicitly. ClickHouse is columnar; SELECT * reads every column from disk.
 - Use uniq() instead of COUNT(DISTINCT ...) — HyperLogLog approximation, orders of magnitude faster, accurate to ~2%.
 - Use argMax(value, timestamp) / argMin(value, timestamp) for "latest/earliest X per group" patterns — avoids correlated subqueries.
-- Use any() for non-aggregated columns functionally dependent on the GROUP BY key (e.g. any(dealname) when grouping by deal_id)."""
+- Use any() for non-aggregated columns functionally dependent on the GROUP BY key (e.g. any(dealname) when grouping by deal_id).
+- Always use NULLS LAST in ORDER BY when sorting by Nullable columns or computed expressions that can be NULL — prevents NULL rows from appearing first in DESC sorts.
+- SUBQUERY ALIASES ARE REQUIRED — ClickHouse cannot resolve column names from unaliased subqueries. Always alias: `FROM (SELECT ...) AS sub WHERE sub.col ...`. Without the alias, the outer SELECT gets "Unknown identifier" errors.
+- BRIDGE TABLE JOINS ARE N:M — joining through a bridge table WILL multiply rows if an entity has multiple associations. To avoid duplicates:
+  - For detail queries: use LIMIT 1 BY primary_key, or wrap the bridge join in a subquery with argMax/any() to pick one associated record.
+  - For aggregate queries: aggregate BEFORE joining, or use uniq() to count distinct IDs.
+  - Prefer gold tables when available — they have pre-joined, deduplicated data (e.g. gold.agg_lead_health instead of dim_leads + bridge + dim_contacts)."""
 
 
 def _block_data_model() -> str:
@@ -95,16 +109,16 @@ Foreign keys (direct, no bridge):
   dim_deals.pipeline → dim_pipelines.pipeline_id
   dim_deals.dealstage → dim_pipeline_stages.stage_id
 
-Gold layer (pre-aggregated):
-  gold.agg_rep_performance — Monthly per-rep aggregates (hubspot_owner_id, period_start)
-  gold.agg_deal_health — Per-deal health indicators (deal_id, hubspot_owner_id, dealstage, pipeline, hs_is_closed, hs_is_closed_won)
+Gold layer (pre-aggregated, has denormalized labels — use directly, no dictGet needed):
+  gold.agg_rep_performance — Monthly per-rep aggregates. Has owner_name (use directly).
+  gold.agg_deal_health — Per-deal health indicators. Has owner_name, pipeline_label, stage_label (use directly).
   gold.agg_source_attribution — Source/channel attribution metrics
-  gold.agg_deal_stage_funnel — Deals per pipeline stage with values and weighted values
-  gold.agg_lead_health — Per-lead health indicators. Has pre-denormalized: owner_name, pipeline_label, stage_label. Also: lead_id, hs_lead_status, hs_pipeline, outreach, staleness.
+  gold.agg_deal_stage_funnel — Deals per pipeline stage with values and weighted values. Has stage_label.
+  gold.agg_lead_health — Per-lead health indicators. Has owner_name, pipeline_label, stage_label (use directly).
   gold.agg_deal_cohorts — Creation-month cohort analysis (win/loss/open by cohort)
   gold.fact_pipeline_snapshots — Historical daily pipeline state (append-only)
 
-IMPORTANT: gold tables store RAW IDs, not human names. Use dictGet() to resolve."""
+IMPORTANT: Gold tables have pre-denormalized human-readable labels (owner_name, pipeline_label, stage_label). Use these columns directly — do NOT use dictGet() on gold tables."""
 
 
 def _block_dictionaries() -> str:
@@ -269,7 +283,7 @@ PIPELINES — CRITICAL:
 DEFAULT PIPELINE RULE: Unless the user explicitly asks about "all pipelines", "legacy", "partner", or a specific pipeline by name, ALWAYS filter to the main pipeline:
   pipeline_label = 'Main Sales Pipeline'
 If the user asks to "compare pipelines" or "break down by pipeline", include all. Otherwise, default to main.
-For gold tables use the pipeline ID: pipeline = 'default'
+Gold tables also have pipeline_label — use pipeline_label = 'Main Sales Pipeline' there too (NOT pipeline = 'default').
 
 STAGES (main pipeline, in order):
   "Discovery" → "Scoping" → "Proof of Value" → "Contract & Negotiation" → "Closed Won" (Closed Won) / "Closed Lost" (Closed Lost) / "Disqualified"
@@ -277,9 +291,10 @@ STAGES (main pipeline, in order):
 OTHER CONTEXT:
 - dim_deals has denormalized columns: pipeline_label (human name), stage_label (human name), owner_name (rep full name)
 - hs_manual_forecast_category values: COMMIT, BEST_CASE, MOST_LIKELY, PIPELINE, OMIT
-- gold.agg_rep_performance: keyed by hubspot_owner_id + period_start. Use dictGet for rep names.
-- gold.agg_deal_health: keyed by deal_id, has hubspot_owner_id, dealstage, pipeline (all raw IDs). Use dictGet for names.
-  IMPORTANT: agg_deal_health contains ALL deals (open AND closed). When the user asks about "open" deals, stale deals, or at-risk deals, filter: hs_is_closed = 'false'"""
+- gold.agg_rep_performance: has owner_name column — use directly, no dictGet needed.
+- gold.agg_deal_health: has owner_name, pipeline_label, stage_label columns — use directly, no dictGet needed.
+  IMPORTANT: agg_deal_health contains ALL deals (open AND closed). When the user asks about "open" deals, stale deals, or at-risk deals, filter: hs_is_closed = 'false'
+- NEVER use dictGet() on gold tables — they have all labels pre-computed."""
 
 
 def _block_examples() -> str:
@@ -292,7 +307,7 @@ Q: "Break that down by rep"
 A: {"sql": "SELECT owner_name, countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0) AS win_rate, countIf(hs_is_closed = 'true') AS total_closed FROM silver.dim_deals WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND closedate >= '2026-04-01' AND closedate <= '2026-06-30' AND closedate > '1970-01-02' AND owner_name != ' ' GROUP BY owner_name ORDER BY win_rate DESC LIMIT 20", "viz": "bar", "title": "Win Rate by Rep — Q2 2026", "explanation": "Win rate per rep for main pipeline deals closed in Q2 2026."}
 
 Q: "Which deals are at risk?"
-A: {"sql": "SELECT dealname, dictGet('silver.dict_owners', 'first_name', tuple(hubspot_owner_id)) || ' ' || dictGet('silver.dict_owners', 'last_name', tuple(hubspot_owner_id)) AS rep, amount, days_in_current_stage, days_since_last_activity, last_activity_type FROM gold.agg_deal_health WHERE hs_is_closed = 'false' AND is_stale = 1 AND pipeline = 'default' AND amount > 0 ORDER BY amount DESC LIMIT 50", "viz": "table", "title": "Stale Deals at Risk", "explanation": "Open stale deals in the main pipeline with no recent activity, sorted by value."}
+A: {"sql": "SELECT dealname, owner_name, stage_label, amount, days_in_current_stage, days_since_last_activity, last_activity_type FROM gold.agg_deal_health WHERE hs_is_closed = 'false' AND is_stale = 1 AND pipeline_label = 'Main Sales Pipeline' AND amount > 0 ORDER BY amount DESC LIMIT 50", "viz": "table", "title": "Stale Deals at Risk", "explanation": "Open stale deals in the main pipeline with no recent activity, sorted by value."}
 
 Q: "Show me monthly closed-won revenue for the last 12 months"
 A: {"sql": "SELECT toStartOfMonth(closedate) AS month, sum(amount) AS revenue FROM silver.dim_deals WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND hs_is_closed_won = 'true' AND closedate >= toDate(now()) - INTERVAL 12 MONTH AND closedate > '1970-01-02' GROUP BY month ORDER BY month LIMIT 12", "viz": "line", "title": "Monthly Closed-Won Revenue", "explanation": "Monthly closed-won revenue from the main sales pipeline."}
@@ -301,10 +316,13 @@ Q: "Pipeline by stage"
 A: {"sql": "SELECT stage_label, count() AS deals, sum(amount) AS total_value FROM silver.dim_deals WHERE archived = 0 AND (hs_is_closed = 'false' OR hs_is_closed = '') AND pipeline_label = 'Main Sales Pipeline' GROUP BY stage_label ORDER BY total_value DESC LIMIT 20", "viz": "bar", "title": "Open Pipeline by Stage", "explanation": "Open deals in the main sales pipeline grouped by stage."}
 
 Q: "Top reps by ARR this month"
-A: {"sql": "SELECT dictGet('silver.dict_owners', 'first_name', tuple(hubspot_owner_id)) || ' ' || dictGet('silver.dict_owners', 'last_name', tuple(hubspot_owner_id)) AS rep, deals_won, total_arr_closed, win_rate FROM gold.agg_rep_performance WHERE period_start = toStartOfMonth(today()) ORDER BY total_arr_closed DESC NULLS LAST LIMIT 10", "viz": "bar", "title": "Top Reps by ARR This Month", "explanation": "Rep leaderboard by new ARR closed this month."}
+A: {"sql": "SELECT owner_name, deals_won, total_arr_closed, win_rate FROM gold.agg_rep_performance WHERE period_start = toStartOfMonth(today()) AND owner_name != '' ORDER BY total_arr_closed DESC NULLS LAST LIMIT 10", "viz": "bar", "title": "Top Reps by ARR This Month", "explanation": "Rep leaderboard by new ARR closed this month."}
 
 Q: "Compare all pipelines"
-A: {"sql": "SELECT pipeline_label, count() AS deals, sum(amount) AS total_value, countIf(hs_is_closed_won = 'true') AS won FROM silver.dim_deals WHERE archived = 0 GROUP BY pipeline_label ORDER BY total_value DESC LIMIT 10", "viz": "bar", "title": "All Pipelines Comparison", "explanation": "Deal count and total value across all pipelines."}"""
+A: {"sql": "SELECT pipeline_label, count() AS deals, sum(amount) AS total_value, countIf(hs_is_closed_won = 'true') AS won FROM silver.dim_deals WHERE archived = 0 GROUP BY pipeline_label ORDER BY total_value DESC LIMIT 10", "viz": "bar", "title": "All Pipelines Comparison", "explanation": "Deal count and total value across all pipelines."}
+
+Q: "Show me leads from paid channels that are stuck"
+A: {"sql": "WITH paid_lead_ids AS (SELECT DISTINCT bridge.lead_id FROM silver.bridge_lead_contact AS bridge JOIN silver.dim_contacts AS contacts ON contacts.contact_id = bridge.contact_id WHERE contacts.archived = 0 AND contacts.hs_analytics_source IN ('PAID_SEARCH', 'PAID_SOCIAL')) SELECT leads.hs_lead_name AS lead_name, concat(dictGet('silver.dict_owners', 'first_name', tuple(leads.hubspot_owner_id)), ' ', dictGet('silver.dict_owners', 'last_name', tuple(leads.hubspot_owner_id))) AS owner, dictGet('silver.dict_lead_pipeline_stages', 'label', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) AS current_stage, if(leads.last_activity_date > '1970-01-02', dateDiff('day', toDate(leads.last_activity_date), today()), NULL) AS days_since_last_activity, toDate(leads.createdate) AS created_date FROM silver.dim_leads AS leads JOIN paid_lead_ids ON paid_lead_ids.lead_id = leads.lead_id WHERE leads.archived = 0 AND leads.createdate >= '2026-01-01' AND leads.createdate < '2027-01-01' AND dictGet('silver.dict_lead_pipeline_stages', 'is_closed', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) = 'false' ORDER BY days_since_last_activity DESC NULLS LAST LIMIT 200", "viz": "table", "title": "Stuck Paid Leads 2026", "explanation": "Open leads from paid search/social channels in 2026, sorted by days without activity."}"""
 
 
 def _block_output_format() -> str:
