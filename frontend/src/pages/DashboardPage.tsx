@@ -17,6 +17,9 @@ import { useDashboards } from "../hooks/useDashboards";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import { DashboardCard } from "../components/dashboard/DashboardCard";
 import { AddObjectDrawer } from "../components/dashboard/AddObjectDrawer";
+import { DashboardFilterBar } from "../components/dashboard/DashboardFilterBar";
+import type { DashboardFilters } from "../types/dashboard";
+import { EMPTY_FILTERS } from "../types/dashboard";
 
 const { Header, Content } = Layout;
 
@@ -34,6 +37,7 @@ export default function DashboardPage() {
     addItem,
     removeItem,
     updateLayouts,
+    updateFilters,
   } = useDashboards();
 
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
@@ -42,6 +46,16 @@ export default function DashboardPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
+
+  const handleFilterChange = useCallback(
+    (filters: DashboardFilters) => {
+      if (activeId) {
+        updateFilters(activeId, filters);
+        setRefreshKey((k) => k + 1);
+      }
+    },
+    [activeId, updateFilters]
+  );
 
   const handleCreate = () => {
     createDashboard("New Dashboard");
@@ -172,6 +186,14 @@ export default function DashboardPage() {
       </Header>
 
       <Content style={{ padding: 16, background: "#fafafa" }}>
+        {activeDashboard && activeDashboard.items.length > 0 && (
+          <div style={{ padding: "0 0 4px 0" }}>
+            <DashboardFilterBar
+              filters={activeDashboard.filters ?? EMPTY_FILTERS}
+              onChange={handleFilterChange}
+            />
+          </div>
+        )}
         <div ref={gridContainerRef}>
         {!activeDashboard ? (
           <div style={{ textAlign: "center", paddingTop: 120 }}>
@@ -219,6 +241,7 @@ export default function DashboardPage() {
                   <DashboardCard
                     object={obj}
                     refreshKey={refreshKey}
+                    filters={activeDashboard.filters ?? EMPTY_FILTERS}
                     onRemove={() => removeItem(activeId!, item.objectId)}
                   />
                 </div>

@@ -1,11 +1,15 @@
 """Data exploration endpoints — table browser and SQL editor."""
 
+import logging
 import re
 import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.db import async_query_rows, async_query_value
+from app.engine.sql_filter import apply_filters, DashboardFilters
+
+log = logging.getLogger("app.data_routes")
 
 router = APIRouter(prefix="/api/v1")
 
@@ -84,8 +88,18 @@ async def describe_table(database: str, table: str):
 # SQL editor
 # ------------------------------------------------------------------
 
+class SQLFilters(BaseModel):
+    date_from: str | None = None
+    date_to: str | None = None
+    owner_ids: list[str] | None = None
+    owner_names: list[str] | None = None
+    pipeline_ids: list[str] | None = None
+    pipeline_labels: list[str] | None = None
+
+
 class SQLRequest(BaseModel):
     sql: str
+    filters: SQLFilters | None = None
 
 
 class SQLResponse(BaseModel):
@@ -117,6 +131,18 @@ async def execute_sql(req: SQLRequest):
     if re.search(r"\bsystem\.\w+", sql, re.IGNORECASE):
         raise HTTPException(400, "Access to system tables is not allowed")
 
+    # Apply dashboard filters if provided
+    if req.filters:
+        df = DashboardFilters(
+            date_from=req.filters.date_from,
+            date_to=req.filters.date_to,
+            owner_ids=req.filters.owner_ids or [],
+            owner_names=req.filters.owner_names or [],
+            pipeline_ids=req.filters.pipeline_ids or [],
+            pipeline_labels=req.filters.pipeline_labels or [],
+        )
+        sql = apply_filters(sql, df)
+
     # Inject LIMIT if missing (for SELECT/WITH only)
     if re.match(r"^(SELECT|WITH)\b", sql, re.IGNORECASE):
         if not re.search(r"\bLIMIT\b", sql, re.IGNORECASE):
@@ -142,3 +168,46 @@ async def execute_sql(req: SQLRequest):
             elapsed_ms=elapsed,
             error=str(e),
         )
+
+
+# ------------------------------------------------------------------
+# Dashboard filter options
+# ------------------------------------------------------------------
+
+@router.get("/filters/options")
+async def filter_options():
+    """Return dropdown options for dashboard global filters."""
+    owners = []
+    pipelines = []
+    try:
+        owner_rows = await async_query_rows(
+            "SELECT owner_id, first_name, last_name "
+            "FROM silver.dim_owners WHERE archived = 0 "
+            "ORDER BY last_name, first_name"
+        )
+        owners = [
+            {
+                "id": r["owner_id"],
+                "name": f"{r.get('first_name', '')} {r.get('last_name', '')}".strip(),
+            }
+            for r in owner_rows
+            if r.get("first_name") or r.get("last_name")
+        ]
+    except Exception as e:
+        log.warning(f"Failed to fetch owners for filter options: {e}")
+
+    try:
+        pipeline_rows = await async_query_rows(
+            "SELECT pipeline_id, label "
+            "FROM silver.dim_pipelines WHERE archived = 0 "
+            "ORDER BY label"
+        )
+        pipelines = [
+            {"id": r["pipeline_id"], "label": r.get("label", "")}
+            for r in pipeline_rows
+            if r.get("label")
+        ]
+    except Exception as e:
+        log.warning(f"Failed to fetch pipelines for filter options: {e}")
+
+    return {"owners": owners, "pipelines": pipelines}

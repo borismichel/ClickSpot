@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
-import type { Dashboard, DashboardItem } from "../types/dashboard";
+import type { Dashboard, DashboardItem, DashboardFilters } from "../types/dashboard";
+import { EMPTY_FILTERS } from "../types/dashboard";
 
 const STORAGE_KEY = "hs2ch_dashboards";
 
@@ -36,6 +37,7 @@ export function useDashboards() {
       id,
       title,
       items: [],
+      filters: { ...EMPTY_FILTERS },
       createdAt: now,
       updatedAt: now,
     };
@@ -130,6 +132,16 @@ export function useDashboards() {
     []
   );
 
+  const updateFilters = useCallback((dashId: string, filters: DashboardFilters) => {
+    setDashboards((prev) =>
+      prev.map((d) =>
+        d.id === dashId
+          ? { ...d, filters, updatedAt: new Date().toISOString() }
+          : d
+      )
+    );
+  }, []);
+
   return {
     dashboards,
     activeId,
@@ -141,5 +153,6 @@ export function useDashboards() {
     addItem,
     removeItem,
     updateLayouts,
+    updateFilters,
   };
 }
