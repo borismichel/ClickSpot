@@ -1,6 +1,7 @@
 """Chat API routes — natural language → SQL → ClickHouse results."""
 
 import logging
+import os
 import time
 
 from fastapi import APIRouter, HTTPException
@@ -104,6 +105,7 @@ def get_settings():
         "openai_api_key": mask_key(config.get("openai_api_key", "")),
         "anthropic_model": config.get("anthropic_model", "claude-sonnet-4-6"),
         "openai_model": config.get("openai_model", "gpt-4o"),
+        "hubspot_hub_id": os.environ.get("HUBSPOT_HUB_ID", ""),
     }
 
 

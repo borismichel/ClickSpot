@@ -63,6 +63,7 @@ RULES:
 - Use argMax(value, timestamp) / argMin(value, timestamp) for "latest/earliest X per group" patterns — avoids correlated subqueries.
 - Use any() for non-aggregated columns functionally dependent on the GROUP BY key (e.g. any(dealname) when grouping by deal_id).
 - Always use NULLS LAST in ORDER BY when sorting by Nullable columns or computed expressions that can be NULL — prevents NULL rows from appearing first in DESC sorts.
+- ALWAYS include the entity primary key (deal_id, contact_id, company_id, lead_id) alongside name/label columns in table queries. The frontend uses these IDs to generate clickable links to HubSpot. For example, when selecting dealname, also select deal_id; when selecting hs_lead_name, also select lead_id.
 - SUBQUERY ALIASES ARE REQUIRED — ClickHouse cannot resolve column names from unaliased subqueries. Always alias: `FROM (SELECT ...) AS sub WHERE sub.col ...`. Without the alias, the outer SELECT gets "Unknown identifier" errors.
 - BRIDGE TABLE JOINS ARE N:M — joining through a bridge table WILL multiply rows if an entity has multiple associations. To avoid duplicates:
   - For detail queries: use LIMIT 1 BY primary_key, or wrap the bridge join in a subquery with argMax/any() to pick one associated record.
