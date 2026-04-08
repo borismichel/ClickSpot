@@ -76,7 +76,7 @@ Each page sets `document.title` to `"HubSpot Analytics | {page}"` via the `usePa
 |                                                        |
 |  Assistant:                                            |
 |    Context KPIs:                                       |
-|    [Total Closed: 47]  [Pipeline: EUR 2.4M]           |
+|    [Total Closed: 47]  [Pipeline: EUR 1.8M]           |
 |                                                        |
 |    Win rate by rep for Q2 2026, based on closed        |
 |    deals with close dates in April-June.               |
@@ -88,10 +88,10 @@ Each page sets `document.title` to `"HubSpot Analytics | {page}"` via the `usePa
 |    +--------------------------------------------------+
 |                                                        |
 |    +--------------------------------------------------+
-|    |  ████████████ Alex Johnson    42.1%             |
-|    |  ██████████   Maria Chen      35.8%             |
-|    |  ████████     Sam Taylor    28.3%             |
-|    |  ██████       Jordan Lee      19.2%             |
+|    |  ████████████ Alex Johnson      42.1%             |
+|    |  ██████████   Maria Chen        35.8%             |
+|    |  ████████     Sam Taylor        28.3%             |
+|    |  ██████       Jordan Lee        19.2%             |
 |    +--------------------------------------------------+
 |                                                        |
 |    1.2s LLM · 45ms query · 5 rows                      |

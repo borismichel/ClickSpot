@@ -145,14 +145,14 @@ All fields are optional. The engine computes only what is requested.
   "reachable_counts": {"dim_deals": 42, "dim_contacts": 128, "dim_companies": 31},
   "field_values": {
     "dim_deals.owner_name": {
-      "possible": [{"value": "Jordan Lee", "count": 15}, ...],
+      "possible": [{"value": "Alex Johnson", "count": 15}, ...],
       "excluded": [{"value": "Inactive Rep", "count": 3}]
     }
   },
   "measures": {"dim_deals.amount.sum": 1250000.0},
   "grouped_measures": {
     "dim_deals.amount.sum.by.owner_name": [
-      {"groups": {"owner_name": "Jordan Lee"}, "value": 450000.0}
+      {"groups": {"owner_name": "Alex Johnson"}, "value": 450000.0}
     ]
   },
   "time_series": {
@@ -163,7 +163,7 @@ All fields are optional. The engine computes only what is requested.
   "computed_metrics": {"win_rate": 0.35, "pipeline_value": 2400000.0},
   "lists": {
     "dim_deals": {
-      "rows": [{"dealname": "Example Corp", "amount": 45000, "owner_name": "Jordan Lee"}],
+      "rows": [{"dealname": "Example Corp", "amount": 45000, "owner_name": "Alex Johnson"}],
       "total": 42
     }
   }
@@ -295,7 +295,7 @@ Manages Claude OAuth tokens for users with Claude Pro/Max subscriptions.
 {
   "explanation": "Win rate by rep for Q2 2026",
   "sql": "SELECT owner_name, countIf(hs_is_closed_won = 'true') ...",
-  "results": [{"owner_name": "Jordan Lee", "win_rate": 0.35}],
+  "results": [{"owner_name": "Alex Johnson", "win_rate": 0.35}],
   "columns": ["owner_name", "win_rate"],
   "row_count": 5,
   "viz": "bar",
