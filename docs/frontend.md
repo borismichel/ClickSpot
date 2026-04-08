@@ -1,6 +1,6 @@
 # Frontend
 
-A **React 19** single-page application with a chat-based interface for querying HubSpot analytics data using natural language.
+A **React 19** single-page application for querying HubSpot analytics data using natural language, with persistent dashboards and a data explorer.
 
 ---
 
@@ -34,11 +34,15 @@ Runs on http://localhost:8193. Proxies `/api` requests to the backend at http://
 
 ```
 /                → App (main chat interface)
-/architecture    → ArchitecturePage (system diagrams)
+/dashboard       → DashboardPage (persistent dashboards with global filters)
+/library         → ObjectLibraryPage (saved query/viz objects)
 /data            → DataExplorerPage (interactive table/query browser)
+/architecture    → ArchitecturePage (system diagrams)
 ```
 
 Set up in `main.tsx` with `BrowserRouter` from React Router.
+
+Each page sets `document.title` to `"HubSpot Analytics | {page}"` via the `usePageTitle()` hook.
 
 ---
 
@@ -48,7 +52,7 @@ Set up in `main.tsx` with `BrowserRouter` from React Router.
 
 ```
 +-----------------------------------------------------+
-|  HubSpot Analytics   [Data]  [Architecture]  [Settings]|
+| HubSpot Analytics [Library] [Dashboard] [Data] [Arch] [Settings]|
 +----------+------------------------------------------+
 | Sidebar  |                                          |
 |          |   Welcome! Ask me anything about your    |
@@ -101,11 +105,24 @@ Set up in `main.tsx` with `BrowserRouter` from React Router.
 
 #### `App.tsx`
 Main application shell. Ant Design `Layout` with:
-- **Header:** Title, schema refresh button, architecture link, settings button
+- **Header:** Title, nav links (Library, Dashboard, Data, Architecture, Settings)
 - **Sider:** `ConversationSidebar` (chat history)
 - **Content:** `ChatContainer` (messages + input)
 
 Manages conversation state, auto-saves to localStorage on changes.
+
+#### `DashboardPage.tsx`
+Persistent dashboards with draggable/resizable card grid (`react-grid-layout`):
+- Dashboard CRUD (create, rename, delete, switch)
+- Global filter bar (date range, owner, pipeline) that applies to all cards
+- Cards render saved objects using `DashboardCard` which re-executes SQL with filters
+- Layouts persist to localStorage
+
+#### `ObjectLibraryPage.tsx`
+Browse and manage saved query/visualization objects. Objects are created from chat results via "Save to Library" and can be added to dashboards.
+
+#### `DataExplorerPage.tsx`
+Interactive table browser and SQL editor for all ClickHouse tables across bronze/silver/gold layers.
 
 #### `ArchitecturePage.tsx`
 Full-page system architecture view with:
@@ -135,6 +152,7 @@ The LLM returns a `viz` field that determines which visualization to render.
 | `bar` | `BarChart` | Category comparisons (revenue by rep, deals by source) |
 | `line` | `TimeSeriesViz` | Trends over time (monthly revenue, quarterly pipeline) |
 | `funnel` | `FunnelViz` | Stage progressions (pipeline stages, lead lifecycle) |
+| `comparison` | `ContextBar` (large) | Period-over-period analysis with delta badges |
 
 #### `VizRouter.tsx`
 Dispatches to the correct visualization based on the `viz` field.
@@ -144,6 +162,8 @@ Large formatted number with label. Auto-detects currency (EUR) and percent forma
 
 #### `ResultTable.tsx`
 Ant Design `Table` with sortable columns. Auto-formats currency, percent, and date columns based on column name heuristics. Epoch dates (`1970-01-01`) are displayed as `"-"` since ClickHouse uses epoch as the default for empty DateTime values.
+
+**HubSpot entity linking:** When both a name column and its corresponding ID column are present (e.g. `dealname` + `deal_id`), the name renders as a clickable link to the HubSpot record and the ID column is auto-hidden. Standalone ID columns also render as links. Uses a dynamic mapping to pair generic aliases to their ID counterparts.
 
 #### `BarChart.tsx`
 Recharts `BarChart`. First string column = category axis, first numeric column = bar values. Supports currency formatting.
@@ -165,7 +185,10 @@ Detection logic in `detectMultiSeries()`:
 Horizontal bar chart ordered by value (largest to smallest). Used for stage-based progressions.
 
 #### `ContextBar.tsx`
-Renders 2-4 context KPI cards above the main visualization. Each KPI is a small query the LLM generates alongside the main query to provide surrounding context.
+Renders 2-4 context KPI cards above the main visualization. Each KPI is a small query the LLM generates alongside the main query to provide surrounding context. Supports period-over-period deltas: when `previous_sql` is provided, shows colored trend badges (green arrow up / red arrow down) with percentage change. Also serves as the primary visualization for the `comparison` viz type (larger layout with 3-column grid).
+
+#### `SaveToRepoButton.tsx`
+Button on assistant messages to save the query, viz type, title, and context KPIs to the object library. Saved objects can then be added to dashboards.
 
 ### Settings
 
@@ -200,7 +223,45 @@ SVG diagram (900x440 viewBox) showing the query flow:
 
 ---
 
+### Dashboard Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `DashboardCard` | `components/dashboard/DashboardCard.tsx` | Renders a single saved object in the dashboard grid. Fetches data via `POST /api/v1/sql` with optional filter payload. Executes main SQL, context KPIs, and previous_sql for delta computation. |
+| `DashboardFilterBar` | `components/dashboard/DashboardFilterBar.tsx` | Global filter bar with DatePicker.RangePicker, owner multi-select, pipeline multi-select, and Clear button. Stores both IDs and names for silver/gold compatibility. |
+| `AddObjectDrawer` | `components/dashboard/AddObjectDrawer.tsx` | Slide-out drawer for adding saved objects from the library to the current dashboard. |
+
+---
+
 ## Hooks
+
+### `usePageTitle(subtitle?)`
+Sets `document.title` to `"HubSpot Analytics | {subtitle}"` or just `"HubSpot Analytics"` if no subtitle. Called in each page component.
+
+### `useDashboards()`
+LocalStorage persistence for dashboards. Each dashboard stores items (object references + grid layout), filters, and metadata.
+
+```typescript
+const {
+  dashboards, activeId, activeDashboard,
+  setActiveId, createDashboard, deleteDashboard, renameDashboard,
+  addItem, removeItem, updateLayouts, updateFilters,
+} = useDashboards();
+```
+
+Storage key: `hs2ch_dashboards`. Filters (date range, owner IDs/names, pipeline IDs/labels) persist with the dashboard.
+
+### `useObjectRepo()`
+LocalStorage persistence for saved query/visualization objects. Objects are created from chat responses and can be added to dashboards.
+
+```typescript
+const { objects, getObject, addObject, removeObject } = useObjectRepo();
+```
+
+Storage key: `hs2ch_objects`. Each object stores `{id, title, sql, viz, contextKPIs, columns}`.
+
+### `useFilterOptions()`
+Fetches dropdown options for the dashboard filter bar from `GET /api/v1/filters/options`. Returns owners `{id, name}[]` and pipelines `{id, label}[]`. Cached at module level.
 
 ### `useChat()`
 Core chat state management.
@@ -244,7 +305,7 @@ interface ChatMessage {
   sql?: string;
   results?: Record<string, unknown>[];
   columns?: string[];
-  viz?: "number" | "table" | "bar" | "line" | "funnel";
+  viz?: "number" | "table" | "bar" | "line" | "funnel" | "comparison";
   title?: string;
   context?: ContextKPI[];
   llm_ms?: number;
@@ -257,6 +318,9 @@ interface ContextKPI {
   sql: string;
   label: string;
   value?: number | string;
+  previous_sql?: string;
+  previous_value?: number | string;
+  delta_percent?: number;
 }
 
 interface Conversation {
@@ -265,6 +329,35 @@ interface Conversation {
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+}
+```
+
+### Dashboard Types (`types/dashboard.ts`)
+
+```typescript
+interface DashboardFilters {
+  dateFrom: string | null;
+  dateTo: string | null;
+  ownerIds: string[];
+  ownerNames: string[];
+  pipelineIds: string[];
+  pipelineLabels: string[];
+}
+
+interface SavedObject {
+  id: string;
+  title: string;
+  sql: string;
+  viz: VizType;
+  contextKPIs: { sql: string; label: string; previous_sql?: string }[];
+  columns: string[];
+}
+
+interface Dashboard {
+  id: string;
+  title: string;
+  items: { objectId: string; layout: GridLayout }[];
+  filters: DashboardFilters;
 }
 ```
 

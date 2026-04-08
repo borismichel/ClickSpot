@@ -21,22 +21,23 @@ This document describes the overall system architecture, how components connect,
                             |   (backend API)   |    SQL queries
                             +--------+----------+
                                      |
-                    +----------------+----------------+
-                    |                                 |
-            +-------+-------+              +---------+---------+
-            | Analytics API |              |    Chat API       |
-            | (associative  |              |  (LLM -> SQL)     |
-            |  graph engine)|              +---+-------+-------+
-            +---------------+                  |       |
-                                               v       v
-                                         +-----+--+ +-+--------+
-                                         |  LLM   | | Semantic  |
-                                         |Provider | |  Layer    |
-                                         +--------+ +----------+
-                                                         |
-                            +-------------------+        |
-                            |  React Frontend   | <------+
-                            |  (chat + viz)     |    via /api
+                    +----------------+------------------+
+                    |                |                  |
+            +-------+-------+ +-----+------+ +--------+---------+
+            | Analytics API | | Data API   | |    Chat API       |
+            | (associative  | | (SQL exec  | |  (LLM -> SQL)     |
+            |  graph engine)| |  + filters)| +---+-------+-------+
+            +---------------+ +-----+------+     |       |
+                                    |            v       v
+                              +-----+----+ +----+--+ +--+-------+
+                              |SQL Filter| |  LLM  | | Semantic |
+                              | (sqlglot)| |Provider| |  Layer   |
+                              +----------+ +-------+ +---------+
+                                                          |
+                            +-------------------+         |
+                            |  React Frontend   | <-------+
+                            | (chat + dashboard |    via /api
+                            |  + data explorer) |
                             +-------------------+
 ```
 
@@ -76,16 +77,16 @@ Frontend: POST /api/v1/chat {message, history}
 Backend: Build schema prompt (tables + semantics + examples)
     |
     v
-LLM: Generate {sql, viz, title, explanation, context}
+LLM: Generate {sql, viz, title, explanation, context (with optional previous_sql)}
     |
     v
 Validator: Whitelist tables, reject mutations, inject LIMIT
     |
     v
-ClickHouse: Execute SQL + context KPI queries
+ClickHouse: Execute SQL + context KPI queries + previous period queries
     |
     v
-Frontend: Render explanation + SQL preview + chart/table + context bar
+Frontend: Render explanation + SQL preview + chart/table + context bar (with deltas)
 ```
 
 **Latency budget:**
@@ -118,6 +119,35 @@ SQL Builder -> COUNT, FIELD_VALUES, MEASURE, TIME_SERIES queries
     v
 ClickHouse -> results for each requested computation
 ```
+
+### 4. Dashboard Query (Interactive)
+
+```
+User adjusts dashboard filter (date range, owner, pipeline)
+    |
+    v
+Frontend: POST /api/v1/sql {sql, filters} for each card
+    |
+    v
+Backend: apply_filters(sql, filters)
+    |
+    v
+sqlglot: Parse SQL -> find Table nodes -> lookup FILTER_COLUMNS registry
+    |
+    v
+Build WHERE conditions (silver uses IDs, gold uses names)
+    |
+    v
+Inject into enclosing SELECT -> regenerate SQL
+    |
+    v
+ClickHouse: Execute rewritten SQL
+    |
+    v
+Frontend: Update all dashboard cards simultaneously
+```
+
+**No AI involved** — purely AST-based SQL rewriting via sqlglot. Tables not in the registry are silently skipped. If parsing fails, the original SQL is returned unchanged.
 
 ---
 
@@ -244,6 +274,7 @@ hs2ch/
 |   |-- api/
 |   |   |-- routes.py             # Analytics engine endpoints
 |   |   |-- chat_routes.py        # Chat + settings + OAuth endpoints
+|   |   |-- data_routes.py        # SQL execution + filter injection + filter options
 |   |   |-- models.py             # Analytics request/response models
 |   |   |-- chat_models.py        # Chat request/response models
 |   |-- engine/
@@ -251,6 +282,7 @@ hs2ch/
 |   |   |-- propagator.py         # Selection propagation
 |   |   |-- state.py              # SelectionState dataclass
 |   |   |-- sql_builder.py        # SQL generation functions
+|   |   |-- sql_filter.py         # Dashboard filter SQL rewriting (sqlglot)
 |   |   |-- metrics.py            # 22 computed metrics registry
 |   |-- llm/
 |   |   |-- config.py             # Multi-provider config (~/.hs2ch/config.json)
@@ -280,13 +312,14 @@ hs2ch/
 |   |   |-- main.tsx              # Entry + router setup
 |   |   |-- App.tsx               # Main layout
 |   |   |-- components/
-|   |   |   |-- chat/             # Chat UI (container, message, input, SQL, suggestions)
-|   |   |   |-- viz/              # Visualizations (number, table, bar, line, funnel)
+|   |   |   |   |-- chat/             # Chat UI (container, message, input, SQL, suggestions)
+|   |   |   |-- dashboard/        # Dashboard UI (card, filter bar, add drawer)
+|   |   |   |-- viz/              # Visualizations (number, table, bar, line, funnel, comparison)
 |   |   |   |-- settings/         # Settings drawer
 |   |   |   |-- diagrams/         # Architecture SVG diagrams
-|   |   |-- hooks/                # useChat, useConversations, useSettings
-|   |   |-- types/                # TypeScript interfaces
-|   |   |-- pages/                # ArchitecturePage, DataExplorerPage
+|   |   |-- hooks/                # useChat, useConversations, useDashboards, useObjectRepo, useFilterOptions, usePageTitle
+|   |   |-- types/                # TypeScript interfaces (chat, dashboard, api)
+|   |   |-- pages/                # DashboardPage, ObjectLibraryPage, DataExplorerPage, ArchitecturePage
 |   |-- vite.config.ts            # Dev server + proxy config
 |   |-- package.json
 |

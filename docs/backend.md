@@ -4,8 +4,10 @@ The backend is a **FastAPI** application that serves two distinct APIs:
 
 1. **Analytics Engine** — Associative graph-based query builder (Qlik-inspired selection propagation)
 2. **Chat API** — LLM-powered natural language to ClickHouse SQL
+3. **Data API** — Direct SQL execution with dashboard filter injection
+4. **SQL Filter Engine** — Rule-based AST rewriting for dashboard global filters
 
-Both share the same ClickHouse connection and table configuration.
+All share the same ClickHouse connection and table configuration.
 
 ---
 
@@ -306,7 +308,35 @@ Manages Claude OAuth tokens for users with Claude Pro/Max subscriptions.
 }
 ```
 
-**Context KPIs:** The LLM can return 2-4 supplementary queries that provide surrounding context for the main result (e.g., "Total Closed Deals" alongside a win rate breakdown).
+**Context KPIs:** The LLM can return 2-4 supplementary queries that provide surrounding context for the main result (e.g., "Total Closed Deals" alongside a win rate breakdown). Each KPI can optionally include `previous_sql` for period-over-period comparison — the backend executes both queries and computes `delta_percent`.
+
+**Relative dates:** The schema prompt instructs the LLM to always use ClickHouse date functions (`today()`, `toStartOfMonth()`, etc.) instead of hardcoded dates, so queries remain valid when saved to dashboards.
+
+#### `POST /api/v1/sql` — Execute SQL with optional dashboard filters
+
+```json
+// Request
+{
+  "sql": "SELECT deal_id FROM silver.dim_deals WHERE archived = 0",
+  "filters": {
+    "date_from": "2026-01-01",
+    "date_to": "2026-04-01",
+    "owner_ids": ["123"],
+    "owner_names": ["Test User"],
+    "pipeline_ids": ["abc"],
+    "pipeline_labels": ["Sales Pipeline"]
+  }
+}
+```
+
+When `filters` is provided, the SQL is rewritten via the SQL filter engine before execution. See **SQL Filter Engine** below.
+
+#### `GET /api/v1/filters/options` — Dropdown data for dashboard filter bar
+
+Returns `{owners: [{id, name}], pipelines: [{id, label}]}` from `dim_owners` and `dim_pipelines`.
+
+#### `GET /api/v1/tables` — List all ClickHouse tables
+#### `GET /api/v1/tables/{database}/{table}` — Table details (columns, sample data)
 
 #### `GET /api/v1/settings` — Current config (API keys masked)
 #### `PUT /api/v1/settings` — Update config
@@ -316,6 +346,59 @@ Manages Claude OAuth tokens for users with Claude Pro/Max subscriptions.
 #### `POST /api/v1/oauth/logout` — Clear OAuth tokens
 #### `POST /api/v1/schema/refresh` — Rebuild semantic layer from HubSpot
 #### `GET /api/v1/schema/semantic` — Current semantic layer cache
+
+---
+
+## SQL Filter Engine (`app/engine/sql_filter.py`)
+
+Rule-based SQL rewriting for dashboard global filters. No AI involved — purely AST-based manipulation using **sqlglot** with the ClickHouse dialect.
+
+### How It Works
+
+```
+Dashboard filter state (date, owner, pipeline)
+    |
+    v
+sqlglot.parse(sql, dialect="clickhouse")
+    |
+    v
+Walk AST → find Table nodes → lookup in FILTER_COLUMNS registry
+    |
+    v
+Build AST conditions (safe — values are never parsed as SQL)
+    |
+    v
+Inject into enclosing Select WHERE clause
+    |
+    v
+sqlglot.generate(tree, dialect="clickhouse")
+```
+
+### Filter Column Registry
+
+Static mapping from `database.table` to filterable column names per dimension:
+
+| Table | Date Column | Owner Column | Pipeline Column |
+|-------|-------------|-------------|----------------|
+| `silver.dim_deals` | `closedate` | `hubspot_owner_id` | `pipeline` |
+| `silver.dim_contacts` | `createdate` | *(none)* | *(none)* |
+| `silver.dim_companies` | `createdate` | `hubspot_owner_id` | *(none)* |
+| `silver.dim_leads` | `createdate` | `hubspot_owner_id` | `hs_pipeline` |
+| `gold.agg_rep_performance` | `period_start` | `owner_name` | *(none)* |
+| `gold.agg_deal_health` | *(none)* | `owner_name` | `pipeline_label` |
+
+Silver tables use IDs (`hubspot_owner_id`, `pipeline`). Gold tables use pre-denormalized names (`owner_name`, `pipeline_label`). The frontend sends both forms; the rewriter picks the correct one per table.
+
+### Safety
+
+- Values are constructed as AST literal nodes (`exp.Literal.string()`), never parsed as SQL
+- If sqlglot fails to parse, the original SQL is returned unchanged
+- Tables not in the registry are silently skipped
+- CTE aliases and unqualified tables are ignored (only `database.table` references are processed)
+
+### Tests
+
+24 unit tests in `tests/test_sql_filter.py` covering: date filters, owner ID vs name, pipeline ID vs label, aliases, JOINs, CTEs, empty filters, unknown tables, combined filters, SQL injection safety, malformed SQL fallback.
 
 ---
 
@@ -390,6 +473,10 @@ Global ClickHouse client via `clickhouse_connect`. Configuration from environmen
 | GET | `/api/v1/metrics-catalog` | Computed metrics registry |
 | GET | `/api/v1/metadata` | Data load status |
 | POST | `/api/v1/chat` | Natural language to SQL |
+| GET | `/api/v1/tables` | List all ClickHouse tables |
+| GET | `/api/v1/tables/{db}/{table}` | Table details + sample data |
+| POST | `/api/v1/sql` | Execute SQL (with optional dashboard filters) |
+| GET | `/api/v1/filters/options` | Owner/pipeline dropdown data |
 | GET | `/api/v1/settings` | LLM configuration |
 | PUT | `/api/v1/settings` | Update LLM configuration |
 | GET | `/api/v1/settings/providers` | Available LLM providers |

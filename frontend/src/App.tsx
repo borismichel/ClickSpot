@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Layout, Button, Space } from "antd";
 import { SettingOutlined, ApartmentOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
 import { useObjectRepo } from "./hooks/useObjectRepo";
@@ -12,6 +13,7 @@ import { SettingsDrawer } from "./components/settings/SettingsDrawer";
 const { Header, Sider, Content } = Layout;
 
 export default function App() {
+  usePageTitle("Chat");
   const navigate = useNavigate();
   const { messages, isLoading, sendMessage, newChat, loadMessages } = useChat();
   const {

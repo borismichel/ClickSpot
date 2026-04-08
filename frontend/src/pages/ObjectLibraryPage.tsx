@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, EyeOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import type { SavedObject } from "../types/dashboard";
 import { VizRouter } from "../components/viz/VizRouter";
@@ -17,6 +18,7 @@ const VIZ_COLORS: Record<string, string> = {
 };
 
 export default function ObjectLibraryPage() {
+  usePageTitle("Library");
   const navigate = useNavigate();
   const { objects, removeObject } = useObjectRepo();
   const [preview, setPreview] = useState<{

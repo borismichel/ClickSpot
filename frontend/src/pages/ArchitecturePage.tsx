@@ -14,6 +14,7 @@ import {
   ArrowLeftOutlined,
 } from "@ant-design/icons";
 import type { CSSProperties } from "react";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { PipelineDiagram } from "../components/diagrams/PipelineDiagram";
 import { QueryFlowDiagram } from "../components/diagrams/QueryFlowDiagram";
 
@@ -52,6 +53,7 @@ const statBox: CSSProperties = {
 };
 
 export default function ArchitecturePage() {
+  usePageTitle("Architecture");
   const navigate = useNavigate();
 
   return (
@@ -422,7 +424,8 @@ export default function ArchitecturePage() {
   "title": "Pipeline by Stage",
   "explanation": "Open deals grouped by stage.",
   "context": [
-    { "sql": "SELECT sum(amount)...", "label": "Total Value" },
+    { "sql": "SELECT sum(amount)...", "label": "Total Value",
+      "previous_sql": "SELECT sum(amount) ... last period" },
     { "sql": "SELECT count()...",     "label": "Open Deals" }
   ]
 }`}
@@ -493,12 +496,15 @@ export default function ArchitecturePage() {
             <Tag icon={<BarChartOutlined />} color="cyan">bar</Tag>
             <Tag icon={<BarChartOutlined />} color="cyan">line</Tag>
             <Tag icon={<BarChartOutlined />} color="cyan">funnel</Tag>
+            <Tag icon={<BarChartOutlined />} color="cyan">comparison</Tag>
           </div>
           <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
-            Multi-metric bar results are decomposed into separate focused
-            charts. Context KPIs render as a stat card grid above the main
-            visualization. Performance timers (LLM latency, query latency)
-            are shown as tags on each assistant message.
+            Context KPIs render as a stat card grid above the main
+            visualization, with optional period-over-period delta badges
+            (green/red trend arrows). The <strong>comparison</strong> viz type
+            uses KPIs with deltas as the primary visualization.
+            Results can be saved to an object library and pinned to persistent
+            dashboards with global filters (date, owner, pipeline).
           </Paragraph>
         </div>
 

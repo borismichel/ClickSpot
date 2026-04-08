@@ -22,6 +22,7 @@ import {
   CodeOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import { usePageTitle } from "../hooks/usePageTitle";
 
 const { Header, Sider, Content } = Layout;
 const { TextArea } = Input;
@@ -304,6 +305,7 @@ function SQLEditor() {
 // ---------- Page ----------
 
 export default function DataExplorerPage() {
+  usePageTitle("Data Explorer");
   const navigate = useNavigate();
 
   return (

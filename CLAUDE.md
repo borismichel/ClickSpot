@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-HubSpot → ClickHouse ELT pipeline with bronze/silver/gold medallion architecture, running hourly via Dagster OSS. Includes a chat interface where natural language questions are converted to ClickHouse SQL by an LLM.
+HubSpot → ClickHouse ELT pipeline with bronze/silver/gold medallion architecture, running hourly via Dagster OSS. Includes a chat interface where natural language questions are converted to ClickHouse SQL by an LLM, persistent dashboards with global filters, and a data explorer.
 
 ## Development
 
@@ -73,10 +73,19 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 ### Chat Interface
 
 - **LLM providers** (`app/llm/`): Anthropic API, OpenAI API, Claude OAuth, Claude CLI (auto-detection)
-- **Schema prompt** (`app/llm/schema_prompt.py`): Generated from `app/config.py` + `silver_config.py` DICT_CONFIGS + semantic layer
+- **Schema prompt** (`app/llm/schema_prompt.py`): Generated from `app/config.py` + `silver_config.py` DICT_CONFIGS + semantic layer. Enforces relative date expressions (`today()`, `toStartOfMonth()`) so saved queries stay current.
 - **SQL validator** (`app/llm/sql_validator.py`): Whitelist tables, block mutations, inject LIMIT
 - **Semantic layer** (`app/semantic/layer.py`): HubSpot property labels/descriptions cached to `~/.hs2ch/schema_cache.json`
-- **Frontend**: React chat UI with inline visualizations (number, table, bar, line, funnel)
+- **Frontend**: React chat UI with inline visualizations (number, table, bar, line, funnel, comparison)
+- **Period-over-period**: Context KPIs support `previous_sql` for delta computation. `comparison` viz type shows KPIs with colored trend badges.
+- **HubSpot linking**: Result tables auto-link entity names/IDs to HubSpot records. ID columns are auto-hidden when a paired name column exists.
+
+### Dashboards
+
+- **Object library** (`frontend/src/hooks/useObjectRepo.ts`): Chat results are saved as objects (SQL + viz + KPIs)
+- **Dashboard grid** (`frontend/src/pages/DashboardPage.tsx`): Draggable/resizable cards via `react-grid-layout`
+- **Global filters** (`app/engine/sql_filter.py`): Rule-based SQL rewriting using sqlglot AST manipulation. Date, owner, pipeline filters injected into all card queries. Silver tables use IDs, gold tables use names. No AI involved.
+- **Filter registry** (`FILTER_COLUMNS` in `sql_filter.py`): Static mapping from `database.table` to filterable column names per dimension
 
 ### Wiring
 

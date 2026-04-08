@@ -13,6 +13,7 @@ import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout, ResponsiveLayouts } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { useDashboards } from "../hooks/useDashboards";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import { DashboardCard } from "../components/dashboard/DashboardCard";
@@ -24,6 +25,7 @@ import { EMPTY_FILTERS } from "../types/dashboard";
 const { Header, Content } = Layout;
 
 export default function DashboardPage() {
+  usePageTitle("Dashboard");
   const navigate = useNavigate();
   const { objects, getObject } = useObjectRepo();
   const {

@@ -1,4 +1,4 @@
-# hs2ch
+# HubSpot Analytics
 
 HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture, and serves it through a chat interface where natural language questions are converted to ClickHouse SQL by an LLM.
 
@@ -10,8 +10,9 @@ HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, 
 2. **Loads** raw data into ClickHouse bronze tables (incremental, deduplicated)
 3. **Transforms** into typed silver dimensions, facts, and bridge tables (config-driven)
 4. **Aggregates** into gold tables for rep performance, deal health, source attribution, and pipeline snapshots
-5. **Serves** two query interfaces:
-   - **Chat API** — Ask questions in natural language, get SQL + visualizations
+5. **Serves** three interfaces:
+   - **Chat** — Ask questions in natural language, get SQL + visualizations
+   - **Dashboards** — Pin chat results to persistent dashboards with global filters (date, owner, pipeline)
    - **Analytics API** — Associative graph engine (Qlik-like selection propagation)
 
 ## Quick Start
@@ -52,7 +53,7 @@ This starts:
 | ClickHouse | http://localhost:8124 | Data warehouse |
 | FastAPI | http://localhost:8192 | Backend API |
 | Dagster | http://localhost:8194 | Pipeline orchestration |
-| Frontend | http://localhost:8193 | Chat interface |
+| Frontend | http://localhost:8193 | Chat, dashboards, data explorer |
 
 ### First Run
 
@@ -71,7 +72,8 @@ This starts:
 | Data warehouse | ClickHouse (columnar OLAP) |
 | ETL orchestration | Dagster OSS |
 | Backend API | FastAPI (Python) |
-| Frontend | React 19 + TypeScript + Ant Design + Recharts |
+| Frontend | React 19 + TypeScript + Ant Design + Recharts + React Grid Layout |
+| SQL filter engine | sqlglot (AST-based SQL rewriting for dashboard filters) |
 | LLM providers | Claude (Anthropic API / OAuth / CLI), GPT-4o (OpenAI API) |
 
 ## Architecture
@@ -103,13 +105,25 @@ Three-layer medallion architecture:
 User question
     -> Schema prompt (tables + semantics + business context)
     -> LLM (Claude / GPT-4o)
-    -> Structured response {sql, viz, title, explanation}
+    -> Structured response {sql, viz, title, explanation, context}
     -> SQL validation (whitelist tables, block mutations)
     -> ClickHouse execution
     -> Chart / table / number rendered inline
 ```
 
-The LLM never sees actual data — only schema metadata and property descriptions from HubSpot.
+The LLM never sees actual data — only schema metadata and property descriptions from HubSpot. Queries use relative date expressions (`today()`, `toStartOfMonth()`) so saved results stay current. Period-over-period comparisons show colored delta badges.
+
+### Dashboards
+
+Chat results can be saved to an object library and pinned to persistent dashboards. Each dashboard supports global filters (date range, owner, pipeline) that apply to all cards simultaneously via rule-based SQL rewriting — no AI involved.
+
+```
+Dashboard filter state
+    -> sqlglot AST parse (ClickHouse dialect)
+    -> Identify table references from a static registry
+    -> Inject WHERE conditions (silver uses IDs, gold uses names)
+    -> Re-execute all card queries
+```
 
 ### Associative Engine
 
@@ -180,11 +194,12 @@ cd frontend && npm run dev                           # Frontend
 
 ```
 hs2ch/
-|-- app/                  # FastAPI backend (API + engine + LLM)
+|-- app/                  # FastAPI backend (API + engine + LLM + SQL filter)
 |-- assets/               # Dagster assets (bronze + silver + gold ELT)
 |-- resources/            # Dagster resources (HubSpot + ClickHouse clients)
-|-- frontend/             # React application
+|-- frontend/             # React application (chat, dashboards, data explorer)
 |-- scripts/              # Initialization scripts
+|-- tests/                # Unit tests (SQL filter, etc.)
 |-- docs/                 # Detailed documentation
 |   |-- architecture.md   # System architecture and design decisions
 |   |-- data-pipeline.md  # ETL pipeline: bronze, silver, gold layers
@@ -220,7 +235,8 @@ hs2ch/
 | Dictionaries | 8 (in-memory lookups from silver dims) |
 | Silver columns | ~197 (across all dimensions) |
 | Graph relationships | 9 bridge edges |
-| API endpoints | 13 |
+| API endpoints | 17 |
 | Computed metrics | 22 |
 | LLM providers | 4 |
-| Frontend components | 27 |
+| Viz types | 6 (number, table, bar, line, funnel, comparison) |
+| Frontend pages | 5 (chat, dashboard, library, data explorer, architecture) |
