@@ -18,6 +18,9 @@ class ContextKPIResult(BaseModel):
     label: str
     value: str | int | float | None
     sql: str
+    previous_sql: str | None = None
+    previous_value: str | int | float | None = None
+    delta_percent: float | None = None
 
 
 class ChatResponse(BaseModel):

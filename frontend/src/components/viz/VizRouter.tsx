@@ -5,12 +5,15 @@ import { ResultTable } from "./ResultTable";
 import { BarChart } from "./BarChart";
 import { TimeSeriesViz } from "./TimeSeriesViz";
 import { FunnelViz } from "./FunnelViz";
+import { ContextBar } from "./ContextBar";
+import type { ContextKPI } from "../../types/chat";
 
 interface Props {
-  viz: "number" | "table" | "bar" | "line" | "funnel";
+  viz: "number" | "table" | "bar" | "line" | "funnel" | "comparison";
   results: Record<string, unknown>[];
   columns: string[];
   title: string;
+  context?: ContextKPI[];
 }
 
 function prettyLabel(col: string): string {
@@ -81,7 +84,18 @@ function DecomposedCharts({
   );
 }
 
-export function VizRouter({ viz, results, columns, title }: Props) {
+export function VizRouter({ viz, results, columns, title, context }: Props) {
+  if (viz === "comparison" && context && context.length > 0) {
+    return (
+      <div>
+        {title && (
+          <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 14 }}>{title}</div>
+        )}
+        <ContextBar kpis={context} large />
+      </div>
+    );
+  }
+
   if (!results.length) {
     return <div style={{ color: "#8c8c8c", padding: 16 }}>No results</div>;
   }

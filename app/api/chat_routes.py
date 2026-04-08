@@ -74,10 +74,41 @@ async def chat(req: ChatRequest):
             val = await async_query_value(kpi_sql)
             if val is None or val == "\\N":
                 val = None
+
+            # Execute previous period SQL if provided
+            prev_val = None
+            delta_pct = None
+            if kpi.previous_sql:
+                prev_sql = kpi.previous_sql.strip().rstrip(";")
+                is_valid_prev, _ = validate_sql(prev_sql)
+                if is_valid_prev:
+                    prev_sql = ensure_limit(prev_sql, max_limit=1)
+                    try:
+                        prev_val = await async_query_value(prev_sql)
+                        if prev_val is None or prev_val == "\\N":
+                            prev_val = None
+                    except Exception as e:
+                        log.warning(f"Previous KPI failed ({kpi.label}): {e}")
+
+                # Compute delta percent
+                if val is not None and prev_val is not None:
+                    try:
+                        cur = float(val)
+                        prev = float(prev_val)
+                        if prev != 0:
+                            delta_pct = round((cur - prev) / abs(prev) * 100, 1)
+                        elif cur != 0:
+                            delta_pct = 100.0
+                    except (ValueError, TypeError):
+                        pass
+
             context_results.append(ContextKPIResult(
                 label=kpi.label,
                 value=val,
                 sql=kpi_sql,
+                previous_sql=kpi.previous_sql.strip().rstrip(";") if kpi.previous_sql else None,
+                previous_value=prev_val,
+                delta_percent=delta_pct,
             ))
         except Exception as e:
             log.warning(f"Context KPI failed ({kpi.label}): {e}")

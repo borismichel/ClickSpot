@@ -7,8 +7,8 @@ interface Props {
   title: string;
   sql: string;
   viz: VizType;
-  contextKPIs: { label: string; sql: string }[];
-  onSave: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string }[] }) => boolean;
+  contextKPIs: { label: string; sql: string; previous_sql?: string }[];
+  onSave: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }) => boolean;
 }
 
 export function SaveToRepoButton({ title, sql, viz, contextKPIs, onSave }: Props) {

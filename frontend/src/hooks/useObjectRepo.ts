@@ -25,7 +25,7 @@ export function useObjectRepo() {
 
   /** Returns true if added, false if duplicate SQL already exists. */
   const addObject = useCallback(
-    (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string }[] }): boolean => {
+    (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }): boolean => {
       // Deduplicate by SQL content (normalized whitespace)
       const normalized = obj.sql.replace(/\s+/g, " ").trim();
       const exists = objects.some(

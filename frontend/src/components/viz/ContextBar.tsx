@@ -1,11 +1,13 @@
 import { Card, Statistic } from "antd";
+import { ArrowUpOutlined, ArrowDownOutlined, MinusOutlined } from "@ant-design/icons";
 import type { ContextKPI } from "../../types/chat";
 
 interface Props {
   kpis: ContextKPI[];
+  large?: boolean;
 }
 
-function formatKPI(value: string | number | null, label: string): { display: number | string; prefix: string; suffix: string } {
+export function formatKPI(value: string | number | null, label: string): { display: number | string; prefix: string; suffix: string } {
   if (value == null || value === "\\N" || value === "NULL") return { display: "-", prefix: "", suffix: "" };
   if (typeof value === "string" && value.startsWith("1970-01-01")) return { display: "-", prefix: "", suffix: "" };
   const num = typeof value === "number" ? value : parseFloat(String(value));
@@ -25,30 +27,60 @@ function formatKPI(value: string | number | null, label: string): { display: num
   return { display: num % 1 === 0 ? num : Math.round(num * 100) / 100, prefix: "", suffix: "" };
 }
 
-export function ContextBar({ kpis }: Props) {
+function DeltaBadge({ delta }: { delta: number }) {
+  const isPositive = delta > 0;
+  const isZero = delta === 0;
+  const color = isZero ? "#8c8c8c" : isPositive ? "#52c41a" : "#ff4d4f";
+  const Icon = isZero ? MinusOutlined : isPositive ? ArrowUpOutlined : ArrowDownOutlined;
+
+  return (
+    <span style={{ color, fontSize: 12, fontWeight: 500 }}>
+      <Icon style={{ fontSize: 10, marginRight: 2 }} />
+      {Math.abs(delta)}%
+    </span>
+  );
+}
+
+export function ContextBar({ kpis, large }: Props) {
   if (!kpis.length) return null;
+
+  const fontSize = large ? 28 : 20;
+  const labelSize = large ? 13 : 11;
 
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${Math.min(kpis.length, 4)}, 1fr)`,
+        gridTemplateColumns: `repeat(${Math.min(kpis.length, large ? 3 : 4)}, 1fr)`,
         gap: 8,
         marginBottom: 12,
       }}
     >
       {kpis.map((kpi, i) => {
         const { display, prefix, suffix } = formatKPI(kpi.value, kpi.label);
+        const hasDelta = kpi.delta_percent != null;
+        const prevFormatted = hasDelta ? formatKPI(kpi.previous_value ?? null, kpi.label) : null;
+
         return (
           <Card key={i} size="small" style={{ textAlign: "center" }}>
             <Statistic
-              title={<span style={{ fontSize: 11 }}>{kpi.label}</span>}
+              title={<span style={{ fontSize: labelSize }}>{kpi.label}</span>}
               value={typeof display === "number" ? display : undefined}
               formatter={typeof display === "string" ? () => display : undefined}
               prefix={prefix || undefined}
               suffix={suffix || undefined}
-              styles={{ content: { fontSize: 20 } }}
+              styles={{ content: { fontSize } }}
             />
+            {hasDelta && (
+              <div style={{ marginTop: 4 }}>
+                <DeltaBadge delta={kpi.delta_percent!} />
+                {prevFormatted && prevFormatted.display !== "-" && (
+                  <span style={{ fontSize: 11, color: "#8c8c8c", marginLeft: 6 }}>
+                    vs {prevFormatted.prefix}{typeof prevFormatted.display === "number" ? prevFormatted.display.toLocaleString() : prevFormatted.display}{prevFormatted.suffix}
+                  </span>
+                )}
+              </div>
+            )}
           </Card>
         );
       })}

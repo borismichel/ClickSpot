@@ -6,7 +6,7 @@ export interface ChatMessage {
   results?: Record<string, unknown>[];
   columns?: string[];
   rowCount?: number;
-  viz?: "number" | "table" | "bar" | "line" | "funnel";
+  viz?: "number" | "table" | "bar" | "line" | "funnel" | "comparison";
   title?: string;
   llmMs?: number;
   queryMs?: number;
@@ -23,6 +23,9 @@ export interface ContextKPI {
   label: string;
   value: string | number | null;
   sql: string;
+  previous_sql?: string | null;
+  previous_value?: string | number | null;
+  delta_percent?: number | null;
 }
 
 export interface ChatResponse {
@@ -31,7 +34,7 @@ export interface ChatResponse {
   results: Record<string, unknown>[];
   columns: string[];
   row_count: number;
-  viz: "number" | "table" | "bar" | "line" | "funnel";
+  viz: "number" | "table" | "bar" | "line" | "funnel" | "comparison";
   title: string;
   llm_ms: number;
   query_ms: number;

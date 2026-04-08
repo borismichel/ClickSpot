@@ -10,7 +10,7 @@ import { SaveToRepoButton } from "../viz/SaveToRepoButton";
 
 interface Props {
   message: ChatMsg;
-  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string }[] }) => boolean;
+  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }) => boolean;
 }
 
 function formatMs(ms: number): string {
@@ -75,7 +75,7 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
 
             {message.results && message.viz && message.columns && (
               <div style={{ marginTop: 12 }}>
-                {message.context && message.context.length > 0 && (
+                {message.context && message.context.length > 0 && message.viz !== "comparison" && (
                   <ContextBar kpis={message.context} />
                 )}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4, gap: 4 }}>
@@ -84,7 +84,7 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
                       title={message.title || "Untitled"}
                       sql={message.sql}
                       viz={message.viz}
-                      contextKPIs={(message.context || []).map((k) => ({ label: k.label, sql: k.sql }))}
+                      contextKPIs={(message.context || []).map((k) => ({ label: k.label, sql: k.sql, ...(k.previous_sql ? { previous_sql: k.previous_sql } : {}) }))}
                       onSave={onSaveToRepo}
                     />
                   )}
@@ -99,6 +99,7 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
                   results={message.results}
                   columns={message.columns}
                   title={message.title || ""}
+                  context={message.context}
                 />
               </div>
             )}
