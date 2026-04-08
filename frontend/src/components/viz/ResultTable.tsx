@@ -19,14 +19,33 @@ const ID_COL_TO_TYPE: Record<string, string> = {
 };
 
 // Name columns that should link when a matching ID column exists in the same row
-const NAME_COL_TO_ID: Record<string, string> = {
+const STATIC_NAME_TO_ID: Record<string, string> = {
   dealname: "deal_id",
   deal_name: "deal_id",
   lead_name: "lead_id",
   hs_lead_name: "lead_id",
   company_name: "company_id",
   companyname: "company_id",
+  contact_name: "contact_id",
+  full_name: "contact_id",
+  firstname: "contact_id",
 };
+
+// Build name→id map dynamically: if a generic "name" column exists alongside
+// exactly one ID column, pair them automatically
+function buildNameToId(columns: string[]): Record<string, string> {
+  const map = { ...STATIC_NAME_TO_ID };
+  const colSet = new Set(columns.map((c) => c.toLowerCase()));
+  // Check if "name" is already covered by static mappings
+  if (colSet.has("name") && !map["name"]) {
+    // Find which ID columns are present
+    const presentIds = Object.keys(ID_COL_TO_TYPE).filter((id) => colSet.has(id));
+    if (presentIds.length === 1) {
+      map["name"] = presentIds[0];
+    }
+  }
+  return map;
+}
 
 let _hubIdCache: string | null = null;
 
@@ -76,10 +95,20 @@ function formatCell(value: unknown, colName: string): string {
 export function ResultTable({ results, columns, title }: Props) {
   const hubId = useHubId();
 
-  // Determine which columns are linkable
   const colSet = new Set(columns);
+  const NAME_COL_TO_ID = buildNameToId(columns);
 
-  const antColumns = columns.map((col) => {
+  // Hide ID columns when a paired name column exists (name becomes the link)
+  const hiddenIdCols = new Set<string>();
+  for (const col of columns) {
+    const idCol = NAME_COL_TO_ID[col.toLowerCase()];
+    if (idCol && colSet.has(idCol)) {
+      hiddenIdCols.add(idCol);
+    }
+  }
+  const visibleColumns = columns.filter((c) => !hiddenIdCols.has(c.toLowerCase()));
+
+  const antColumns = visibleColumns.map((col) => {
     const lower = col.toLowerCase();
     const idType = ID_COL_TO_TYPE[lower];
     const nameIdCol = NAME_COL_TO_ID[lower];
@@ -94,15 +123,6 @@ export function ResultTable({ results, columns, title }: Props) {
 
         if (!hubId) return formatted;
 
-        // ID column (deal_id, contact_id, etc.) → link the ID
-        if (idType) {
-          return (
-            <a href={hubspotUrl(hubId, idType, String(v))} target="_blank" rel="noopener noreferrer">
-              {formatted} <LinkOutlined style={{ fontSize: 10, opacity: 0.5 }} />
-            </a>
-          );
-        }
-
         // Name column (dealname, lead_name, etc.) → link using the paired ID column
         if (nameIdCol && colSet.has(nameIdCol)) {
           const id = row[nameIdCol];
@@ -114,6 +134,15 @@ export function ResultTable({ results, columns, title }: Props) {
               </a>
             );
           }
+        }
+
+        // Standalone ID column (no paired name) → link the ID directly
+        if (idType) {
+          return (
+            <a href={hubspotUrl(hubId, idType, String(v))} target="_blank" rel="noopener noreferrer">
+              {formatted} <LinkOutlined style={{ fontSize: 10, opacity: 0.5 }} />
+            </a>
+          );
         }
 
         return formatted;

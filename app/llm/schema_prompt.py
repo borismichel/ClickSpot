@@ -45,7 +45,18 @@ RULES:
 - Always include LIMIT (max 1000 for tables, not needed for single-value aggregates).
 - Use ClickHouse functions: countIf(), sumIf(), avgIf(), toDate(), toStartOfMonth(), toStartOfQuarter(), toStartOfYear(), dateDiff().
 - For date bucketing in SELECT/GROUP BY: toDate(), toStartOfWeek(), toStartOfMonth(), toStartOfQuarter(), toStartOfYear().
-- When the user says "this quarter", compute the current calendar quarter boundaries.
+- ALWAYS use relative date expressions instead of hardcoded dates so queries stay valid over time when saved to dashboards:
+    "today" / "yesterday"       → today(), today() - 1
+    "this week"                 → toStartOfWeek(today(), 1)  (Monday start)
+    "last week"                 → toStartOfWeek(today() - 7, 1) ... toStartOfWeek(today(), 1)
+    "this month"                → toStartOfMonth(today()) ... today() + 1
+    "last month"                → toStartOfMonth(today() - INTERVAL 1 MONTH) ... toStartOfMonth(today())
+    "this quarter"              → toStartOfQuarter(today()) ... today() + 1
+    "last quarter"              → toStartOfQuarter(today() - INTERVAL 3 MONTH) ... toStartOfQuarter(today())
+    "this year"                 → toStartOfYear(today()) ... today() + 1
+    "last 30/60/90 days"        → today() - 30 ... today() + 1
+    "last N months"             → today() - INTERVAL N MONTH ... today() + 1
+  NEVER hardcode absolute dates like '2026-04-01' — always derive from today().
 - NEVER wrap columns in functions inside WHERE — it prevents ClickHouse from using ORDER BY index pruning. Use range predicates instead:
     BAD:  WHERE toYear(createdate) = 2026
     GOOD: WHERE createdate >= '2026-01-01' AND createdate < '2027-01-01'
@@ -63,7 +74,7 @@ RULES:
 - Use argMax(value, timestamp) / argMin(value, timestamp) for "latest/earliest X per group" patterns — avoids correlated subqueries.
 - Use any() for non-aggregated columns functionally dependent on the GROUP BY key (e.g. any(dealname) when grouping by deal_id).
 - Always use NULLS LAST in ORDER BY when sorting by Nullable columns or computed expressions that can be NULL — prevents NULL rows from appearing first in DESC sorts.
-- ALWAYS include the entity primary key (deal_id, contact_id, company_id, lead_id) alongside name/label columns in table queries. The frontend uses these IDs to generate clickable links to HubSpot. For example, when selecting dealname, also select deal_id; when selecting hs_lead_name, also select lead_id.
+- When a name column appears in the SELECT, ALWAYS include the corresponding ID column as well — the frontend needs it to generate clickable HubSpot links. Put the ID column immediately before its name column. Use these exact aliases (not generic "name"): dealname→deal_id, company_name→company_id, hs_lead_name→lead_id, firstname/contact_name/full_name→contact_id. When only an ID column is selected (no name), it will also be linked automatically.
 - SUBQUERY ALIASES ARE REQUIRED — ClickHouse cannot resolve column names from unaliased subqueries. Always alias: `FROM (SELECT ...) AS sub WHERE sub.col ...`. Without the alias, the outer SELECT gets "Unknown identifier" errors.
 - BRIDGE TABLE JOINS ARE N:M — joining through a bridge table WILL multiply rows if an entity has multiple associations. To avoid duplicates:
   - For detail queries: use LIMIT 1 BY primary_key, or wrap the bridge join in a subquery with argMax/any() to pick one associated record.
@@ -322,6 +333,9 @@ A: {"sql": "SELECT owner_name, deals_won, total_arr_closed, win_rate FROM gold.a
 Q: "Compare all pipelines"
 A: {"sql": "SELECT pipeline_label, count() AS deals, sum(amount) AS total_value, countIf(hs_is_closed_won = 'true') AS won FROM silver.dim_deals WHERE archived = 0 GROUP BY pipeline_label ORDER BY total_value DESC LIMIT 10", "viz": "bar", "title": "All Pipelines Comparison", "explanation": "Deal count and total value across all pipelines."}
 
+Q: "How did our pipeline develop this month?"
+A: {"sql": "SELECT 1", "viz": "comparison", "title": "Pipeline Development This Month", "explanation": "Key pipeline metrics this month compared to last month.", "context": [{"sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1", "label": "Deals Created", "previous_sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today())"}, {"sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Deals Won", "previous_sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}, {"sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Revenue Won", "previous_sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}, {"sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1 AND amount > 0", "label": "Avg Deal Size", "previous_sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today()) AND amount > 0"}]}
+
 Q: "Show me leads from paid channels that are stuck"
 A: {"sql": "WITH paid_lead_ids AS (SELECT DISTINCT bridge.lead_id FROM silver.bridge_lead_contact AS bridge JOIN silver.dim_contacts AS contacts ON contacts.contact_id = bridge.contact_id WHERE contacts.archived = 0 AND contacts.hs_analytics_source IN ('PAID_SEARCH', 'PAID_SOCIAL')) SELECT leads.hs_lead_name AS lead_name, concat(dictGet('silver.dict_owners', 'first_name', tuple(leads.hubspot_owner_id)), ' ', dictGet('silver.dict_owners', 'last_name', tuple(leads.hubspot_owner_id))) AS owner, dictGet('silver.dict_lead_pipeline_stages', 'label', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) AS current_stage, if(leads.last_activity_date > '1970-01-02', dateDiff('day', toDate(leads.last_activity_date), today()), NULL) AS days_since_last_activity, toDate(leads.createdate) AS created_date FROM silver.dim_leads AS leads JOIN paid_lead_ids ON paid_lead_ids.lead_id = leads.lead_id WHERE leads.archived = 0 AND leads.createdate >= '2026-01-01' AND leads.createdate < '2027-01-01' AND dictGet('silver.dict_lead_pipeline_stages', 'is_closed', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) = 'false' ORDER BY days_since_last_activity DESC NULLS LAST LIMIT 200", "viz": "table", "title": "Stuck Paid Leads 2026", "explanation": "Open leads from paid search/social channels in 2026, sorted by days without activity."}"""
 
@@ -330,12 +344,13 @@ def _block_output_format() -> str:
     return """RESPONSE FORMAT:
 Return a JSON object with these fields:
 - sql: The ClickHouse SQL query (string)
-- viz: Visualization type — one of: "number", "table", "bar", "line", "funnel"
+- viz: Visualization type — one of: "number", "table", "bar", "line", "funnel", "comparison"
 - title: Short chart/table title (max 10 words)
 - explanation: One sentence explaining what the query shows
 - context: Array of 2-4 contextual KPI queries (optional but encouraged). Each item has:
     - sql: A simple SELECT that returns exactly 1 row, 1 column (a single number)
     - label: Short KPI label (e.g. "Total Deals", "Avg Deal Size", "Win Rate")
+    - previous_sql: (optional) SQL for the equivalent metric in the previous period. Same shape — 1 row, 1 column. Used to compute period-over-period delta.
 
 Context KPIs provide supporting metrics that help interpret the main result. Examples:
 - Main query is "pipeline by stage" → context: total pipeline value, total open deals, avg deal size, win rate
@@ -349,12 +364,28 @@ Rules for context KPIs:
 - Keep them fast: simple aggregates, no GROUP BY, no JOIN
 - Omit context for "number" viz type (the main result IS a single KPI)
 
+PERIOD-OVER-PERIOD COMPARISONS:
+When the user's query involves a relative time period (this month, this quarter, last 30 days, etc.), include previous_sql on each context KPI to enable trend indicators. The previous_sql should query the equivalent prior period:
+- "this month" → previous_sql queries last month
+- "this quarter" → previous_sql queries last quarter
+- "last 30 days" → previous_sql queries the 30 days before that
+- "this year" → previous_sql queries last year
+The frontend will show a colored delta (green ↑ / red ↓) next to each KPI.
+
+COMPARISON VIZ TYPE:
+Use viz: "comparison" when the user explicitly asks for period-over-period analysis ("how did X develop?", "compare this month to last month", "pipeline trend this quarter"). For comparison viz:
+- The main sql can be a simple SELECT 1 (it is not displayed — the context KPIs ARE the visualization)
+- Provide 3-6 context KPIs, each with previous_sql, covering the key metrics for the topic
+- Each KPI becomes a prominent comparison card showing current value, previous value, and delta %
+- Choose metrics that tell a complete story (e.g. for pipeline: deals created, deals won, win rate, total revenue, avg deal size, avg cycle time)
+
 Choose viz type based on the result shape:
 - "number": single aggregate value (one row, one column)
 - "table": multi-column detail data (deal lists, breakdowns with many columns)
 - "bar": category comparison (GROUP BY with label + value columns)
 - "line": time series (GROUP BY date period, ordered chronologically)
-- "funnel": ordered stage progression (pipeline stages, lifecycle stages)"""
+- "funnel": ordered stage progression (pipeline stages, lifecycle stages)
+- "comparison": period-over-period analysis with multiple metrics showing deltas (use context KPIs with previous_sql)"""
 
 
 def _get_pk_type(meta: dict) -> str:
