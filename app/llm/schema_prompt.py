@@ -279,7 +279,7 @@ def _block_metrics() -> str:
 
 def _block_business_context() -> str:
     return """BUSINESS CONTEXT:
-- Company: Acme Software GmbH, a German B2B software company
+- Company: ClickSpot Demo, a German B2B software company
 - Currency: EUR (all monetary values are in Euros)
 - Team: AE-led, quota-carrying reps
 - Revenue model: mix of new business (new_logo field) and renewals (renewal field)
