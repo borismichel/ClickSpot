@@ -1,53 +1,87 @@
-import { useState, useCallback, useEffect } from "react";
-import type { Dashboard, DashboardItem, DashboardFilters } from "../types/dashboard";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { Dashboard, DashboardFilters } from "../types/dashboard";
 import { EMPTY_FILTERS } from "../types/dashboard";
 
-const STORAGE_KEY = "hs2ch_dashboards";
-
-function loadAll(): Dashboard[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAll(dashboards: Dashboard[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(dashboards));
-}
+const LS_KEY = "hs2ch_dashboards";
 
 export function useDashboards() {
-  const [dashboards, setDashboards] = useState<Dashboard[]>(() => loadAll());
-  const [activeId, setActiveId] = useState<string | null>(() => {
-    const all = loadAll();
-    return all.length > 0 ? all[0].id : null;
-  });
+  const [dashboards, setDashboards] = useState<Dashboard[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const migrated = useRef(false);
 
+  // Fetch from API on mount + migrate localStorage
   useEffect(() => {
-    saveAll(dashboards);
-  }, [dashboards]);
+    (async () => {
+      try {
+        // Migrate localStorage (one-time)
+        if (!migrated.current) {
+          migrated.current = true;
+          const raw = localStorage.getItem(LS_KEY);
+          if (raw) {
+            try {
+              const local: Dashboard[] = JSON.parse(raw);
+              if (local.length > 0) {
+                await fetch("/api/v1/dashboards/import", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    dashboards: local.map((d) => ({
+                      id: d.id,
+                      title: d.title,
+                      items: d.items,
+                      filters: d.filters,
+                      created_at: d.createdAt,
+                      updated_at: d.updatedAt,
+                    })),
+                  }),
+                });
+                localStorage.removeItem(LS_KEY);
+              }
+            } catch {
+              // migration failed
+            }
+          }
+        }
+
+        const res = await fetch("/api/v1/dashboards");
+        const data: Dashboard[] = await res.json();
+        setDashboards(data);
+        if (data.length > 0 && !activeId) {
+          setActiveId(data[0].id);
+        }
+      } catch {
+        // silent
+      }
+      setLoading(false);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeDashboard = dashboards.find((d) => d.id === activeId) ?? null;
 
-  const createDashboard = useCallback((title: string): string => {
-    const id = `dash-${Date.now()}`;
-    const now = new Date().toISOString();
-    const dash: Dashboard = {
-      id,
-      title,
-      items: [],
-      filters: { ...EMPTY_FILTERS },
-      createdAt: now,
-      updatedAt: now,
-    };
-    setDashboards((prev) => [dash, ...prev]);
-    setActiveId(id);
-    return id;
+  const createDashboard = useCallback(async (title: string): Promise<string> => {
+    try {
+      const res = await fetch("/api/v1/dashboards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      const dash: Dashboard = await res.json();
+      setDashboards((prev) => [dash, ...prev]);
+      setActiveId(dash.id);
+      return dash.id;
+    } catch {
+      return "";
+    }
   }, []);
 
   const deleteDashboard = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      try {
+        await fetch(`/api/v1/dashboards/${id}`, { method: "DELETE" });
+      } catch {
+        // silent
+      }
       setDashboards((prev) => prev.filter((d) => d.id !== id));
       setActiveId((prev) => {
         if (prev !== id) return prev;
@@ -58,7 +92,16 @@ export function useDashboards() {
     [dashboards]
   );
 
-  const renameDashboard = useCallback((id: string, title: string) => {
+  const renameDashboard = useCallback(async (id: string, title: string) => {
+    try {
+      await fetch(`/api/v1/dashboards/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+    } catch {
+      // silent
+    }
     setDashboards((prev) =>
       prev.map((d) =>
         d.id === id
@@ -68,55 +111,55 @@ export function useDashboards() {
     );
   }, []);
 
-  /** Add an object to a dashboard. Returns false if already present. */
   const addItem = useCallback(
-    (dashId: string, objectId: string): boolean => {
+    async (dashId: string, objectId: string): Promise<boolean> => {
       const dash = dashboards.find((d) => d.id === dashId);
       if (!dash) return false;
       if (dash.items.some((i) => i.objectId === objectId)) return false;
 
-      // Auto-position: place at next available row, 4-wide
-      const maxY = dash.items.reduce(
-        (max, i) => Math.max(max, i.layout.y + i.layout.h),
-        0
-      );
-      const col = (dash.items.length % 3) * 4;
-      const row = col === 0 && dash.items.length > 0 ? maxY : Math.max(0, maxY - 4);
-
-      const item: DashboardItem = {
-        objectId,
-        layout: { x: col, y: maxY, w: 4, h: 4 },
-      };
-
-      setDashboards((prev) =>
-        prev.map((d) =>
-          d.id === dashId
-            ? { ...d, items: [...d.items, item], updatedAt: new Date().toISOString() }
-            : d
-        )
-      );
-      return true;
+      try {
+        const res = await fetch(`/api/v1/dashboards/${dashId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ object_id: objectId }),
+        });
+        if (!res.ok) return false;
+        const updated: Dashboard = await res.json();
+        setDashboards((prev) => prev.map((d) => (d.id === dashId ? updated : d)));
+        return true;
+      } catch {
+        return false;
+      }
     },
     [dashboards]
   );
 
-  const removeItem = useCallback((dashId: string, objectId: string) => {
+  const removeItem = useCallback(async (dashId: string, objectId: string) => {
+    try {
+      const res = await fetch(`/api/v1/dashboards/${dashId}/items/${objectId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        const updated: Dashboard = await res.json();
+        setDashboards((prev) => prev.map((d) => (d.id === dashId ? updated : d)));
+        return;
+      }
+    } catch {
+      // silent
+    }
+    // Fallback: optimistic local removal
     setDashboards((prev) =>
       prev.map((d) =>
         d.id === dashId
-          ? {
-              ...d,
-              items: d.items.filter((i) => i.objectId !== objectId),
-              updatedAt: new Date().toISOString(),
-            }
+          ? { ...d, items: d.items.filter((i) => i.objectId !== objectId) }
           : d
       )
     );
   }, []);
 
-  /** Update layouts after drag/resize from react-grid-layout. */
   const updateLayouts = useCallback(
-    (dashId: string, layouts: { i: string; x: number; y: number; w: number; h: number }[]) => {
+    async (dashId: string, layouts: { i: string; x: number; y: number; w: number; h: number }[]) => {
+      // Optimistic update
       setDashboards((prev) =>
         prev.map((d) => {
           if (d.id !== dashId) return d;
@@ -128,11 +171,30 @@ export function useDashboards() {
           return { ...d, items: updated, updatedAt: new Date().toISOString() };
         })
       );
+
+      // Persist to API
+      try {
+        await fetch(`/api/v1/dashboards/${dashId}/layouts`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            layouts: layouts.map((l) => ({
+              object_id: l.i,
+              x: l.x,
+              y: l.y,
+              w: l.w,
+              h: l.h,
+            })),
+          }),
+        });
+      } catch {
+        // silent — optimistic update already applied
+      }
     },
     []
   );
 
-  const updateFilters = useCallback((dashId: string, filters: DashboardFilters) => {
+  const updateFilters = useCallback(async (dashId: string, filters: DashboardFilters) => {
     setDashboards((prev) =>
       prev.map((d) =>
         d.id === dashId
@@ -140,12 +202,23 @@ export function useDashboards() {
           : d
       )
     );
+
+    try {
+      await fetch(`/api/v1/dashboards/${dashId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filters }),
+      });
+    } catch {
+      // silent
+    }
   }, []);
 
   return {
     dashboards,
     activeId,
     activeDashboard,
+    loading,
     setActiveId,
     createDashboard,
     deleteDashboard,
