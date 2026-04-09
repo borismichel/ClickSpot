@@ -9,6 +9,11 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
+# Activate project venv
+if [ -f "$ROOT/.venv/bin/activate" ]; then
+  source "$ROOT/.venv/bin/activate"
+fi
+
 # Ensure DAGSTER_HOME exists
 mkdir -p "${DAGSTER_HOME:-$ROOT/.dagster_home}"
 

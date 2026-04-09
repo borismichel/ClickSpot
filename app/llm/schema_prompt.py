@@ -24,6 +24,7 @@ def build_schema_prompt(semantic_layer: SemanticLayer | None = None) -> str:
         _block_dictionaries(),
         _block_tables(semantic_layer),
         _block_relationships(),
+        _block_data_spaces(),
         _block_metrics(),
         _block_business_context(),
         _block_examples(),
@@ -264,6 +265,32 @@ def _block_relationships() -> str:
 
     lines.append("\nFK lookups: use dictGet() — see DICTIONARIES section above for exact syntax per table.")
 
+    return "\n".join(lines)
+
+
+def _block_data_spaces() -> str:
+    """Document active data spaces so the LLM can query them directly."""
+    try:
+        from app.spaces.registry import list_spaces
+        spaces = list_spaces()
+    except Exception:
+        spaces = []
+
+    if not spaces:
+        return ""
+
+    lines = ["DATA SPACES (pre-built star schema VIEWs — query directly like regular tables):"]
+    for s in spaces:
+        cols = [s.grain.key] + s.grain.columns
+        for dim in s.dimensions:
+            cols.extend(f"{dim.prefix}{c}" for c in dim.columns)
+        for comp in s.computed:
+            cols.append(comp.alias)
+        lines.append(f"\n  {s.view_name}: {s.name}")
+        lines.append(f"    Grain: {s.grain.entity} ({s.grain.key})")
+        lines.append(f"    Columns: {', '.join(cols)}")
+        if s.default_filter:
+            lines.append(f"    Default filter: {s.default_filter}")
     return "\n".join(lines)
 
 

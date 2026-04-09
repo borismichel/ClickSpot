@@ -71,11 +71,11 @@ def refresh_schema_prompt() -> None:
 
 class LLMProvider(ABC):
     @abstractmethod
-    async def generate(self, messages: list[dict]) -> ChatSQLResponse:
+    async def generate(self, messages: list[dict], system_prompt: str | None = None) -> ChatSQLResponse:
         """Generate SQL from conversation messages.
 
         messages: [{role: "user"|"assistant", content: str, sql: str|None}]
-        The system prompt is handled internally by each provider.
+        system_prompt: optional override for the schema prompt (used by space-scoped chat).
         """
 
     def _build_llm_messages(self, messages: list[dict]) -> list[dict]:
@@ -100,8 +100,8 @@ class AnthropicProvider(LLMProvider):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
 
-    async def generate(self, messages: list[dict]) -> ChatSQLResponse:
-        schema = _get_schema_prompt()
+    async def generate(self, messages: list[dict], system_prompt: str | None = None) -> ChatSQLResponse:
+        schema = system_prompt or _get_schema_prompt()
         llm_messages = self._build_llm_messages(messages)
 
         response = await self.client.messages.create(
@@ -138,8 +138,8 @@ class OpenAIProvider(LLMProvider):
         self.client = openai.AsyncOpenAI(api_key=api_key)
         self.model = model
 
-    async def generate(self, messages: list[dict]) -> ChatSQLResponse:
-        schema = _get_schema_prompt()
+    async def generate(self, messages: list[dict], system_prompt: str | None = None) -> ChatSQLResponse:
+        schema = system_prompt or _get_schema_prompt()
         llm_messages = [{"role": "system", "content": schema}]
         llm_messages.extend(self._build_llm_messages(messages))
 
@@ -171,7 +171,7 @@ class ClaudeOAuthProvider(LLMProvider):
     def __init__(self, model: str = "claude-sonnet-4-6"):
         self.model = model
 
-    async def generate(self, messages: list[dict]) -> ChatSQLResponse:
+    async def generate(self, messages: list[dict], system_prompt: str | None = None) -> ChatSQLResponse:
         token = await get_valid_access_token()
         if not token:
             raise ValueError("Claude OAuth token expired or missing. Re-authenticate in Settings.")
@@ -180,7 +180,7 @@ class ClaudeOAuthProvider(LLMProvider):
             auth_token=token,
             default_headers=OAUTH_EXTRA_HEADERS,
         )
-        schema = _get_schema_prompt()
+        schema = system_prompt or _get_schema_prompt()
         llm_messages = self._build_llm_messages(messages)
 
         response = await client.messages.create(
@@ -218,8 +218,8 @@ class ClaudeOAuthProvider(LLMProvider):
 class ClaudeCLIProvider(LLMProvider):
     """Uses the `claude` CLI tool — no API key needed, CLI handles auth."""
 
-    async def generate(self, messages: list[dict]) -> ChatSQLResponse:
-        schema = _get_schema_prompt()
+    async def generate(self, messages: list[dict], system_prompt: str | None = None) -> ChatSQLResponse:
+        schema = system_prompt or _get_schema_prompt()
         llm_messages = self._build_llm_messages(messages)
 
         # Build the user prompt from conversation

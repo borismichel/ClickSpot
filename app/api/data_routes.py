@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.db import async_query_rows, async_query_value
 from app.engine.sql_filter import apply_filters, DashboardFilters
+from app.spaces.space_filter import apply_space_filters, SpaceFilter
 
 log = logging.getLogger("app.data_routes")
 
@@ -97,9 +98,17 @@ class SQLFilters(BaseModel):
     pipeline_labels: list[str] | None = None
 
 
+class SpaceFilterPayload(BaseModel):
+    column: str
+    operator: str
+    values: list[str]
+
+
 class SQLRequest(BaseModel):
     sql: str
     filters: SQLFilters | None = None
+    space_filters: list[SpaceFilterPayload] | None = None
+    space_view: str | None = None
 
 
 class SQLResponse(BaseModel):
@@ -142,6 +151,11 @@ async def execute_sql(req: SQLRequest):
             pipeline_labels=req.filters.pipeline_labels or [],
         )
         sql = apply_filters(sql, df)
+
+    # Apply space filters if provided
+    if req.space_filters and req.space_view:
+        sf = [SpaceFilter(column=f.column, operator=f.operator, values=f.values) for f in req.space_filters]
+        sql = apply_space_filters(sql, sf, req.space_view)
 
     # Inject LIMIT if missing (for SELECT/WITH only)
     if re.match(r"^(SELECT|WITH)\b", sql, re.IGNORECASE):

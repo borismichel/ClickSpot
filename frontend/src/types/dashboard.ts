@@ -40,3 +40,48 @@ export interface Dashboard {
   createdAt: string;
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Space dashboard types
+// ---------------------------------------------------------------------------
+
+export interface SpaceColumnMeta {
+  name: string;
+  type: string;
+  display: string;
+}
+
+export interface SpaceFilter {
+  column: string;
+  operator: "eq" | "neq" | "in" | "gt" | "gte" | "lt" | "lte" | "between" | "like";
+  values: string[];
+}
+
+export interface SpaceDashboardItem {
+  id: string;
+  title: string;
+  sql: string;
+  viz: VizType;
+  contextKPIs: { label: string; sql: string; previous_sql?: string }[];
+  layout: { x: number; y: number; w: number; h: number };
+}
+
+export interface SpaceDashboard {
+  id: string;
+  space_id: string;
+  title: string;
+  items: SpaceDashboardItem[];
+  filters: SpaceFilter[];
+  pinned_columns: string[];
+  created_at: string;
+  updated_at: string;
+  space_name?: string;  // populated by /dashboards/all endpoint
+}
+
+// ---------------------------------------------------------------------------
+// Unified dashboard — wraps either a library or space dashboard
+// ---------------------------------------------------------------------------
+
+export type UnifiedDashboard =
+  | { kind: "library"; data: Dashboard }
+  | { kind: "space"; data: SpaceDashboard };

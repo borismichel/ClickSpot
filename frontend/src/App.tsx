@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Layout, Button, Space } from "antd";
-import { SettingOutlined, ApartmentOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined } from "@ant-design/icons";
+import { SettingOutlined, ApartmentOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined, ClusterOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
@@ -77,6 +77,13 @@ export default function App() {
             onClick={() => navigate("/dashboard")}
           >
             Dashboard
+          </Button>
+          <Button
+            type="text"
+            icon={<ClusterOutlined />}
+            onClick={() => navigate("/spaces")}
+          >
+            Spaces
           </Button>
           <Button
             type="text"
