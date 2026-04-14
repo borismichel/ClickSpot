@@ -148,6 +148,33 @@ def api_delete_space(space_id: str):
         raise HTTPException(500, f"Failed to delete data space: {e}")
 
 
+class TestFilterRequest(BaseModel):
+    entity: str
+    filter: str
+
+
+@router.post("/test-filter")
+async def api_test_filter(req: TestFilterRequest):
+    """Run `SELECT count() FROM silver.{entity} WHERE {filter}` to validate a filter.
+
+    Returns either `{ok: true, count: N}` or `{ok: false, error: "..."}`.
+    """
+    from app.config import TABLES
+    from app.db import async_query_value
+
+    if req.entity not in TABLES:
+        raise HTTPException(400, f"Unknown entity '{req.entity}'")
+    if not req.filter.strip():
+        raise HTTPException(400, "Filter is empty")
+
+    sql = f"SELECT count() FROM silver.{req.entity} WHERE {req.filter.strip()}"
+    try:
+        count = await async_query_value(sql)
+        return {"ok": True, "count": count, "sql": sql}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "sql": sql}
+
+
 @router.post("/preview")
 def api_preview_space(config: DataSpaceConfig):
     try:
@@ -203,6 +230,126 @@ def api_space_columns(space_id: str):
         columns.append({"name": comp.alias, "type": "computed", "display": comp.alias})
 
     return columns
+
+
+@router.get("/{space_id}/stats")
+async def api_space_stats(space_id: str):
+    """Return star-schema stats: node-level counts + column samples.
+
+    Used by SpaceOverviewPage to render an interactive map of the space.
+    One lightweight count per entity (grain + each dimension), no heavy scans.
+    """
+    from app.config import TABLES
+    from app.db import async_query_rows, async_query_value
+
+    config = get_space(space_id)
+    if not config:
+        raise HTTPException(404, f"Data space '{space_id}' not found")
+
+    # Total rows in the VIEW itself
+    try:
+        view_rows = await async_query_value(f"SELECT count() FROM {config.view_name}")
+    except Exception as e:
+        view_rows = None
+        log.warning(f"Failed to count VIEW rows for '{space_id}': {e}")
+
+    # Grain node
+    grain_meta = TABLES.get(config.grain.entity, {})
+    grain_fields = grain_meta.get("fields", {})
+    try:
+        grain_count = await async_query_value(f"SELECT count() FROM silver.{config.grain.entity}")
+    except Exception:
+        grain_count = None
+
+    nodes = [
+        {
+            "id": "grain",
+            "kind": "grain",
+            "entity": config.grain.entity,
+            "display_name": grain_meta.get("display_name", config.grain.entity),
+            "row_count": grain_count,
+            "columns": [
+                {
+                    "name": col,
+                    "type": grain_fields.get(col, {}).get("type", "String"),
+                    "display": grain_fields.get(col, {}).get("display", col),
+                }
+                for col in [config.grain.key, *config.grain.columns]
+            ],
+        }
+    ]
+
+    edges = []
+
+    # Dimension nodes
+    for i, dim in enumerate(config.dimensions):
+        dim_id = f"dim-{i}"
+        dim_meta = TABLES.get(dim.entity, {})
+        dim_fields = dim_meta.get("fields", {})
+
+        # Row count: silver dim count for fk/bridge, dict count for dict
+        dim_count = None
+        try:
+            if dim.join_type == "dict":
+                dim_count = await async_query_value(
+                    f"SELECT count() FROM silver.{dim.entity}"
+                )
+            else:
+                dim_count = await async_query_value(
+                    f"SELECT count() FROM silver.{dim.entity}"
+                )
+        except Exception:
+            pass
+
+        # Join label + bridge info
+        if dim.join_type == "bridge":
+            join_label = f"bridge: {dim.bridge}"
+            strategy = dim.strategy.value if hasattr(dim.strategy, "value") else str(dim.strategy)
+        elif dim.join_type == "fk":
+            join_label = f"fk: {dim.fk_from} → {dim.fk_to}"
+            strategy = "fk"
+        else:
+            join_label = f"dict: {dim.dict_name}"
+            strategy = "dict"
+
+        nodes.append({
+            "id": dim_id,
+            "kind": "dimension",
+            "entity": dim.entity,
+            "display_name": dim_meta.get("display_name", dim.entity),
+            "row_count": dim_count,
+            "join_type": dim.join_type,
+            "strategy": strategy,
+            "join_label": join_label,
+            "prefix": dim.prefix,
+            "columns": [
+                {
+                    "name": f"{dim.prefix}{col}",
+                    "source": col,
+                    "type": dim_fields.get(col, {}).get("type", "String"),
+                    "display": dim_fields.get(col, {}).get("display", col),
+                }
+                for col in dim.columns
+            ],
+        })
+
+        edges.append({
+            "id": f"edge-{i}",
+            "source": "grain",
+            "target": dim_id,
+            "label": strategy,
+            "join_type": dim.join_type,
+        })
+
+    return {
+        "space_id": space_id,
+        "name": config.name,
+        "view_name": config.view_name,
+        "view_row_count": view_rows,
+        "computed_count": len(config.computed),
+        "nodes": nodes,
+        "edges": edges,
+    }
 
 
 @router.get("/{space_id}/columns/{col_name}/values")

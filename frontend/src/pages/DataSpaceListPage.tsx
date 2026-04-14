@@ -83,7 +83,7 @@ export default function DataSpaceListPage() {
                       type="text"
                       size="small"
                       icon={<EditOutlined />}
-                      onClick={(e) => { e.stopPropagation(); navigate(`/spaces/${s.id}`); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/spaces/${s.id}/edit`); }}
                     />
                     <Popconfirm
                       title="Delete this data space?"

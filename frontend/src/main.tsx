@@ -8,6 +8,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ObjectLibraryPage from "./pages/ObjectLibraryPage";
 import DataSpaceListPage from "./pages/DataSpaceListPage";
 import DataSpaceDesignerPage from "./pages/DataSpaceDesignerPage";
+import SpaceOverviewPage from "./pages/SpaceOverviewPage";
 import SpaceDashboardPage from "./pages/SpaceDashboardPage";
 
 createRoot(document.getElementById("root")!).render(
@@ -20,8 +21,10 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/library" element={<ObjectLibraryPage />} />
         <Route path="/spaces" element={<DataSpaceListPage />} />
+        <Route path="/spaces/new" element={<DataSpaceDesignerPage />} />
         <Route path="/spaces/:spaceId/dashboard" element={<SpaceDashboardPage />} />
-        <Route path="/spaces/:id" element={<DataSpaceDesignerPage />} />
+        <Route path="/spaces/:id/edit" element={<DataSpaceDesignerPage />} />
+        <Route path="/spaces/:id" element={<SpaceOverviewPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>

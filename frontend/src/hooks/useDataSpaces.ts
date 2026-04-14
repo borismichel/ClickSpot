@@ -37,6 +37,7 @@ export interface DataSpaceConfig {
     entity: string;
     key: string;
     columns: string[];
+    filter?: string | null;
   };
   dimensions: DimensionJoin[];
   computed: { alias: string; expr: string }[];
@@ -57,6 +58,7 @@ interface BridgeDimension {
   prefix: string;
   timestamp_col?: string | null;
   agg_expressions?: { alias: string; expr: string }[] | null;
+  filter?: string | null;
 }
 
 interface FKDimension {
@@ -67,6 +69,7 @@ interface FKDimension {
   fk_to: string;
   columns: string[];
   prefix: string;
+  filter?: string | null;
 }
 
 interface DictDimension {

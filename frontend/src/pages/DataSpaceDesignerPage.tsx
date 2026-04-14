@@ -14,6 +14,7 @@ import { GrainSelector } from "../components/spaces/GrainSelector";
 import { ColumnPicker } from "../components/spaces/ColumnPicker";
 import { DimensionConfigurator } from "../components/spaces/DimensionConfigurator";
 import { PreviewPanel } from "../components/spaces/PreviewPanel";
+import { FilterInput } from "../components/spaces/FilterInput";
 
 const { Header, Content } = Layout;
 
@@ -27,7 +28,7 @@ const STEPS = [
 
 export default function DataSpaceDesignerPage() {
   const { id } = useParams<{ id: string }>();
-  const isNew = id === "new";
+  const isNew = !id || id === "new";
   usePageTitle(isNew ? "New Data Space" : "Edit Data Space");
   const navigate = useNavigate();
   const { spaces, createSpace, updateSpace } = useDataSpaces();
@@ -41,6 +42,7 @@ export default function DataSpaceDesignerPage() {
   const [spaceName, setSpaceName] = useState("");
   const [grainEntity, setGrainEntity] = useState<string | null>(null);
   const [grainColumns, setGrainColumns] = useState<string[]>([]);
+  const [grainFilter, setGrainFilter] = useState<string>("");
   const [dimensions, setDimensions] = useState<DimensionJoin[]>([]);
   const [computed, setComputed] = useState<{ alias: string; expr: string }[]>([]);
   const [defaultFilter, setDefaultFilter] = useState("grain.archived = 0");
@@ -56,6 +58,7 @@ export default function DataSpaceDesignerPage() {
         setSpaceName(existing.name);
         setGrainEntity(existing.grain.entity);
         setGrainColumns(existing.grain.columns);
+        setGrainFilter(existing.grain.filter ?? "");
         setDimensions(existing.dimensions);
         setComputed(existing.computed);
         setDefaultFilter(existing.default_filter ?? "");
@@ -77,6 +80,7 @@ export default function DataSpaceDesignerPage() {
       entity: grainEntity ?? "",
       key: grainKey,
       columns: grainColumns,
+      filter: grainFilter || null,
     },
     dimensions,
     computed,
@@ -108,7 +112,7 @@ export default function DataSpaceDesignerPage() {
         await updateSpace(id!, config);
         message.success(`Data space "${spaceName}" updated`);
       }
-      navigate("/spaces");
+      navigate(`/spaces/${spaceId}`);
     } catch (e) {
       message.error(String(e));
     }
@@ -169,12 +173,22 @@ export default function DataSpaceDesignerPage() {
           )}
 
           {step === 1 && grainEntityMeta && (
-            <ColumnPicker
-              columns={grainEntityMeta.columns}
-              selected={grainColumns}
-              onChange={setGrainColumns}
-              title="Select grain columns to include in the VIEW"
-            />
+            <div>
+              <ColumnPicker
+                columns={grainEntityMeta.columns}
+                selected={grainColumns}
+                onChange={setGrainColumns}
+                title="Select grain columns to include in the VIEW"
+              />
+              <div style={{ marginTop: 24 }}>
+                <FilterInput
+                  entity={grainEntityMeta.entity}
+                  value={grainFilter}
+                  onChange={setGrainFilter}
+                  placeholder="Optional. e.g. archived = 0 AND createdate > now() - INTERVAL 90 DAY"
+                />
+              </div>
+            </div>
           )}
 
           {step === 2 && (

@@ -29,6 +29,10 @@ class GrainConfig(BaseModel):
     entity: str = Field(description="Silver table name, e.g. 'dim_leads'")
     key: str = Field(description="Primary key column, e.g. 'lead_id'")
     columns: list[str] = Field(description="Columns to include from the grain entity")
+    filter: str | None = Field(
+        default=None,
+        description="Optional WHERE expression applied to the grain table, e.g. 'archived = 0'",
+    )
 
 
 class BridgeDimension(BaseModel):
@@ -51,6 +55,10 @@ class BridgeDimension(BaseModel):
         default=None,
         description="For 'aggregate' strategy: list of {alias, expr} dicts",
     )
+    filter: str | None = Field(
+        default=None,
+        description="Optional WHERE expression applied to the dimension before joining",
+    )
 
     @model_validator(mode="after")
     def check_strategy_fields(self) -> BridgeDimension:
@@ -71,6 +79,10 @@ class FKDimension(BaseModel):
     fk_to: str = Field(description="Dimension column the FK points to")
     columns: list[str] = Field(description="Columns to include from the dimension")
     prefix: str = Field(description="Column alias prefix, e.g. 'owner_'")
+    filter: str | None = Field(
+        default=None,
+        description="Optional WHERE expression applied to the dimension before joining",
+    )
 
 
 class DictDimension(BaseModel):

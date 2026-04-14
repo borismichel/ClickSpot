@@ -3,6 +3,7 @@ import { Card, Button, Select, Tag, Typography, Space, Collapse, Input, Spin, Ch
 import { PlusOutlined, DeleteOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { DiscoveredDimension, DimensionJoin, AvailableDict } from "../../hooks/useDataSpaces";
 import { ColumnPicker } from "./ColumnPicker";
+import { FilterInput } from "./FilterInput";
 
 const STRATEGY_OPTIONS = [
   { value: "one_to_one", label: "One-to-One (FULL OUTER JOIN)", description: "1:1 in practice — both sides preserved" },
@@ -296,6 +297,15 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                       style={{ width: 200, marginLeft: 8 }}
                     />
                   </div>
+                  {(dim.join_type === "bridge" || dim.join_type === "fk") && (
+                    <div style={{ marginBottom: 12 }}>
+                      <FilterInput
+                        entity={dim.entity}
+                        value={dim.filter ?? undefined}
+                        onChange={(val) => updateDimension(idx, { filter: val } as Partial<DimensionJoin>)}
+                      />
+                    </div>
+                  )}
                   {dim.join_type !== "dict" && (
                     <ColumnPicker
                       columns={available.find((a) => a.entity === dim.entity)?.columns ?? []}

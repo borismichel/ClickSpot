@@ -17,10 +17,23 @@ from app.spaces.config import (
 )
 
 
+def _silver_source(entity: str, filter_expr: str | None) -> str:
+    """Return a FROM-source expression for a silver table, optionally with WHERE.
+
+    With filter: `(SELECT * FROM silver.X WHERE <filter>)`
+    Without filter: `silver.X`
+    Wrapping in a subquery lets users write filters with bare column names.
+    """
+    if filter_expr and filter_expr.strip():
+        return f"(SELECT * FROM silver.{entity} WHERE {filter_expr.strip()})"
+    return f"silver.{entity}"
+
+
 def generate_view_sql(config: DataSpaceConfig) -> str:
     """Generate the full CREATE OR REPLACE VIEW statement."""
     select_parts: list[str] = []
-    from_clause: str = f"silver.{config.grain.entity} AS grain"
+    grain_source = _silver_source(config.grain.entity, config.grain.filter)
+    from_clause: str = f"{grain_source} AS grain"
     join_clauses: list[str] = []
 
     # Grain columns — explicit AS alias so ClickHouse VIEW doesn't
@@ -112,10 +125,11 @@ def _bridge_one_to_one(
         f"    {alias}.{col} AS {dim.prefix}{col}" for col in dim.columns
     ]
 
+    dim_source = _silver_source(dim.entity, dim.filter)
     subquery = (
         f"SELECT {', '.join(dim_cols)}\n"
         f"    FROM silver.{dim.bridge} AS b\n"
-        f"    JOIN silver.{dim.entity} AS d"
+        f"    JOIN {dim_source} AS d"
         f" ON b.{dim.bridge_dim_key} = d.{dim.dim_key}"
     )
 
@@ -135,10 +149,11 @@ def _bridge_any(
         f"    {alias}.{col} AS {dim.prefix}{col}" for col in dim.columns
     ]
 
+    dim_source = _silver_source(dim.entity, dim.filter)
     subquery = (
         f"SELECT b.{dim.bridge_grain_key}, {', '.join(agg_cols)}\n"
         f"    FROM silver.{dim.bridge} AS b\n"
-        f"    JOIN silver.{dim.entity} AS d"
+        f"    JOIN {dim_source} AS d"
         f" ON b.{dim.bridge_dim_key} = d.{dim.dim_key}\n"
         f"    GROUP BY b.{dim.bridge_grain_key}"
     )
@@ -161,10 +176,11 @@ def _bridge_latest(
         f"    {alias}.{col} AS {dim.prefix}{col}" for col in dim.columns
     ]
 
+    dim_source = _silver_source(dim.entity, dim.filter)
     subquery = (
         f"SELECT b.{dim.bridge_grain_key}, {', '.join(latest_cols)}\n"
         f"    FROM silver.{dim.bridge} AS b\n"
-        f"    JOIN silver.{dim.entity} AS d"
+        f"    JOIN {dim_source} AS d"
         f" ON b.{dim.bridge_dim_key} = d.{dim.dim_key}\n"
         f"    GROUP BY b.{dim.bridge_grain_key}"
     )
@@ -186,10 +202,11 @@ def _bridge_aggregate(
         f"    {alias}.{a['alias']} AS {dim.prefix}{a['alias']}" for a in agg_exprs
     ]
 
+    dim_source = _silver_source(dim.entity, dim.filter)
     subquery = (
         f"SELECT b.{dim.bridge_grain_key}, {', '.join(agg_parts)}\n"
         f"    FROM silver.{dim.bridge} AS b\n"
-        f"    JOIN silver.{dim.entity} AS d"
+        f"    JOIN {dim_source} AS d"
         f" ON b.{dim.bridge_dim_key} = d.{dim.dim_key}\n"
         f"    GROUP BY b.{dim.bridge_grain_key}"
     )
@@ -209,10 +226,11 @@ def _bridge_fan_out(
         f"    {alias}.{col} AS {dim.prefix}{col}" for col in dim.columns
     ]
 
+    dim_source = _silver_source(dim.entity, dim.filter)
     join = (
         f"LEFT JOIN silver.{dim.bridge} AS {alias}_b"
         f" ON grain.{grain_key} = {alias}_b.{dim.bridge_grain_key}\n"
-        f"LEFT JOIN silver.{dim.entity} AS {alias}"
+        f"LEFT JOIN {dim_source} AS {alias}"
         f" ON {alias}_b.{dim.bridge_dim_key} = {alias}.{dim.dim_key}"
     )
     return select_cols, join
@@ -228,8 +246,9 @@ def _fk_join(dim: FKDimension, alias: str) -> tuple[list[str], str]:
         f"    {alias}.{col} AS {dim.prefix}{col}" for col in dim.columns
     ]
 
+    dim_source = _silver_source(dim.entity, dim.filter)
     join = (
-        f"LEFT JOIN silver.{dim.entity} AS {alias}"
+        f"LEFT JOIN {dim_source} AS {alias}"
         f" ON grain.{dim.fk_from} = {alias}.{dim.fk_to}"
     )
     return select_cols, join
