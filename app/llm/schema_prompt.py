@@ -68,6 +68,10 @@ RULES:
   Function calls in SELECT expressions and GROUP BY are fine (e.g. toStartOfMonth(closedate) AS month).
 - Use dictGet() for ID→name lookups instead of JOINs (see DICTIONARIES section).
 - Filter out blank/empty names: WHERE owner_name != '' AND owner_name != ' ' (similar for other name fields).
+- For free-text or custom HubSpot properties (anything that isn't a known enum like lifecyclestage/dealstage/activity_type), prefer substring match with ILIKE over strict equality — HubSpot values often include prefixes or qualifiers (e.g. event_lead='Revenue Summit' when the user says "CFO").
+    BAD:  WHERE event_lead = 'CFO'
+    GOOD: WHERE event_lead ILIKE '%CFO%'
+  Only use '=' when the user explicitly gives an exact canonical value or the column is a known enum.
 - When the user says "by X" or "per X", the SQL MUST actually GROUP BY that dimension. The explanation must match what the SQL does — never claim a breakdown that isn't in the query.
 - Table aliases: NEVER use single-letter aliases (l, d, a, etc.) — ClickHouse can misparse them. Use descriptive aliases: leads, deals, acts, contacts, etc.
 - NEVER use SELECT * — always enumerate columns explicitly. ClickHouse is columnar; SELECT * reads every column from disk.

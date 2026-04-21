@@ -57,8 +57,11 @@ DIM_CONTACTS = {
         ("notes_next_activity_date",                  "notes_next_activity_date",                  "DateTime"),
         ("hs_notes_next_activity_type",               "hs_notes_next_activity_type",               "LowCardinality(String)"),
         # Owner
+        ("hubspot_owner_id",                          "hubspot_owner_id",                          "String"),
         ("hubspot_owner_assigneddate",                "hubspot_owner_assigneddate",                "DateTime"),
         ("recent_deal_close_date",                    "recent_deal_close_date",                    "DateTime"),
+        # Custom event attribution
+        ("event_lead",                           "event_lead",                           "LowCardinality(String)"),
     ],
 }
 

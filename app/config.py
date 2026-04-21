@@ -1,8 +1,25 @@
 """Graph topology and field metadata for the associative analytics engine.
 
-This mirrors the silver_config.py schema but encodes the *relationships*
-between tables (bridges, FK joins) and which fields are filterable in the UI.
+Silver-table entries in ``TABLES`` are derived from :mod:`silver_config` so
+column definitions live in exactly one place. Display labels, the ``extras``
+overlay (for denormalized columns added in ``assets/silver.py``), and the
+hand-rolled ``fact_activities`` / ``fact_stage_history`` entries live here.
+Gold tables stay fully hand-rolled — their columns are computed in
+``assets/gold/`` and have no silver counterpart.
 """
+
+from silver_config import (
+    DIM_COMPANIES,
+    DIM_CONTACTS,
+    DIM_DEALS,
+    DIM_LEAD_PIPELINES,
+    DIM_LEAD_PIPELINE_STAGES,
+    DIM_LEADS,
+    DIM_OWNERS,
+    DIM_PIPELINES,
+    DIM_PIPELINE_STAGES,
+    FACT_FORM_SUBMISSIONS,
+)
 
 # Each edge is bidirectional — the engine can traverse in either direction.
 GRAPH_EDGES = [
@@ -125,204 +142,297 @@ REFERENCE_JOINS = [
     },
 ]
 
-# Table metadata: primary key, display name, filterable fields
-TABLES = {
+
+# ---------------------------------------------------------------------------
+# Silver-table derivation
+# ---------------------------------------------------------------------------
+
+# Silver-config blocks to surface in TABLES, with their catalog metadata.
+# (silver_config_block, catalog_name, primary_key, display_name)
+_SILVER_SOURCES = [
+    (DIM_CONTACTS,             "dim_contacts",             "contact_id",    "Contacts"),
+    (DIM_COMPANIES,            "dim_companies",            "company_id",    "Companies"),
+    (DIM_DEALS,                "dim_deals",                "deal_id",       "Deals"),
+    (DIM_LEADS,                "dim_leads",                "lead_id",       "Leads"),
+    (DIM_OWNERS,               "dim_owners",               "owner_id",      "Owners"),
+    (DIM_PIPELINES,            "dim_pipelines",            "pipeline_id",   "Pipelines"),
+    (DIM_PIPELINE_STAGES,      "dim_pipeline_stages",      "stage_id",      "Pipeline Stages"),
+    (DIM_LEAD_PIPELINES,       "dim_lead_pipelines",       "pipeline_id",   "Lead Pipelines"),
+    (DIM_LEAD_PIPELINE_STAGES, "dim_lead_pipeline_stages", "stage_id",      "Lead Pipeline Stages"),
+    (FACT_FORM_SUBMISSIONS,    "fact_form_submissions",    "submission_id", "Form Submissions"),
+]
+
+# Per-table display labels and denormalized extras.
+# ``field_displays``: override the auto-humanized label for specific columns.
+# ``extras``: columns added in the silver asset DDL (e.g. dictGet-derived labels)
+#             that do not exist in silver_config.columns.
+_SILVER_OVERLAY: dict[str, dict] = {
     "dim_contacts": {
-        "primary_key": "contact_id",
-        "display_name": "Contacts",
-        "fields": {
-            "email":              {"type": "String",   "display": "Email"},
-            "full_name":          {"type": "String",   "display": "Full Name"},
-            "jobtitle":           {"type": "String",   "display": "Job Title"},
-            "lifecyclestage":     {"type": "String",   "display": "Lifecycle Stage"},
-            "hs_analytics_source": {"type": "String",  "display": "Analytics Source"},
-            "hs_analytics_source_data_1": {"type": "String", "display": "Source Detail 1"},
-            "hs_analytics_source_data_2": {"type": "String", "display": "Source Detail 2"},
-            "hs_object_source_label": {"type": "String", "display": "Object Source"},
-            "createdate":         {"type": "DateTime", "display": "Created"},
-            "hs_v2_date_entered_marketingqualifiedlead": {"type": "DateTime", "display": "MQL Date"},
-            "hs_v2_date_entered_salesqualifiedlead":     {"type": "DateTime", "display": "SQL Date"},
-            "hs_analytics_first_timestamp": {"type": "DateTime", "display": "First Seen"},
-            "first_conversion_date": {"type": "DateTime", "display": "First Conversion Date"},
-            "recent_conversion_date": {"type": "DateTime", "display": "Recent Conversion Date"},
-            "first_deal_created_date": {"type": "DateTime", "display": "First Deal Created Date"},
-            "closedate": {"type": "DateTime", "display": "Close Date"},
-            "hs_analytics_first_visit_timestamp": {"type": "DateTime", "display": "First Visit"},
-            "hs_analytics_last_timestamp": {"type": "DateTime", "display": "Last Seen"},
-            "hs_analytics_last_visit_timestamp": {"type": "DateTime", "display": "Last Visit"},
-            "hs_latest_source_timestamp": {"type": "DateTime", "display": "Latest Source Timestamp"},
-            "hs_last_sales_activity_date": {"type": "DateTime", "display": "Last Sales Activity Date"},
-            "hs_last_sales_activity_timestamp": {"type": "DateTime", "display": "Last Sales Activity Timestamp"},
-            "hs_last_sales_activity_type": {"type": "String", "display": "Last Sales Activity Type"},
-            "hs_sa_first_engagement_date": {"type": "DateTime", "display": "First Sales Engagement Date"},
-            "first_outreach_date": {"type": "DateTime", "display": "First Outreach Date"},
-            "hs_email_first_send_date": {"type": "DateTime", "display": "Email First Send"},
-            "hs_email_last_send_date": {"type": "DateTime", "display": "Email Last Send"},
-            "hs_email_first_open_date": {"type": "DateTime", "display": "Email First Open"},
-            "hs_email_last_open_date": {"type": "DateTime", "display": "Email Last Open"},
-            "hs_email_first_click_date": {"type": "DateTime", "display": "Email First Click"},
-            "hs_email_last_click_date": {"type": "DateTime", "display": "Email Last Click"},
-            "hs_latest_sequence_enrolled_date": {"type": "DateTime", "display": "Latest Sequence Enrolled"},
-            "hs_latest_sequence_ended_date": {"type": "DateTime", "display": "Latest Sequence Ended"},
-            "hs_latest_sequence_finished_date": {"type": "DateTime", "display": "Latest Sequence Finished"},
-            "hs_latest_sequence_unenrolled_date": {"type": "DateTime", "display": "Latest Sequence Unenrolled"},
-            "hs_latest_open_lead_date": {"type": "DateTime", "display": "Latest Open Lead Date"},
-            "hs_latest_qualified_lead_date": {"type": "DateTime", "display": "Latest Qualified Lead Date"},
-            "hs_latest_disqualified_lead_date": {"type": "DateTime", "display": "Latest Disqualified Lead Date"},
-            "notes_last_updated": {"type": "DateTime", "display": "Notes Last Updated"},
-            "notes_next_activity_date": {"type": "DateTime", "display": "Next Activity Date"},
-            "hs_notes_next_activity_type": {"type": "String", "display": "Next Activity Type"},
-            "hubspot_owner_assigneddate": {"type": "DateTime", "display": "Owner Assigned Date"},
-            "recent_deal_close_date": {"type": "DateTime", "display": "Recent Deal Close Date"},
+        "field_displays": {
+            "email": "Email",
+            "full_name": "Full Name",
+            "jobtitle": "Job Title",
+            "lifecyclestage": "Lifecycle Stage",
+            "hs_analytics_source": "Analytics Source",
+            "hs_analytics_source_data_1": "Source Detail 1",
+            "hs_analytics_source_data_2": "Source Detail 2",
+            "hs_object_source_label": "Object Source",
+            "createdate": "Created",
+            "hs_v2_date_entered_marketingqualifiedlead": "MQL Date",
+            "hs_v2_date_entered_salesqualifiedlead": "SQL Date",
+            "hs_analytics_first_timestamp": "First Seen",
+            "first_conversion_date": "First Conversion Date",
+            "recent_conversion_date": "Recent Conversion Date",
+            "first_deal_created_date": "First Deal Created Date",
+            "closedate": "Close Date",
+            "hs_analytics_first_visit_timestamp": "First Visit",
+            "hs_analytics_last_timestamp": "Last Seen",
+            "hs_analytics_last_visit_timestamp": "Last Visit",
+            "hs_latest_source_timestamp": "Latest Source Timestamp",
+            "hs_last_sales_activity_date": "Last Sales Activity Date",
+            "hs_last_sales_activity_timestamp": "Last Sales Activity Timestamp",
+            "hs_last_sales_activity_type": "Last Sales Activity Type",
+            "hs_sa_first_engagement_date": "First Sales Engagement Date",
+            "first_outreach_date": "First Outreach Date",
+            "hs_email_first_send_date": "Email First Send",
+            "hs_email_last_send_date": "Email Last Send",
+            "hs_email_first_open_date": "Email First Open",
+            "hs_email_last_open_date": "Email Last Open",
+            "hs_email_first_click_date": "Email First Click",
+            "hs_email_last_click_date": "Email Last Click",
+            "hs_latest_sequence_enrolled_date": "Latest Sequence Enrolled",
+            "hs_latest_sequence_ended_date": "Latest Sequence Ended",
+            "hs_latest_sequence_finished_date": "Latest Sequence Finished",
+            "hs_latest_sequence_unenrolled_date": "Latest Sequence Unenrolled",
+            "hs_latest_open_lead_date": "Latest Open Lead Date",
+            "hs_latest_qualified_lead_date": "Latest Qualified Lead Date",
+            "hs_latest_disqualified_lead_date": "Latest Disqualified Lead Date",
+            "notes_last_updated": "Notes Last Updated",
+            "notes_next_activity_date": "Next Activity Date",
+            "hs_notes_next_activity_type": "Next Activity Type",
+            "hubspot_owner_id": "Owner ID",
+            "hubspot_owner_assigneddate": "Owner Assigned Date",
+            "recent_deal_close_date": "Recent Deal Close Date",
+            "event_lead": "Live Event Lead",
         },
     },
     "dim_companies": {
-        "primary_key": "company_id",
-        "display_name": "Companies",
-        "fields": {
-            "name":             {"type": "String",   "display": "Company Name"},
-            "domain":           {"type": "String",   "display": "Domain"},
-            "industry":         {"type": "String",   "display": "Industry"},
-            "city":             {"type": "String",   "display": "City"},
-            "country":          {"type": "String",   "display": "Country"},
-            "lifecyclestage":   {"type": "String",   "display": "Lifecycle Stage"},
-            "type":             {"type": "String",   "display": "Type"},
-            "numberofemployees": {"type": "String",  "display": "Employees"},
-            "annualrevenue":    {"type": "String",   "display": "Annual Revenue"},
-            "hubspot_owner_id": {"type": "String",   "display": "Owner ID"},
-            "createdate":       {"type": "DateTime", "display": "Created"},
-            "hs_lastmodifieddate": {"type": "DateTime", "display": "Last Modified"},
-            "notes_last_updated": {"type": "DateTime", "display": "Notes Last Updated"},
-            "first_contact_createdate": {"type": "DateTime", "display": "First Contact Created"},
-            "first_deal_created_date": {"type": "DateTime", "display": "First Deal Created"},
-            "first_conversion_date": {"type": "DateTime", "display": "First Conversion Date"},
-            "recent_conversion_date": {"type": "DateTime", "display": "Recent Conversion Date"},
-            "closedate": {"type": "DateTime", "display": "Close Date"},
-            "recent_deal_close_date": {"type": "DateTime", "display": "Recent Deal Close Date"},
-            "hs_analytics_first_timestamp": {"type": "DateTime", "display": "First Seen"},
-            "hs_analytics_first_visit_timestamp": {"type": "DateTime", "display": "First Visit"},
-            "hs_analytics_last_timestamp": {"type": "DateTime", "display": "Last Seen"},
-            "hs_analytics_last_visit_timestamp": {"type": "DateTime", "display": "Last Visit"},
-            "hs_analytics_latest_source_timestamp": {"type": "DateTime", "display": "Latest Source Timestamp"},
-            "hs_last_sales_activity_date": {"type": "DateTime", "display": "Last Sales Activity Date"},
-            "hs_last_sales_activity_timestamp": {"type": "DateTime", "display": "Last Sales Activity Timestamp"},
-            "hs_last_sales_activity_type": {"type": "String", "display": "Last Sales Activity Type"},
-            "hs_last_booked_meeting_date": {"type": "DateTime", "display": "Last Booked Meeting Date"},
-            "hs_last_logged_call_date": {"type": "DateTime", "display": "Last Logged Call Date"},
-            "hs_last_logged_outgoing_email_date": {"type": "DateTime", "display": "Last Logged Outgoing Email Date"},
-            "hs_last_open_task_date": {"type": "DateTime", "display": "Last Open Task Date"},
-            "notes_next_activity_date": {"type": "DateTime", "display": "Next Activity Date"},
-            "hs_notes_next_activity_type": {"type": "String", "display": "Next Activity Type"},
-            "hubspot_owner_assigneddate": {"type": "DateTime", "display": "Owner Assigned Date"},
+        "field_displays": {
+            "name": "Company Name",
+            "domain": "Domain",
+            "industry": "Industry",
+            "city": "City",
+            "country": "Country",
+            "lifecyclestage": "Lifecycle Stage",
+            "type": "Type",
+            "numberofemployees": "Employees",
+            "annualrevenue": "Annual Revenue",
+            "hubspot_owner_id": "Owner ID",
+            "createdate": "Created",
+            "hs_lastmodifieddate": "Last Modified",
+            "notes_last_updated": "Notes Last Updated",
+            "first_contact_createdate": "First Contact Created",
+            "first_deal_created_date": "First Deal Created",
+            "first_conversion_date": "First Conversion Date",
+            "recent_conversion_date": "Recent Conversion Date",
+            "closedate": "Close Date",
+            "recent_deal_close_date": "Recent Deal Close Date",
+            "hs_analytics_first_timestamp": "First Seen",
+            "hs_analytics_first_visit_timestamp": "First Visit",
+            "hs_analytics_last_timestamp": "Last Seen",
+            "hs_analytics_last_visit_timestamp": "Last Visit",
+            "hs_analytics_latest_source_timestamp": "Latest Source Timestamp",
+            "hs_last_sales_activity_date": "Last Sales Activity Date",
+            "hs_last_sales_activity_timestamp": "Last Sales Activity Timestamp",
+            "hs_last_sales_activity_type": "Last Sales Activity Type",
+            "hs_last_booked_meeting_date": "Last Booked Meeting Date",
+            "hs_last_logged_call_date": "Last Logged Call Date",
+            "hs_last_logged_outgoing_email_date": "Last Logged Outgoing Email Date",
+            "hs_last_open_task_date": "Last Open Task Date",
+            "notes_next_activity_date": "Next Activity Date",
+            "hs_notes_next_activity_type": "Next Activity Type",
+            "hubspot_owner_assigneddate": "Owner Assigned Date",
         },
     },
     "dim_deals": {
-        "primary_key": "deal_id",
-        "display_name": "Deals",
-        "fields": {
-            "dealname":         {"type": "String",           "display": "Deal Name"},
-            "dealstage":        {"type": "String",           "display": "Deal Stage"},
-            "stage_label":      {"type": "String",           "display": "Stage"},
-            "pipeline":         {"type": "String",           "display": "Pipeline ID"},
-            "pipeline_label":   {"type": "String",           "display": "Pipeline"},
-            "amount":           {"type": "Nullable(Float64)", "display": "Amount"},
-            "deal_currency_code": {"type": "String",         "display": "Currency"},
-            "hubspot_owner_id": {"type": "String",           "display": "Owner ID"},
-            "owner_name":       {"type": "String",           "display": "Owner"},
-            "hubspot_team_id":  {"type": "String",           "display": "Team ID"},
-            "hs_manual_forecast_category": {"type": "String", "display": "Forecast Category"},
-            "hs_deal_stage_probability": {"type": "Nullable(Float64)", "display": "Stage Probability"},
-            "hs_forecast_amount": {"type": "Nullable(Float64)", "display": "Forecast Amount"},
-            "annual_contract_value": {"type": "Nullable(Float64)", "display": "First Year ACV"},
-            "annual_recurring_revenue": {"type": "Nullable(Float64)", "display": "First Year New ARR"},
-            "total_contract_value":      {"type": "Nullable(Float64)", "display": "License TCV"},
-            "renewal_revenue": {"type": "Nullable(Float64)", "display": "Renewal TCV"},
-            "days_to_close":    {"type": "Nullable(Float64)", "display": "Days to Close"},
-            "closedate":        {"type": "DateTime",         "display": "Close Date"},
-            "createdate":       {"type": "DateTime",         "display": "Created"},
-            "closedlost_reason": {"type": "String",          "display": "Lost Reason"},
-            "won_reason":       {"type": "String",           "display": "Won Reason"},
-            "partner":          {"type": "String",           "display": "Partner"},
-            "renewal":          {"type": "String",           "display": "Renewal"},
-            "new_logo":         {"type": "String",           "display": "New Logo"},
-            "hs_is_closed_won": {"type": "String",           "display": "Closed Won"},
-            "hs_is_closed":     {"type": "String",           "display": "Closed"},
-            "hs_closed_deal_close_date": {"type": "DateTime", "display": "Closed Deal Close Date"},
-            "hs_closed_deal_create_date": {"type": "DateTime", "display": "Closed Deal Create Date"},
-            "hs_closed_won_date": {"type": "DateTime", "display": "Closed Won Date"},
-            "hs_open_deal_create_date": {"type": "DateTime", "display": "Open Deal Create Date"},
-            "potential_close_date": {"type": "DateTime", "display": "POT Closing Date"},
-            "hs_analytics_latest_source_timestamp": {"type": "DateTime", "display": "Latest Source Timestamp"},
-            "hs_analytics_latest_source_timestamp_company": {"type": "DateTime", "display": "Latest Source Timestamp (Company)"},
-            "hs_analytics_latest_source_timestamp_contact": {"type": "DateTime", "display": "Latest Source Timestamp (Contact)"},
-            "hs_latest_marketing_email_open_date": {"type": "DateTime", "display": "Latest Marketing Email Open"},
-            "hs_latest_marketing_email_click_date": {"type": "DateTime", "display": "Latest Marketing Email Click"},
-            "hs_latest_sales_email_open_date": {"type": "DateTime", "display": "Latest Sales Email Open"},
-            "hs_latest_sales_email_reply_date": {"type": "DateTime", "display": "Latest Sales Email Reply"},
-            "hs_is_stalled_after_timestamp": {"type": "DateTime", "display": "Stalled After"},
-            "hs_next_step_updated_at": {"type": "DateTime", "display": "Next Step Updated At"},
-            "notes_last_updated": {"type": "DateTime", "display": "Notes Last Updated"},
-            "notes_next_activity_date": {"type": "DateTime", "display": "Next Activity Date"},
-            "hs_notes_next_activity_type": {"type": "String", "display": "Next Activity Type"},
-            "hubspot_owner_assigneddate": {"type": "DateTime", "display": "Owner Assigned Date"},
+        "field_displays": {
+            "dealname": "Deal Name",
+            "dealstage": "Deal Stage",
+            "pipeline": "Pipeline ID",
+            "amount": "Amount",
+            "deal_currency_code": "Currency",
+            "hubspot_owner_id": "Owner ID",
+            "hubspot_team_id": "Team ID",
+            "hs_manual_forecast_category": "Forecast Category",
+            "hs_deal_stage_probability": "Stage Probability",
+            "hs_forecast_amount": "Forecast Amount",
+            "annual_contract_value": "First Year ACV",
+            "annual_recurring_revenue": "First Year New ARR",
+            "total_contract_value": "License TCV",
+            "renewal_revenue": "Renewal TCV",
+            "days_to_close": "Days to Close",
+            "closedate": "Close Date",
+            "createdate": "Created",
+            "closedlost_reason": "Lost Reason",
+            "won_reason": "Won Reason",
+            "partner": "Partner",
+            "renewal": "Renewal",
+            "new_logo": "New Logo",
+            "hs_is_closed_won": "Closed Won",
+            "hs_is_closed": "Closed",
+            "hs_closed_deal_close_date": "Closed Deal Close Date",
+            "hs_closed_deal_create_date": "Closed Deal Create Date",
+            "hs_closed_won_date": "Closed Won Date",
+            "hs_open_deal_create_date": "Open Deal Create Date",
+            "potential_close_date": "POT Closing Date",
+            "hs_analytics_latest_source_timestamp": "Latest Source Timestamp",
+            "hs_analytics_latest_source_timestamp_company": "Latest Source Timestamp (Company)",
+            "hs_analytics_latest_source_timestamp_contact": "Latest Source Timestamp (Contact)",
+            "hs_latest_marketing_email_open_date": "Latest Marketing Email Open",
+            "hs_latest_marketing_email_click_date": "Latest Marketing Email Click",
+            "hs_latest_sales_email_open_date": "Latest Sales Email Open",
+            "hs_latest_sales_email_reply_date": "Latest Sales Email Reply",
+            "hs_is_stalled_after_timestamp": "Stalled After",
+            "hs_next_step_updated_at": "Next Step Updated At",
+            "notes_last_updated": "Notes Last Updated",
+            "notes_next_activity_date": "Next Activity Date",
+            "hs_notes_next_activity_type": "Next Activity Type",
+            "hubspot_owner_assigneddate": "Owner Assigned Date",
+        },
+        "extras": {
+            # Denormalized label columns added in assets/silver.py::dim_deals
+            "pipeline_label": {"type": "String", "display": "Pipeline"},
+            "stage_label":    {"type": "String", "display": "Stage"},
+            "owner_name":     {"type": "String", "display": "Owner"},
         },
     },
     "dim_leads": {
-        "primary_key": "lead_id",
-        "display_name": "Leads",
-        "fields": {
-            "hs_lead_name":       {"type": "String",   "display": "Lead Name"},
-            "hs_pipeline":        {"type": "String",   "display": "Lead Pipeline ID"},
-            "hs_pipeline_stage":  {"type": "String",   "display": "Lead Pipeline Stage ID (use dict_lead_pipeline_stages for label)"},
-            "hs_lead_status":     {"type": "String",   "display": "Lead Status (currently unused, always empty)"},
-            "hs_lead_type":       {"type": "String",   "display": "Lead Type"},
-            "hubspot_owner_id": {"type": "String",   "display": "Owner ID"},
-            "disqualification_reason": {"type": "String", "display": "Disqualification Reason"},
-            "hs_lead_call_count": {"type": "Nullable(Float64)", "display": "Call Count"},
-            "hs_lead_email_count": {"type": "Nullable(Float64)", "display": "Email Count"},
-            "first_outreach_date": {"type": "DateTime", "display": "First Outreach Date"},
-            "last_engagement_date": {"type": "DateTime", "display": "Last Engagement Date"},
-            "last_engagement_type": {"type": "String", "display": "Last Engagement Type"},
-            "last_activity_date": {"type": "DateTime", "display": "Last Activity Date"},
-            "next_activity_date": {"type": "DateTime", "display": "Next Activity Date"},
-            "next_activity_type": {"type": "String", "display": "Next Activity Type"},
-            "last_webpage_visit": {"type": "DateTime", "display": "Last Webpage Visit"},
-            "contact_last_activity_date": {"type": "DateTime", "display": "Contact Last Activity Date"},
-            "contact_last_engagement_date": {"type": "DateTime", "display": "Contact Last Engagement Date"},
-            "contact_last_engagement_type": {"type": "String", "display": "Contact Last Engagement Type"},
-            "contact_last_webpage_visit": {"type": "DateTime", "display": "Contact Last Webpage Visit"},
-            "contact_next_activity_date": {"type": "DateTime", "display": "Contact Next Activity Date"},
-            "contact_next_activity_type": {"type": "String", "display": "Contact Next Activity Type"},
-            "company_last_activity_date": {"type": "DateTime", "display": "Company Last Activity Date"},
-            "company_last_engagement_date": {"type": "DateTime", "display": "Company Last Engagement Date"},
-            "company_last_engagement_type": {"type": "String", "display": "Company Last Engagement Type"},
-            "company_last_webpage_visit": {"type": "DateTime", "display": "Company Last Webpage Visit"},
-            "company_next_activity_date": {"type": "DateTime", "display": "Company Next Activity Date"},
-            "company_next_activity_type": {"type": "String", "display": "Company Next Activity Type"},
-            "pipeline_stage_last_updated": {"type": "DateTime", "display": "Pipeline Stage Last Updated"},
-            "owner_assigned_date": {"type": "DateTime", "display": "Owner Assigned Date"},
-            "date_entered_current_stage": {"type": "DateTime", "display": "Date Entered Current Stage"},
-            "createdate":       {"type": "DateTime", "display": "Created"},
+        "field_displays": {
+            "hs_lead_name": "Lead Name",
+            "hs_pipeline": "Lead Pipeline ID",
+            "hs_pipeline_stage": "Lead Pipeline Stage ID (use dict_lead_pipeline_stages for label)",
+            "hs_lead_status": "Lead Status (currently unused, always empty)",
+            "hs_lead_type": "Lead Type",
+            "hubspot_owner_id": "Owner ID",
+            "disqualification_reason": "Disqualification Reason",
+            "hs_lead_call_count": "Call Count",
+            "hs_lead_email_count": "Email Count",
+            "first_outreach_date": "First Outreach Date",
+            "last_engagement_date": "Last Engagement Date",
+            "last_engagement_type": "Last Engagement Type",
+            "last_activity_date": "Last Activity Date",
+            "next_activity_date": "Next Activity Date",
+            "next_activity_type": "Next Activity Type",
+            "last_webpage_visit": "Last Webpage Visit",
+            "contact_last_activity_date": "Contact Last Activity Date",
+            "contact_last_engagement_date": "Contact Last Engagement Date",
+            "contact_last_engagement_type": "Contact Last Engagement Type",
+            "contact_last_webpage_visit": "Contact Last Webpage Visit",
+            "contact_next_activity_date": "Contact Next Activity Date",
+            "contact_next_activity_type": "Contact Next Activity Type",
+            "company_last_activity_date": "Company Last Activity Date",
+            "company_last_engagement_date": "Company Last Engagement Date",
+            "company_last_engagement_type": "Company Last Engagement Type",
+            "company_last_webpage_visit": "Company Last Webpage Visit",
+            "company_next_activity_date": "Company Next Activity Date",
+            "company_next_activity_type": "Company Next Activity Type",
+            "pipeline_stage_last_updated": "Pipeline Stage Last Updated",
+            "owner_assigned_date": "Owner Assigned Date",
+            "date_entered_current_stage": "Date Entered Current Stage",
+            "createdate": "Created",
+        },
+    },
+    "dim_owners": {
+        "field_displays": {
+            "email": "Email",
+            "first_name": "First Name",
+            "last_name": "Last Name",
         },
     },
     "dim_pipelines": {
-        "primary_key": "pipeline_id",
-        "display_name": "Pipelines",
-        "fields": {
-            "label":            {"type": "String",   "display": "Pipeline Name"},
+        "field_displays": {
+            "label": "Pipeline Name",
         },
     },
     "dim_pipeline_stages": {
-        "primary_key": "stage_id",
-        "display_name": "Pipeline Stages",
-        "fields": {
-            "label":            {"type": "String",   "display": "Stage Name"},
-            "pipeline_id":      {"type": "String",   "display": "Pipeline ID"},
-            "is_closed":        {"type": "String",   "display": "Is Closed"},
-            "display_order":    {"type": "UInt32",   "display": "Display Order"},
-            "probability":      {"type": "Nullable(Float64)", "display": "Probability"},
+        "field_displays": {
+            "label": "Stage Name",
+            "pipeline_id": "Pipeline ID",
+            "is_closed": "Is Closed",
+            "display_order": "Display Order",
+            "probability": "Probability",
         },
     },
+    "dim_lead_pipelines": {
+        "field_displays": {
+            "label": "Pipeline Name",
+        },
+    },
+    "dim_lead_pipeline_stages": {
+        "field_displays": {
+            "label": "Stage Name",
+            "pipeline_id": "Pipeline ID",
+            "is_closed": "Is Closed",
+            "display_order": "Display Order",
+        },
+    },
+    "fact_form_submissions": {
+        "field_displays": {
+            "form_id": "Form ID",
+            "form_name": "Form Name",
+            "submitted_at": "Submitted At",
+            "page_url": "Page URL",
+            "email": "Email",
+            "firstname": "First Name",
+            "lastname": "Last Name",
+            "company": "Company",
+            "jobtitle": "Job Title",
+            "phone": "Phone",
+        },
+    },
+}
+
+
+def _humanize(col: str) -> str:
+    """Fallback display label for columns without an explicit override."""
+    s = col.removeprefix("hs_").replace("_", " ").strip()
+    return s.title() if s else col
+
+
+def _derive_silver_tables() -> dict:
+    tables: dict[str, dict] = {}
+    for config, name, primary_key, display_name in _SILVER_SOURCES:
+        overlay = _SILVER_OVERLAY.get(name, {})
+        displays = overlay.get("field_displays", {})
+        fields: dict[str, dict] = {}
+        for entry in config["columns"]:
+            # 3-tuple (silver_col, bronze_prop, ch_type) for property/json sources;
+            # 2-tuple (col, ch_type) for nested_stages sources.
+            if len(entry) == 2:
+                col_name, ch_type = entry
+            else:
+                col_name, _bronze, ch_type = entry
+            fields[col_name] = {
+                "type": ch_type,
+                "display": displays.get(col_name, _humanize(col_name)),
+            }
+        for extra_name, extra_meta in overlay.get("extras", {}).items():
+            fields[extra_name] = dict(extra_meta)
+        tables[name] = {
+            "primary_key": primary_key,
+            "display_name": display_name,
+            "fields": fields,
+        }
+    return tables
+
+
+# ---------------------------------------------------------------------------
+# Hand-rolled silver tables (not derivable from silver_config)
+# ---------------------------------------------------------------------------
+
+# fact_activities: silver_config uses per-activity-type property mapping, not a
+# flat column list. fact_stage_history: not a silver_config dim at all.
+_HANDROLLED_SILVER: dict[str, dict] = {
     "fact_activities": {
         "primary_key": "activity_id",
         "display_name": "Activities",
@@ -334,48 +444,6 @@ TABLES = {
             "hs_timestamp":     {"type": "DateTime", "display": "Activity Date"},
             "duration_ms":      {"type": "Nullable(Int64)", "display": "Duration (ms)"},
             "createdate":       {"type": "DateTime", "display": "Created"},
-        },
-    },
-    "dim_owners": {
-        "primary_key": "owner_id",
-        "display_name": "Owners",
-        "fields": {
-            "email":      {"type": "String",   "display": "Email"},
-            "first_name": {"type": "String",   "display": "First Name"},
-            "last_name":  {"type": "String",   "display": "Last Name"},
-        },
-    },
-    "dim_lead_pipelines": {
-        "primary_key": "pipeline_id",
-        "display_name": "Lead Pipelines",
-        "fields": {
-            "label":        {"type": "String", "display": "Pipeline Name"},
-        },
-    },
-    "dim_lead_pipeline_stages": {
-        "primary_key": "stage_id",
-        "display_name": "Lead Pipeline Stages",
-        "fields": {
-            "label":          {"type": "String",           "display": "Stage Name"},
-            "pipeline_id":    {"type": "String",           "display": "Pipeline ID"},
-            "is_closed":      {"type": "String",           "display": "Is Closed"},
-            "display_order":  {"type": "UInt32",           "display": "Display Order"},
-        },
-    },
-    "fact_form_submissions": {
-        "primary_key": "submission_id",
-        "display_name": "Form Submissions",
-        "fields": {
-            "form_id":        {"type": "String",   "display": "Form ID"},
-            "form_name":      {"type": "String",   "display": "Form Name"},
-            "submitted_at":   {"type": "DateTime", "display": "Submitted At"},
-            "page_url":       {"type": "String",   "display": "Page URL"},
-            "email":          {"type": "String",   "display": "Email"},
-            "firstname":      {"type": "String",   "display": "First Name"},
-            "lastname":       {"type": "String",   "display": "Last Name"},
-            "company":        {"type": "String",   "display": "Company"},
-            "jobtitle":       {"type": "String",   "display": "Job Title"},
-            "phone":          {"type": "String",   "display": "Phone"},
         },
     },
     "fact_stage_history": {
@@ -390,7 +458,14 @@ TABLES = {
             "duration_ms":    {"type": "Nullable(Int64)", "display": "Time in Stage (milliseconds)"},
         },
     },
-    # --- Gold tables ---
+}
+
+
+# ---------------------------------------------------------------------------
+# Gold tables (hand-rolled — columns are computed in assets/gold/)
+# ---------------------------------------------------------------------------
+
+_GOLD_TABLES: dict[str, dict] = {
     "agg_rep_performance": {
         "primary_key": "hubspot_owner_id",
         "display_name": "Rep Performance (monthly aggregates per rep)",
@@ -521,4 +596,13 @@ TABLES = {
             "avg_days_to_close":  {"type": "Nullable(Float64)", "display": "Avg Days to Close"},
         },
     },
+}
+
+
+# Table metadata: primary key, display name, filterable fields.
+# Silver tables derive their field list from silver_config (single source of truth).
+TABLES: dict[str, dict] = {
+    **_derive_silver_tables(),
+    **_HANDROLLED_SILVER,
+    **_GOLD_TABLES,
 }
