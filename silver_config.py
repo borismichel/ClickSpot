@@ -543,3 +543,67 @@ LAYOUT({layout})"""
 
 # Computed DDL lookup — backward compatible with silver.py helpers
 DICTIONARIES = {name: _build_dict_ddl(name, cfg) for name, cfg in DICT_CONFIGS.items()}
+
+
+# ---------------------------------------------------------------------------
+# Anonymization registry — columns to mask when materializing silver_anon /
+# gold_anon copies. Consumed only by assets/silver_anon.py and
+# assets/gold_anon.py; the main pipeline ignores this block entirely.
+# Kind is one of: "text" | "email" | "phone" (see app/engine/anon_masking.py).
+# Tables not listed here are copied column-for-column with no masking.
+# dim_owners is intentionally absent — owner data stays visible.
+# ---------------------------------------------------------------------------
+
+ANON_PII_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    # Silver dims
+    "dim_contacts": [
+        ("full_name", "text"),
+        ("email",     "email"),
+        ("jobtitle",  "text"),
+    ],
+    "dim_companies": [
+        ("name",    "text"),
+        ("domain",  "text"),
+        ("website", "text"),
+        ("phone",   "phone"),
+        ("address", "text"),
+        ("city",    "text"),
+        ("zip",     "text"),
+    ],
+    "dim_deals": [
+        ("dealname",     "text"),
+        ("company_name", "text"),
+    ],
+    "dim_leads": [
+        ("hs_lead_name", "text"),
+    ],
+    # Silver facts
+    "fact_form_submissions": [
+        ("page_url",   "text"),
+        ("email",      "email"),
+        ("firstname",  "text"),
+        ("lastname",   "text"),
+        ("company",    "text"),
+        ("jobtitle",   "text"),
+        ("phone",      "phone"),
+    ],
+    # Silver dictionaries (masked at the dict source so dictGet() returns masked values)
+    "dict_contacts": [
+        ("full_name", "text"),
+        ("email",     "email"),
+    ],
+    "dict_companies": [
+        ("name",   "text"),
+        ("domain", "text"),
+    ],
+    "dict_deals": [
+        ("dealname", "text"),
+    ],
+    # Gold aggregates
+    "agg_deal_health": [
+        ("dealname", "text"),
+    ],
+    "agg_lead_health": [
+        ("lead_name", "text"),
+    ],
+}

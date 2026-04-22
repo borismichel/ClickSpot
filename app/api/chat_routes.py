@@ -12,6 +12,7 @@ from app.llm.config import load_config, save_config, get_api_key, mask_key
 from app.llm.oauth import save_initial_token, get_token_info, clear_tokens, has_valid_token
 from app.llm.providers import get_provider, refresh_schema_prompt, ClaudeOAuthProvider, ClaudeCLIProvider
 from app.llm.sql_validator import validate_sql, ensure_limit
+from app.mcp.pii import hubspot_app_host
 from app.semantic.layer import load_cache
 
 router = APIRouter(prefix="/api/v1")
@@ -137,6 +138,7 @@ def get_settings():
         "anthropic_model": config.get("anthropic_model", "claude-sonnet-4-6"),
         "openai_model": config.get("openai_model", "gpt-4o"),
         "hubspot_hub_id": os.environ.get("HUBSPOT_HUB_ID", ""),
+        "hubspot_app_host": hubspot_app_host(),
     }
 
 

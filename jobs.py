@@ -23,3 +23,8 @@ gold_job = define_asset_job(
     name="gold_job",
     selection=AssetSelection.groups("gold"),
 )
+
+anon_job = define_asset_job(
+    name="anon_job",
+    selection=AssetSelection.groups("silver_anon", "gold_anon"),
+)

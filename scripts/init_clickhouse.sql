@@ -167,3 +167,7 @@ CREATE TABLE IF NOT EXISTS bronze.hs_assoc_task_deal
 
 -- Gold database
 CREATE DATABASE IF NOT EXISTS gold;
+
+-- Anonymized layer (LLM/MCP reads these — PII masked at storage time)
+CREATE DATABASE IF NOT EXISTS silver_anon;
+CREATE DATABASE IF NOT EXISTS gold_anon;

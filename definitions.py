@@ -21,9 +21,15 @@ from assets.associations import (
 )
 from assets.silver import all_silver_assets
 from assets.gold import all_gold_assets
-from jobs import bronze_job, silver_job, gold_job
+from assets.silver_anon import all_silver_anon_assets
+from assets.gold_anon import all_gold_anon_assets
+from jobs import bronze_job, silver_job, gold_job, anon_job
 from schedules import hourly_schedule
-from sensors import trigger_silver_after_bronze, trigger_gold_after_silver
+from sensors import (
+    trigger_silver_after_bronze,
+    trigger_gold_after_silver,
+    trigger_anon_after_gold,
+)
 from resources.hubspot import HubSpotResource
 from resources.clickhouse import ClickHouseResource
 
@@ -46,13 +52,17 @@ all_assets = [
     # Activity ↔ Deals
     hs_assoc_call_deal, hs_assoc_meeting_deal, hs_assoc_email_deal,
     hs_assoc_note_deal, hs_assoc_task_deal,
-] + all_silver_assets + all_gold_assets
+] + all_silver_assets + all_gold_assets + all_silver_anon_assets + all_gold_anon_assets
 
 defs = Definitions(
     assets=all_assets,
-    jobs=[bronze_job, silver_job, gold_job],
+    jobs=[bronze_job, silver_job, gold_job, anon_job],
     schedules=[hourly_schedule],
-    sensors=[trigger_silver_after_bronze, trigger_gold_after_silver],
+    sensors=[
+        trigger_silver_after_bronze,
+        trigger_gold_after_silver,
+        trigger_anon_after_gold,
+    ],
     resources={
         "hubspot": HubSpotResource(
             access_token=os.environ["HUBSPOT_TOKEN"],
@@ -76,6 +86,20 @@ defs = Definitions(
             username=os.environ["CLICKHOUSE_USER"],
             password=os.environ["CLICKHOUSE_PASSWORD"],
             database="gold",
+        ),
+        "ch_silver_anon": ClickHouseResource(
+            host=os.environ["CLICKHOUSE_HOST"],
+            port=int(os.environ.get("CLICKHOUSE_PORT", 8123)),
+            username=os.environ["CLICKHOUSE_USER"],
+            password=os.environ["CLICKHOUSE_PASSWORD"],
+            database="silver_anon",
+        ),
+        "ch_gold_anon": ClickHouseResource(
+            host=os.environ["CLICKHOUSE_HOST"],
+            port=int(os.environ.get("CLICKHOUSE_PORT", 8123)),
+            username=os.environ["CLICKHOUSE_USER"],
+            password=os.environ["CLICKHOUSE_PASSWORD"],
+            database="gold_anon",
         ),
     },
 )

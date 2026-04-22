@@ -10,12 +10,12 @@ interface Props {
 
 // --- HubSpot link helpers ---
 
-// Column name → HubSpot object type for ID columns
+// Column name → HubSpot object type ID (used as /record/<typeId>/<id>)
 const ID_COL_TO_TYPE: Record<string, string> = {
-  deal_id: "deal",
-  contact_id: "contact",
-  company_id: "company",
-  lead_id: "record/0-34",
+  deal_id: "0-3",
+  contact_id: "0-1",
+  company_id: "0-2",
+  lead_id: "0-34",
 };
 
 // Name columns that should link when a matching ID column exists in the same row
@@ -47,25 +47,35 @@ function buildNameToId(columns: string[]): Record<string, string> {
   return map;
 }
 
-let _hubIdCache: string | null = null;
+interface HubSettings {
+  hubId: string;
+  appHost: string;
+}
 
-function useHubId(): string {
-  const [hubId, setHubId] = useState(_hubIdCache ?? "");
+let _hubSettingsCache: HubSettings | null = null;
+
+function useHubSettings(): HubSettings {
+  const [settings, setSettings] = useState<HubSettings>(
+    _hubSettingsCache ?? { hubId: "", appHost: "app.hubspot.com" },
+  );
   useEffect(() => {
-    if (_hubIdCache !== null) return;
+    if (_hubSettingsCache !== null) return;
     fetch("/api/v1/settings")
       .then((r) => r.json())
       .then((d) => {
-        _hubIdCache = d.hubspot_hub_id ?? "";
-        setHubId(_hubIdCache);
+        _hubSettingsCache = {
+          hubId: d.hubspot_hub_id ?? "",
+          appHost: d.hubspot_app_host ?? "app.hubspot.com",
+        };
+        setSettings(_hubSettingsCache);
       })
-      .catch(() => { _hubIdCache = ""; });
+      .catch(() => { _hubSettingsCache = { hubId: "", appHost: "app.hubspot.com" }; });
   }, []);
-  return hubId;
+  return settings;
 }
 
-function hubspotUrl(hubId: string, objectType: string, objectId: string): string {
-  return `https://app.hubspot.com/contacts/${hubId}/${objectType}/${objectId}`;
+function hubspotUrl(hubId: string, appHost: string, objectTypeId: string, objectId: string): string {
+  return `https://${appHost}/contacts/${hubId}/record/${objectTypeId}/${objectId}`;
 }
 
 // --- Cell formatting ---
@@ -93,7 +103,7 @@ function formatCell(value: unknown, colName: string): string {
 }
 
 export function ResultTable({ results, columns, title }: Props) {
-  const hubId = useHubId();
+  const { hubId, appHost } = useHubSettings();
 
   const colSet = new Set(columns);
   const NAME_COL_TO_ID = buildNameToId(columns);
@@ -129,7 +139,7 @@ export function ResultTable({ results, columns, title }: Props) {
           if (id != null) {
             const type = ID_COL_TO_TYPE[nameIdCol];
             return (
-              <a href={hubspotUrl(hubId, type, String(id))} target="_blank" rel="noopener noreferrer">
+              <a href={hubspotUrl(hubId, appHost, type, String(id))} target="_blank" rel="noopener noreferrer">
                 {formatted} <LinkOutlined style={{ fontSize: 10, opacity: 0.5 }} />
               </a>
             );
@@ -139,7 +149,7 @@ export function ResultTable({ results, columns, title }: Props) {
         // Standalone ID column (no paired name) → link the ID directly
         if (idType) {
           return (
-            <a href={hubspotUrl(hubId, idType, String(v))} target="_blank" rel="noopener noreferrer">
+            <a href={hubspotUrl(hubId, appHost, idType, String(v))} target="_blank" rel="noopener noreferrer">
               {formatted} <LinkOutlined style={{ fontSize: 10, opacity: 0.5 }} />
             </a>
           );

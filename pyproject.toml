@@ -20,6 +20,7 @@ dependencies = [
     "httpx",
     "sqlglot",
     "aiosqlite",
+    "mcp[cli]>=1.0",
 ]
 
 [project.optional-dependencies]
