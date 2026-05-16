@@ -11,14 +11,14 @@
 | Area | Verdict | Status | Notes |
 |------|---------|--------|-------|
 | Engine choice | Good | — | ReplacingMergeTree everywhere is correct for CDC/full-load patterns |
-| ORDER BY keys | Weak | ⏳ | Single-column PKs miss the main query patterns entirely |
-| Data types | Weak | ⏳ | String overuse, Nullable overuse, no LowCardinality on obvious candidates |
-| Partitioning | Missing | ⏳ | None on any table — fine at current scale, fatal at 100x |
-| Skip indexes | Missing | ⏳ | Zero secondary indexes anywhere |
+| ORDER BY keys | Good | ✅ | All silver dims/facts have proper multi-column ORDER BY in `silver_config.py` and the bespoke fact DDLs |
+| Data types | Mostly good | ◐ | `LowCardinality(String)` heavily used; `Nullable` overuse on amounts/scores still open |
+| Partitioning | Targeted | ✅ | Silver dims/facts and three gold tables partitioned by month/year of their natural date axis. Tables with no useful date axis (small dims, bridges, lookup gold aggregates) intentionally unpartitioned |
+| Skip indexes | Targeted | ✅ | `bloom_filter(0.01)` on `dim_deals.hubspot_owner_id`, `dim_contacts.email`, `dim_leads.hubspot_owner_id` |
 | Projections | Missing | ⏳ | No projections — gold layer is doing what projections should do |
 | Refresh strategy | Atomic | ✅ | Silver/gold now use `EXCHANGE TABLES` — no downtime window |
-| Bronze schema | Suboptimal | ⏳ | `Map(String, String)` + `_raw String` stores everything twice |
-| Container config | Minimal | ◐ | Memory limit added (`6g`), but server config + image pinning still pending |
+| Bronze schema | Compressed | ◐ | `_raw String CODEC(ZSTD(3))` in init script; full migration to native `JSON` type still open |
+| Container config | Profiled | ✅ | Image pinned to `26.2.5.45`; `users.xml` profile sets per-query memory cap, spill thresholds, max_result_rows, max_partitions_per_insert_block; `config.xml` sets `index_granularity=4096` |
 | Connection mgmt | Pooled | ✅ | Single shared `clickhouse_connect` client now reused across requests |
 | Dictionary layout | Correct | ✅ | Single-key dicts use `HASHED()`; only the composite-key one uses `COMPLEX_KEY_HASHED()` |
 
@@ -394,17 +394,17 @@ Every INSERT into dim_deals automatically updates the materialized view. No refr
 
 | # | Change | Status | Effort | Impact at current scale | Impact at 100x+ | Do when? |
 |---|--------|--------|--------|------------------------|-----------------|----------|
-| 1 | Fix ORDER BY keys | ⏳ | Medium | Moderate | Critical | Now |
-| 2 | LowCardinality on enum-like columns | ⏳ | Low | Low | High | Now |
+| 1 | Fix ORDER BY keys | ✅ | Medium | Moderate | Critical | Done in `silver_config.py` |
+| 2 | LowCardinality on enum-like columns | ◐ | Low | Low | High | Done for ~30 columns; `hubspot_owner_id` + a few stragglers still String |
 | 3 | Atomic swap (EXCHANGE TABLES) | ✅ | Low | High (eliminates downtime) | Critical | Done |
-| 4 | Reuse ClickHouse client | ✅ (app side) | Trivial | Low | Moderate | Done in app; Dagster resource still per-call |
+| 4 | Reuse ClickHouse client | ✅ (app side) | Trivial | Low | Moderate | Done in app; Dagster resource also reuses via `_client_cache` |
 | 5 | Dictionary layout HASHED() | ✅ | Trivial | Low | Moderate | Done |
-| 6 | ZSTD on _raw column | ⏳ | Trivial | Moderate (storage) | High | Now |
-| 7 | Add partitioning (monthly) | ⏳ | Medium | Low | Critical | Before 10x |
-| 8 | Drop Nullable, use defaults | ⏳ | Medium | Low | Moderate | Before 10x |
-| 9 | Skip indexes (bloom, set) | ⏳ | Low | Low | High | Before 100x |
-| 10 | Projections on dim_deals | ⏳ | Medium | Moderate | High | Before 100x |
-| 11 | Server config tuning | ◐ | Low | Low (safety) | Critical (OOM prevention) | Memory limit set; profile + index_granularity still pending |
+| 6 | ZSTD on _raw column | ✅ | Trivial | Moderate (storage) | High | Done in `scripts/init_clickhouse.sql` |
+| 7 | Add partitioning (monthly) | ✅ | Medium | Low | Critical | Done — monthly on dim/fact_form_submissions/gold, yearly on fact_activities + fact_stage_history |
+| 8 | Drop Nullable, use defaults | ⏳ | Medium | Low | Moderate | Before 10x — touches LLM SQL patterns |
+| 9 | Skip indexes (bloom, set) | ◐ | Low | Low | High | Bloom on owner+email shipped; `set` indexes on pipeline_label/dealstage still open |
+| 10 | Projections on dim_deals | ⏳ | Medium | Moderate | High | Before 100x — needs query telemetry first |
+| 11 | Server config tuning | ✅ | Low | Low (safety) | Critical (OOM prevention) | Done — see `clickhouse/config.xml` + `clickhouse/users.xml` |
 | 12 | Drop _raw or use JSON type | ⏳ | High | Moderate (storage) | Critical (storage) | Before 1000x |
 | 13 | Materialized views for gold | ⏳ | High | Low (hourly is fine) | High (real-time) | At 1000x |
-| 14 | Pin Docker image version | ⏳ | Trivial | Safety | Safety | Now |
+| 14 | Pin Docker image version | ✅ | Trivial | Safety | Safety | Done — pinned to `26.2.5.45` |

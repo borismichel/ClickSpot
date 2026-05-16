@@ -515,7 +515,6 @@ Standalone process (`python -m app.mcp.server`) that wraps the `silver_anon` and
 | GET | `/api/v1/tables` | List all ClickHouse tables |
 | GET | `/api/v1/tables/{db}/{table}` | Table details + sample data |
 | POST | `/api/v1/sql` | Execute SQL (with optional dashboard filters) |
-| POST | `/api/v1/test-filter` | Debug endpoint: preview filter-rewritten SQL |
 | GET | `/api/v1/filters/options` | Owner/pipeline dropdown data |
 | GET | `/api/v1/settings` | LLM configuration |
 | PUT | `/api/v1/settings` | Update LLM configuration |
