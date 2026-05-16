@@ -229,6 +229,7 @@ CREATE TABLE gold.{tmp} (
     total_activities UInt32,
     _gold_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_gold_loaded_at)
+PARTITION BY toYYYYMM(period_start)
 ORDER BY (hubspot_owner_id, period_start)
 """.strip())
 
@@ -485,6 +486,7 @@ CREATE TABLE gold.{tmp} (
     avg_days_to_close Nullable(Float64),
     _gold_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_gold_loaded_at)
+PARTITION BY toYYYYMM(cohort_month)
 ORDER BY (cohort_month, pipeline, deal_origin)
 """.strip())
 
@@ -546,6 +548,7 @@ CREATE TABLE IF NOT EXISTS gold.fact_pipeline_snapshots (
     closed_won_count UInt32,
     _gold_loaded_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(snapshot_date)
 ORDER BY (pipeline, snapshot_date)
 TTL snapshot_date + INTERVAL 2 YEAR
 """.strip())
