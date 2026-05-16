@@ -90,6 +90,7 @@ def _build_ddl(
     *,
     order_by: str | None = None,
     partition_by: str | None = None,
+    indexes: list[str] | None = None,
 ) -> str:
     """Build CREATE TABLE DDL from config."""
     col_defs = [f"    {primary_key} String"]
@@ -105,6 +106,9 @@ def _build_ddl(
 
     col_defs.append("    archived UInt8")
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
+
+    for idx in indexes or []:
+        col_defs.append(f"    {idx}")
 
     cols_sql = ",\n".join(col_defs)
     order_clause = order_by or f"({primary_key})"
@@ -171,7 +175,8 @@ def _make_dim_asset(name: str, config: dict):
 
         ddl = _build_ddl(tmp, primary_key, config["columns"], source,
                          order_by=config.get("order_by"),
-                         partition_by=config.get("partition_by"))
+                         partition_by=config.get("partition_by"),
+                         indexes=config.get("indexes"))
         context.log.info(f"DDL: {ddl}")
         ch_silver.execute_sql(ddl)
 
@@ -238,6 +243,7 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     columns = config["columns"]
     order_by = config.get("order_by", "(deal_id)")
     partition_by = config.get("partition_by")
+    indexes = config.get("indexes", [])
 
     # Build DDL with extra label columns
     col_defs = [f"    {primary_key} String"]
@@ -248,6 +254,8 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     col_defs.append("    owner_name String")
     col_defs.append("    archived UInt8")
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
+    for idx in indexes:
+        col_defs.append(f"    {idx}")
 
     partition_clause = f"PARTITION BY {partition_by} " if partition_by else ""
     ddl = (

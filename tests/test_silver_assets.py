@@ -213,3 +213,30 @@ class TestBuildDdlPartitioning:
             partition_by=DIM_OWNERS.get("partition_by"),
         )
         assert "PARTITION BY" not in ddl
+
+
+# ---------------------------------------------------------------------------
+# Skip indexes in _build_ddl
+# ---------------------------------------------------------------------------
+
+class TestBuildDdlIndexes:
+    def test_indexes_emitted_when_configured(self):
+        ddl = _build_ddl(
+            "dim_contacts_tmp",
+            "contact_id",
+            DIM_CONTACTS["columns"],
+            order_by=DIM_CONTACTS["order_by"],
+            partition_by=DIM_CONTACTS["partition_by"],
+            indexes=DIM_CONTACTS["indexes"],
+        )
+        assert "INDEX idx_email email TYPE bloom_filter(0.01) GRANULARITY 4" in ddl
+
+    def test_indexes_omitted_when_absent(self):
+        ddl = _build_ddl(
+            "dim_owners_tmp",
+            "owner_id",
+            DIM_OWNERS["columns"],
+            source="json",
+            indexes=DIM_OWNERS.get("indexes"),
+        )
+        assert "INDEX " not in ddl

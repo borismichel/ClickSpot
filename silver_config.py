@@ -8,6 +8,9 @@ DIM_CONTACTS = {
     "primary_key": "contact_id",
     "order_by": "(archived, lifecyclestage, toDate(createdate), contact_id)",
     "partition_by": "toYYYYMM(toDate(createdate))",
+    "indexes": [
+        "INDEX idx_email email TYPE bloom_filter(0.01) GRANULARITY 4",
+    ],
     "columns": [
         ("full_name",                                 "full_name",                                 "String"),
         ("email",                                     "email",                                     "String"),
@@ -126,6 +129,9 @@ DIM_DEALS = {
     "primary_key": "deal_id",
     "order_by": "(pipeline, archived, toDate(closedate), deal_id)",
     "partition_by": "toYYYYMM(toDate(closedate))",
+    "indexes": [
+        "INDEX idx_owner hubspot_owner_id TYPE bloom_filter(0.01) GRANULARITY 4",
+    ],
     "columns": [
         ("dealname",                          "dealname",                          "String"),
         ("dealstage",                         "dealstage",                         "LowCardinality(String)"),
@@ -211,6 +217,9 @@ DIM_LEADS = {
     "primary_key": "lead_id",
     "order_by": "(archived, hs_pipeline, toDate(createdate), lead_id)",
     "partition_by": "toYYYYMM(toDate(createdate))",
+    "indexes": [
+        "INDEX idx_owner hubspot_owner_id TYPE bloom_filter(0.01) GRANULARITY 4",
+    ],
     "columns": [
         ("hs_lead_name",                  "hs_lead_name",                  "String"),
         ("hubspot_owner_id",              "hubspot_owner_id",              "String"),
