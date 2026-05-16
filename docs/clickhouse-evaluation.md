@@ -2,22 +2,25 @@
 
 **Context:** HubSpot CRM ELT pipeline (bronze/silver/gold medallion) with ~200K contacts, ~10K deals, ~1.5K leads, hourly full loads. Evaluated against ClickHouse best practices with an eye toward 100x-1000x scale.
 
+**Last full review:** 2026-04-06. Several recommendations have shipped since — see the **Status** column below and the per-section notes. Items still open are flagged ⏳; shipped items are ✅.
+
 ---
 
 ## Current State Summary
 
-| Area | Verdict | Notes |
-|------|---------|-------|
-| Engine choice | Good | ReplacingMergeTree everywhere is correct for CDC/full-load patterns |
-| ORDER BY keys | Weak | Single-column PKs miss the main query patterns entirely |
-| Data types | Weak | String overuse, Nullable overuse, no LowCardinality on obvious candidates |
-| Partitioning | Missing | None on any table — fine at current scale, fatal at 100x |
-| Skip indexes | Missing | Zero secondary indexes anywhere |
-| Projections | Missing | No projections — gold layer is doing what projections should do |
-| Refresh strategy | Risky | DROP+CREATE+INSERT causes downtime windows; doesn't scale |
-| Bronze schema | Suboptimal | `Map(String, String)` + `_raw String` stores everything twice |
-| Container config | Minimal | No memory limits, no ClickHouse server tuning |
-| Connection mgmt | Weak | New client per operation, no connection reuse |
+| Area | Verdict | Status | Notes |
+|------|---------|--------|-------|
+| Engine choice | Good | — | ReplacingMergeTree everywhere is correct for CDC/full-load patterns |
+| ORDER BY keys | Weak | ⏳ | Single-column PKs miss the main query patterns entirely |
+| Data types | Weak | ⏳ | String overuse, Nullable overuse, no LowCardinality on obvious candidates |
+| Partitioning | Missing | ⏳ | None on any table — fine at current scale, fatal at 100x |
+| Skip indexes | Missing | ⏳ | Zero secondary indexes anywhere |
+| Projections | Missing | ⏳ | No projections — gold layer is doing what projections should do |
+| Refresh strategy | Atomic | ✅ | Silver/gold now use `EXCHANGE TABLES` — no downtime window |
+| Bronze schema | Suboptimal | ⏳ | `Map(String, String)` + `_raw String` stores everything twice |
+| Container config | Minimal | ◐ | Memory limit added (`6g`), but server config + image pinning still pending |
+| Connection mgmt | Pooled | ✅ | Single shared `clickhouse_connect` client now reused across requests |
+| Dictionary layout | Correct | ✅ | Single-key dicts use `HASHED()`; only the composite-key one uses `COMPLEX_KEY_HASHED()` |
 
 ---
 
@@ -123,7 +126,9 @@ PARTITION BY toYYYYMM(snapshot_date)
 
 ## 4. Refresh Strategy — DROP+CREATE vs. Atomic Swap
 
-**Current:** Every silver/gold table does `DROP TABLE IF EXISTS` → `CREATE TABLE` → `INSERT INTO ... SELECT`. During the window between DROP and INSERT completion, queries return "table not found" errors.
+**Status: ✅ Applied.** Silver (and gold) now use `EXCHANGE TABLES` — build into a staging table, then atomically swap. The rest of this section is kept for context on why.
+
+**Original observation:** Every silver/gold table did `DROP TABLE IF EXISTS` → `CREATE TABLE` → `INSERT INTO ... SELECT`. During the window between DROP and INSERT completion, queries returned "table not found" errors.
 
 **Problem at scale:** A 20M-row contacts table takes several minutes to rebuild. The dashboard and LLM chat are broken during that window.
 
@@ -269,9 +274,11 @@ closedate DateTime CODEC(Delta(4), ZSTD(1))
 
 ## 9. Dictionary Layout
 
-**Current:** All dictionaries use `COMPLEX_KEY_HASHED()` with `String` primary keys.
+**Status: ✅ Applied.** `silver_config.py` now picks `HASHED()` for single-key dicts and only uses `COMPLEX_KEY_HASHED()` for the composite-key dictionary (`dict_lead_pipeline_stages`).
 
-**Problem:** `COMPLEX_KEY_HASHED` is the slowest dictionary layout. Since all primary keys are single-column String IDs, use `HASHED()` instead — simpler hash function, fewer indirections.
+**Original observation:** All dictionaries used `COMPLEX_KEY_HASHED()` with `String` primary keys.
+
+**Why it mattered:** `COMPLEX_KEY_HASHED` is the slowest dictionary layout. Since most primary keys are single-column String IDs, `HASHED()` is ~30% faster — simpler hash function, fewer indirections.
 
 **Better:**
 ```sql
@@ -290,7 +297,9 @@ LAYOUT(HASHED())
 
 ## 10. Container & Server Configuration
 
-**Current:** Bare `clickhouse/clickhouse-server:latest` with zero config.
+**Status: ◐ Partially applied.** `docker-compose.yml` now sets `memory: 6g` (recommendation was 4G — pragma choice). Image is still `clickhouse/clickhouse-server:latest` (pinning still open). No custom `config.xml` profile applied.
+
+**Original observation:** Bare `clickhouse/clickhouse-server:latest` with zero config.
 
 **Recommendations:**
 
@@ -337,7 +346,9 @@ services:
 
 ## 11. Connection Management
 
-**Current:** `get_client()` creates a new `clickhouse_connect` client on every `insert_records()` and `execute_sql()` call. Each call opens a new HTTP connection, does TLS/auth handshake (if applicable), and tears it down.
+**Status: ✅ Applied.** `app/db.py` holds a single shared `clickhouse_connect` client and reuses it (with sessions explicitly disabled to avoid concurrent-query collisions). The original critique on the Dagster `ClickHouseResource` side is kept below for reference.
+
+**Original observation:** `get_client()` created a new `clickhouse_connect` client on every `insert_records()` and `execute_sql()` call. Each call opened a new HTTP connection, did TLS/auth handshake (if applicable), and tore it down.
 
 **Fix:**
 ```python
@@ -381,19 +392,19 @@ Every INSERT into dim_deals automatically updates the materialized view. No refr
 
 ## Priority Ranking
 
-| # | Change | Effort | Impact at current scale | Impact at 100x+ | Do when? |
-|---|--------|--------|------------------------|-----------------|----------|
-| 1 | Fix ORDER BY keys | Medium | Moderate | Critical | Now |
-| 2 | LowCardinality on enum-like columns | Low | Low | High | Now |
-| 3 | Atomic swap (EXCHANGE TABLES) | Low | High (eliminates downtime) | Critical | Now |
-| 4 | Reuse ClickHouse client | Trivial | Low | Moderate | Now |
-| 5 | Dictionary layout HASHED() | Trivial | Low | Moderate | Now |
-| 6 | ZSTD on _raw column | Trivial | Moderate (storage) | High | Now |
-| 7 | Add partitioning (monthly) | Medium | Low | Critical | Before 10x |
-| 8 | Drop Nullable, use defaults | Medium | Low | Moderate | Before 10x |
-| 9 | Skip indexes (bloom, set) | Low | Low | High | Before 100x |
-| 10 | Projections on dim_deals | Medium | Moderate | High | Before 100x |
-| 11 | Server config tuning | Low | Low (safety) | Critical (OOM prevention) | Before 100x |
-| 12 | Drop _raw or use JSON type | High | Moderate (storage) | Critical (storage) | Before 1000x |
-| 13 | Materialized views for gold | High | Low (hourly is fine) | High (real-time) | At 1000x |
-| 14 | Pin Docker image version | Trivial | Safety | Safety | Now |
+| # | Change | Status | Effort | Impact at current scale | Impact at 100x+ | Do when? |
+|---|--------|--------|--------|------------------------|-----------------|----------|
+| 1 | Fix ORDER BY keys | ⏳ | Medium | Moderate | Critical | Now |
+| 2 | LowCardinality on enum-like columns | ⏳ | Low | Low | High | Now |
+| 3 | Atomic swap (EXCHANGE TABLES) | ✅ | Low | High (eliminates downtime) | Critical | Done |
+| 4 | Reuse ClickHouse client | ✅ (app side) | Trivial | Low | Moderate | Done in app; Dagster resource still per-call |
+| 5 | Dictionary layout HASHED() | ✅ | Trivial | Low | Moderate | Done |
+| 6 | ZSTD on _raw column | ⏳ | Trivial | Moderate (storage) | High | Now |
+| 7 | Add partitioning (monthly) | ⏳ | Medium | Low | Critical | Before 10x |
+| 8 | Drop Nullable, use defaults | ⏳ | Medium | Low | Moderate | Before 10x |
+| 9 | Skip indexes (bloom, set) | ⏳ | Low | Low | High | Before 100x |
+| 10 | Projections on dim_deals | ⏳ | Medium | Moderate | High | Before 100x |
+| 11 | Server config tuning | ◐ | Low | Low (safety) | Critical (OOM prevention) | Memory limit set; profile + index_granularity still pending |
+| 12 | Drop _raw or use JSON type | ⏳ | High | Moderate (storage) | Critical (storage) | Before 1000x |
+| 13 | Materialized views for gold | ⏳ | High | Low (hourly is fine) | High (real-time) | At 1000x |
+| 14 | Pin Docker image version | ⏳ | Trivial | Safety | Safety | Now |

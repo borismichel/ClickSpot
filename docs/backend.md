@@ -1,13 +1,16 @@
 # Backend
 
-The backend is a **FastAPI** application that serves two distinct APIs:
+The backend is a **FastAPI** application that serves several distinct surfaces:
 
 1. **Analytics Engine** — Associative graph-based query builder (Qlik-inspired selection propagation)
 2. **Chat API** — LLM-powered natural language to ClickHouse SQL
 3. **Data API** — Direct SQL execution with dashboard filter injection
-4. **SQL Filter Engine** — Rule-based AST rewriting for dashboard global filters
+4. **Object / Dashboard / Conversation APIs** — Server-side persistence for saved query objects, dashboards, and chat history (backed by SQLite in `app/store.py`)
+5. **Data Spaces API** — Scoped views over the warehouse with their own discovery, preview, chat, and dashboards (`/api/v1/spaces/*`)
+6. **SQL Filter Engine** — Rule-based AST rewriting for dashboard global filters
+7. **MCP server** (separate process, `python -m app.mcp.server`) — Exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same schema prompt and SQL validator as in-app chat
 
-All share the same ClickHouse connection and table configuration.
+All share the same ClickHouse connection and table configuration. The in-process app also initializes a SQLite store and loads saved data spaces on startup (`lifespan` in `app/main.py`).
 
 ---
 
@@ -452,18 +455,54 @@ Environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) override file conf
 
 ### Database (`app/db.py`)
 
-Global ClickHouse client via `clickhouse_connect`. Configuration from environment:
+Single shared `clickhouse_connect` client, reused across requests for connection pooling. Sessions are explicitly disabled (`autogenerate_session_id=False` globally, `cancel_http_readonly_queries_on_client_close=0`) so concurrent requests never collide on a session ID — without this, parallel requests trigger `"concurrent queries within the same session"` errors in ClickHouse. Configuration from environment:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CLICKHOUSE_HOST` | `localhost` | ClickHouse server hostname |
-| `CLICKHOUSE_PORT` | `8123` | HTTP interface port |
+| `CLICKHOUSE_PORT` | `8123` (project standard is `8124` — set explicitly via `.env`) | HTTP interface port |
 | `CLICKHOUSE_USER` | `default` | Username |
 | `CLICKHOUSE_PASSWORD` | (empty) | Password |
+
+### Persistence (`app/store.py`)
+
+A SQLite database (initialized on FastAPI startup via `lifespan`) backs `object_routes`, `dashboard_routes`, and `conversation_routes`. The frontend hooks (`useObjectRepo`, `useDashboards`, `useConversations`) sync to/from these endpoints rather than living in `localStorage` alone.
+
+---
+
+## Data Spaces (`app/spaces/`)
+
+A Data Space is a user-defined slice of the warehouse: a *grain entity* (e.g. `dim_deals`), a set of dimensions discovered from that entity, optional fixed filters, and its own scoped chat + dashboards.
+
+| Module | Purpose |
+|--------|---------|
+| `app/spaces/config.py` | `DataSpaceConfig` Pydantic schema |
+| `app/spaces/discovery.py` | Introspects available grain entities, dimensions, dicts |
+| `app/spaces/registry.py` | CRUD + `preview_space()` + startup `load_saved_spaces()` |
+| `app/spaces/space_filter.py` | Per-space SQL rewriting (analogous to `engine/sql_filter.py` but scoped) |
+| `app/spaces/space_prompt.py` | Schema prompt scoped to a single space |
+| `app/spaces/generator.py` | Generation helpers for derived assets |
+| `app/spaces/routes.py` | All `/api/v1/spaces/*` endpoints (~26) |
+
+Spaces are persisted via `app/store.py` and re-loaded into memory at FastAPI startup.
+
+---
+
+## MCP Server (`app/mcp/`)
+
+Standalone process (`python -m app.mcp.server`) that wraps the `silver_anon` and `gold_anon` databases for external Claude clients (Claude Desktop, etc.) using `FastMCP`.
+
+- Reuses `app.llm.schema_prompt.build_schema_prompt` so MCP clients see the same dict hints, ILIKE guidance, and table whitelist as in-app chat.
+- Reuses `app.llm.sql_validator.ensure_limit` for the same LIMIT auto-injection behavior.
+- `app/mcp/guardrails.py` enforces an explicit `MCP_ALLOWED_TABLES` allowlist + `EXCLUDED_TABLES` denylist on top of the validator and strips raw activity payloads (`ACTIVITY_STRIP_RE`).
+- `app/mcp/pii.py` provides the PII filters specific to MCP-exposed responses.
+- **No LLM lives in this server** — the MCP client drives SQL generation; this process just exposes grounded context and a guarded execution path against the anon databases.
 
 ---
 
 ## Endpoint Summary
+
+### Core analytics + chat + data
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -476,6 +515,7 @@ Global ClickHouse client via `clickhouse_connect`. Configuration from environmen
 | GET | `/api/v1/tables` | List all ClickHouse tables |
 | GET | `/api/v1/tables/{db}/{table}` | Table details + sample data |
 | POST | `/api/v1/sql` | Execute SQL (with optional dashboard filters) |
+| POST | `/api/v1/test-filter` | Debug endpoint: preview filter-rewritten SQL |
 | GET | `/api/v1/filters/options` | Owner/pipeline dropdown data |
 | GET | `/api/v1/settings` | LLM configuration |
 | PUT | `/api/v1/settings` | Update LLM configuration |
@@ -485,3 +525,47 @@ Global ClickHouse client via `clickhouse_connect`. Configuration from environmen
 | POST | `/api/v1/oauth/logout` | Clear OAuth tokens |
 | POST | `/api/v1/schema/refresh` | Rebuild semantic layer |
 | GET | `/api/v1/schema/semantic` | Semantic layer cache |
+
+### Saved objects / dashboards / conversations (server-side persistence)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET/POST | `/api/v1/objects` | List / create saved query+viz objects |
+| GET/DELETE | `/api/v1/objects/{object_id}` | Read / delete one object |
+| POST | `/api/v1/objects/import` | Bulk import (frontend localStorage migration) |
+| GET/POST | `/api/v1/dashboards` | List / create dashboards |
+| GET/PUT/DELETE | `/api/v1/dashboards/{dash_id}` | CRUD on a dashboard |
+| POST | `/api/v1/dashboards/{dash_id}/items` | Add a saved object to a dashboard |
+| DELETE | `/api/v1/dashboards/{dash_id}/items/{object_id}` | Remove item |
+| PUT | `/api/v1/dashboards/{dash_id}/layouts` | Persist grid layout |
+| POST | `/api/v1/dashboards/import` | Bulk import |
+| GET/POST | `/api/v1/conversations` | List / create chat conversations |
+| GET/PUT/DELETE | `/api/v1/conversations/{conv_id}` | CRUD on one conversation |
+| POST | `/api/v1/conversations/{conv_id}/messages` | Append a message |
+| POST | `/api/v1/conversations/import` | Bulk import |
+
+### Data Spaces (`/api/v1/spaces`)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v1/spaces` | List spaces |
+| GET | `/api/v1/spaces/entities` | Available grain entities (e.g. `dim_deals`) |
+| GET | `/api/v1/spaces/dimensions/{grain_entity}` | Dimensions discoverable from a grain entity |
+| GET | `/api/v1/spaces/dicts` | Available dictionaries |
+| GET | `/api/v1/spaces/dashboards/all` | All dashboards across all spaces |
+| GET | `/api/v1/spaces/{space_id}` | Get one space |
+| POST | `/api/v1/spaces` | Create space |
+| PUT | `/api/v1/spaces/{space_id}` | Update space |
+| DELETE | `/api/v1/spaces/{space_id}` | Delete space |
+| POST | `/api/v1/spaces/test-filter` | Preview filter SQL for an unsaved space config |
+| POST | `/api/v1/spaces/preview` | Preview rows for an unsaved space config |
+| GET | `/api/v1/spaces/{space_id}/columns` | Columns for the saved space |
+| GET | `/api/v1/spaces/{space_id}/stats` | Row counts / metadata for the saved space |
+| GET | `/api/v1/spaces/{space_id}/columns/{col_name}/values` | Distinct values for one column |
+| POST | `/api/v1/spaces/{space_id}/chat` | Scoped LLM chat |
+| GET/POST/DELETE | `/api/v1/spaces/{space_id}/conversation` | Get / append-message / clear the space's single conversation |
+| GET/POST | `/api/v1/spaces/{space_id}/dashboards` | List / create dashboards inside a space |
+| GET/PUT/DELETE | `/api/v1/spaces/{space_id}/dashboards/{dash_id}` | CRUD on a space dashboard |
+| POST | `/api/v1/spaces/{space_id}/dashboards/{dash_id}/items` | Add item |
+| DELETE | `/api/v1/spaces/{space_id}/dashboards/{dash_id}/items/{item_id}` | Remove item |
+| PUT | `/api/v1/spaces/{space_id}/dashboards/{dash_id}/layouts` | Persist layout |

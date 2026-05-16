@@ -10,18 +10,20 @@ hs2ch runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data f
 HubSpot CRM API
       |
       v
-  +---------+     +---------+     +---------+
-  | BRONZE  | --> | SILVER  | --> |  GOLD   |
-  |  (raw)  |    | (typed) |    |  (agg)  |
-  +---------+     +---------+     +---------+
-   38 tables       22 assets       7 tables
+  +---------+     +---------+     +---------+     +-----------+
+  | BRONZE  | --> | SILVER  | --> |  GOLD   | --> |   ANON    |
+  |  (raw)  |    | (typed) |    |  (agg)  |    | (masked)  |
+  +---------+     +---------+     +---------+     +-----------+
+   36 tables       23 assets       7 tables    silver_anon +
+                                               gold_anon dbs
 ```
 
 | Layer | Purpose | Engine | Refresh Strategy |
 |-------|---------|--------|------------------|
-| **Bronze** | Raw extraction from HubSpot. Safety net — nothing is lost. | `ReplacingMergeTree(_extracted_at)` | Incremental (high-water mark on `lastmodifieddate`) |
-| **Silver** | Clean, typed dimensions, facts, and bridges. No business logic. | `ReplacingMergeTree(_silver_loaded_at)` | Full rebuild (DROP + CREATE + INSERT) |
+| **Bronze** | Raw extraction from HubSpot. Safety net — nothing is lost. | `ReplacingMergeTree(_extracted_at)` | Full list-endpoint loads each run, deduped by `_record_id` |
+| **Silver** | Clean, typed dimensions, facts, and bridges. No business logic. | `ReplacingMergeTree(_silver_loaded_at)` | Atomic swap via `EXCHANGE TABLES` (build into staging, swap in place) |
 | **Gold** | Pre-computed aggregates for analytics. | `ReplacingMergeTree(_gold_loaded_at)` | Full rebuild |
+| **Anon** | PII-masked mirror of silver + gold for safe external sharing (MCP, demos). | `ReplacingMergeTree` | Rebuilt after gold via the `trigger_anon_after_gold` sensor |
 
 ---
 
@@ -47,31 +49,33 @@ CREATE TABLE bronze.<table_name> (
 
 ### Assets
 
-#### CRM Objects (4 assets)
+#### CRM Objects (5 assets)
+
+The CRM list endpoint is versioned with a date header in the URL — `API_VERSION = "2026-03"` in `resources/hubspot.py`. Owners use the older `v3` path.
 
 | Asset | HubSpot API | Notes |
 |-------|-------------|-------|
-| `hs_contacts` | `/crm/v3/objects/contacts` | Incremental via `lastmodifieddate` |
-| `hs_companies` | `/crm/v3/objects/companies` | Incremental via `lastmodifieddate` |
-| `hs_deals` | `/crm/v3/objects/deals` | Incremental via `lastmodifieddate` |
-| `hs_leads` | `/crm/v3/objects/leads` | Incremental via `lastmodifieddate` |
-| `hs_owners` | `/crm/v3/owners` | Full load (no search API for owners) |
+| `hs_contacts` | `/crm/objects/{API_VERSION}/contacts` | Full list load with dynamic property discovery |
+| `hs_companies` | `/crm/objects/{API_VERSION}/companies` | Full list load with dynamic property discovery |
+| `hs_deals` | `/crm/objects/{API_VERSION}/deals` | Full list load with dynamic property discovery |
+| `hs_leads` | `/crm/objects/{API_VERSION}/leads` | Full list load with dynamic property discovery |
+| `hs_owners` | `/crm/v3/owners` | Full load, flat JSON (no `properties` map) |
 
-Built with `_make_crm_asset()` factory in `assets/crm.py`.
+Built with `_make_crm_asset()` factory in `assets/crm.py` (`hs_owners` is a bespoke `@asset` in the same file).
 
 #### Activities (5 assets)
 
 | Asset | HubSpot API | Type Discriminator |
 |-------|-------------|-------------------|
-| `hs_calls` | `/crm/v3/objects/calls` | `call` |
-| `hs_meetings` | `/crm/v3/objects/meetings` | `meeting` |
-| `hs_engagement_emails` | `/crm/v3/objects/emails` | `email` |
-| `hs_notes` | `/crm/v3/objects/notes` | `note` |
-| `hs_tasks` | `/crm/v3/objects/tasks` | `task` |
+| `hs_calls` | `/crm/objects/{API_VERSION}/calls` | `call` |
+| `hs_meetings` | `/crm/objects/{API_VERSION}/meetings` | `meeting` |
+| `hs_engagement_emails` | `/crm/objects/{API_VERSION}/emails` | `email` |
+| `hs_notes` | `/crm/objects/{API_VERSION}/notes` | `note` |
+| `hs_tasks` | `/crm/objects/{API_VERSION}/tasks` | `task` |
 
 Built with the same `_make_crm_asset()` factory in `assets/activities.py`.
 
-#### Marketing & Pipelines (4 assets)
+#### Marketing & Pipelines (5 assets)
 
 | Asset | HubSpot API | Notes |
 |-------|-------------|-------|
@@ -79,8 +83,9 @@ Built with the same `_make_crm_asset()` factory in `assets/activities.py`.
 | `hs_lead_pipelines` | `/crm/v3/pipelines/leads` | Contains nested `stages` array |
 | `hs_campaigns` | `/marketing/v3/campaigns` | Full load |
 | `hs_forms` | `/marketing/v3/forms` | Full load |
+| `hs_form_submissions` | `/form-integrations/v1/submissions/forms/{formId}` | Legacy v1 endpoint. Bespoke `@asset` (not factory-based) — first lists forms via `fetch_all_form_ids()`, then iterates submissions per form. |
 
-Built with `_make_marketing_asset()` factory in `assets/marketing.py`.
+The first four are built with `_make_marketing_asset()` factory in `assets/marketing.py`; `hs_form_submissions` is a bespoke `@asset` in the same file.
 
 #### Associations (21 bridge assets)
 
@@ -98,19 +103,22 @@ Each association record contains `(_from_id, _to_id, _association_type)`.
 
 Built with `_make_association_asset()` factory in `assets/associations.py`.
 
-### Incremental Ingestion
+### Property Discovery & Pagination
 
-Bronze assets use a high-water mark strategy:
+Bronze CRM assets use a two-step pattern, not a search-based HWM:
 
-1. **First run:** Full load via HubSpot's List API (no 10k limit).
-2. **Subsequent runs:** Search API with `lastmodifieddate > (last_run - 5min)`. The 5-minute overlap buffer handles clock drift and in-flight writes.
-3. **Deduplication:** ClickHouse's `ReplacingMergeTree` keeps only the latest version per `_record_id`.
+1. **Property discovery** — for each object type, call `/crm/objects/{API_VERSION}/{type}/properties` to enumerate all available property names.
+2. **List with explicit properties** — call the list endpoint with `?properties=<comma-joined names>&limit=100`, walking pages via `paging.next.after` cursor.
+3. **Deduplication** — `ReplacingMergeTree(_extracted_at) ORDER BY (_record_id)` keeps only the latest version per ID across re-runs.
 
-### Rate Limiting
+This is a full load each run (not incremental). A `/search`-based high-water-mark path is not currently wired up — adding it would be the standard way to cut payload at scale.
+
+### Rate Limiting & Retries
 
 HubSpot enforces 150 requests per 10 seconds. `HubSpotResource` handles this with:
-- Automatic 429 retry with exponential backoff (up to 5 retries)
+- Exponential backoff on 429 / 502 / 503 (up to 5 retries, capped at 60s)
 - Batch pagination (100 records per page)
+- Associations use a POST batch-read endpoint (1000 IDs per batch)
 
 ---
 
@@ -157,12 +165,13 @@ DIM_DEALS = {
 - **`dim_deals`** denormalizes `pipeline_label`, `stage_label`, and `owner_name` via LEFT JOINs at load time.
 - **`dim_pipeline_stages`** and **`dim_lead_pipeline_stages`** use `ARRAY JOIN` to flatten nested stage arrays from pipeline records.
 
-### Fact Tables (2)
+### Fact Tables (3)
 
 | Table | Source | Primary Key | Description |
 |-------|--------|-------------|-------------|
 | `fact_activities` | 5 bronze activity tables | `activity_id` | UNION ALL with `activity_type` discriminator ('call', 'meeting', 'email', 'note', 'task') |
 | `fact_stage_history` | bronze leads/deals/contacts | composite | Stage enter/exit tracking. Dynamically discovers stage IDs from bronze property keys (`hs_v2_date_entered_*`, `hs_date_entered_*`). Columns: `entity_type`, `stage_id`, `stage_label`, `entered_at`, `exited_at`, `duration_ms` |
+| `fact_form_submissions` | `hs_form_submissions` | `submission_id` | One row per form submission with `form_id`, `submitted_at`, `page_url`, and the submitted values flattened from the v1 endpoint's `values[]` array |
 
 ### Bridge Tables (9)
 
@@ -307,6 +316,16 @@ Daily pipeline state snapshots for trend analysis.
 
 ---
 
+## Anon Layer
+
+Mirrors silver + gold into the `silver_anon` and `gold_anon` databases with PII masked. Used to expose the warehouse to external Claude clients via MCP, and for demos.
+
+- **Assets:** `assets/silver_anon.py` and `assets/gold_anon.py` rebuild the anon mirrors from the corresponding silver/gold tables.
+- **Masking:** `app/engine/anon_masking.py` rewrites emails, names, and domains while preserving IDs so joins still work. IDs and dictionaries pass through; free-text fields are scrubbed.
+- **Schedule:** the `trigger_anon_after_gold` sensor in `sensors.py` runs `anon_job` whenever `gold_job` succeeds.
+
+---
+
 ## Orchestration
 
 ### Dagster Jobs
@@ -314,17 +333,27 @@ Daily pipeline state snapshots for trend analysis.
 | Job | Assets | Purpose |
 |-----|--------|---------|
 | `bronze_job` | All bronze + association assets | Extract from HubSpot |
-| `silver_job` | All silver dim/fact/bridge + DQ | Transform to typed tables |
+| `silver_job` | All silver dim/fact/bridge + DQ | Transform to typed tables (max 3 concurrent) |
 | `gold_job` | All gold aggregates | Compute analytics |
-| `full_pipeline_job` | All of the above, dependency-ordered | End-to-end refresh |
+| `anon_job` | All silver_anon + gold_anon assets | Rebuild PII-masked mirrors |
 
-### Schedule
+### Schedule + Sensors
+
+Only `bronze_job` is on a cron schedule. Silver, gold, and anon are chained by run-status sensors so each runs as soon as its predecessor succeeds.
 
 ```python
-@schedule(cron_schedule="0 * * * *", job=full_pipeline_job)
-```
+# schedules.py
+hourly_schedule = ScheduleDefinition(
+    job=bronze_job,
+    cron_schedule="0 * * * *",
+    default_status=DefaultScheduleStatus.STOPPED,  # off by default — enable in the Dagster UI
+)
 
-Runs the full pipeline every hour on the hour.
+# sensors.py
+trigger_silver_after_bronze  # bronze_job SUCCESS → request silver_job
+trigger_gold_after_silver    # silver_job SUCCESS → request gold_job
+trigger_anon_after_gold      # gold_job SUCCESS   → request anon_job
+```
 
 ### Resources
 
@@ -334,6 +363,8 @@ Runs the full pipeline every hour on the hour.
 | `ch` | `ClickHouseResource` | `bronze` database |
 | `ch_silver` | `ClickHouseResource` | `silver` database |
 | `ch_gold` | `ClickHouseResource` | `gold` database |
+| `ch_silver_anon` | `ClickHouseResource` | `silver_anon` database |
+| `ch_gold_anon` | `ClickHouseResource` | `gold_anon` database |
 
 ### Dagster Home
 

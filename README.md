@@ -10,10 +10,13 @@ HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, 
 2. **Loads** raw data into ClickHouse bronze tables (incremental, deduplicated)
 3. **Transforms** into typed silver dimensions, facts, and bridge tables (config-driven)
 4. **Aggregates** into gold tables for rep performance, deal health, source attribution, and pipeline snapshots
-5. **Serves** three interfaces:
+5. **Anonymizes** silver/gold into `silver_anon`/`gold_anon` databases for safe external sharing (MCP, demos)
+6. **Serves** five interfaces:
    - **Chat** — Ask questions in natural language, get SQL + visualizations
    - **Dashboards** — Pin chat results to persistent dashboards with global filters (date, owner, pipeline)
+   - **Data Spaces** — Scoped, configured views over the warehouse with per-space chat, dashboards, and filters
    - **Analytics API** — Associative graph engine (Qlik-like selection propagation)
+   - **MCP server** — Exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same schema prompt and SQL guardrails as in-app chat
 
 ## Quick Start
 
@@ -95,9 +98,10 @@ Three-layer medallion architecture:
 
 | Layer | Tables | Engine | Strategy |
 |-------|--------|--------|----------|
-| **Bronze** | 17 objects + 21 associations | `ReplacingMergeTree` | Incremental (HWM) |
-| **Silver** | 10 dimensions + 2 facts + 9 bridges + 8 dicts | `ReplacingMergeTree` | Full rebuild |
+| **Bronze** | 15 objects + 21 associations | `ReplacingMergeTree` | Incremental (HWM) |
+| **Silver** | 10 dimensions + 3 facts + 9 bridges + 8 dicts | `ReplacingMergeTree` | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
 | **Gold** | 7 aggregates | `ReplacingMergeTree` | Full rebuild |
+| **Anon** | Masked silver + gold mirrors in `silver_anon` / `gold_anon` | `ReplacingMergeTree` | Rebuilt after gold via sensor |
 
 ### Chat Interface
 
@@ -138,6 +142,7 @@ Qlik-inspired selection propagation. Select a value in any table and all connect
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `HUBSPOT_TOKEN` | Yes | HubSpot private app token |
+| `HUBSPOT_HUB_ID` | Yes | HubSpot portal/hub ID — used to build canonical record URLs for the frontend and MCP responses |
 | `CLICKHOUSE_HOST` | Yes | ClickHouse hostname (default: `localhost`) |
 | `CLICKHOUSE_PORT` | Yes | ClickHouse HTTP port (default: `8124`) |
 | `CLICKHOUSE_USER` | Yes | ClickHouse username (default: `hs2ch`) |
@@ -194,19 +199,23 @@ cd frontend && npm run dev                           # Frontend
 
 ```
 hs2ch/
-|-- app/                  # FastAPI backend (API + engine + LLM + SQL filter)
-|-- assets/               # Dagster assets (bronze + silver + gold ELT)
+|-- app/                  # FastAPI backend (API + engine + LLM + spaces + MCP + SQL filter)
+|   |-- mcp/              # MCP server (Claude Desktop integration, anon warehouse)
+|   |-- spaces/           # Data Spaces feature (scoped warehouse views)
+|   |-- store.py          # SQLite-backed persistence for objects/dashboards/conversations
+|-- assets/               # Dagster assets (bronze + silver + gold + anon ELT)
 |-- resources/            # Dagster resources (HubSpot + ClickHouse clients)
-|-- frontend/             # React application (chat, dashboards, data explorer)
+|-- frontend/             # React application (chat, dashboards, data spaces, data explorer)
 |-- scripts/              # Initialization scripts
 |-- tests/                # Unit tests (SQL filter, etc.)
 |-- docs/                 # Detailed documentation
 |   |-- architecture.md   # System architecture and design decisions
-|   |-- data-pipeline.md  # ETL pipeline: bronze, silver, gold layers
-|   |-- backend.md        # Backend API: analytics engine + chat + LLM
+|   |-- data-pipeline.md  # ETL pipeline: bronze, silver, gold, anon layers
+|   |-- backend.md        # Backend API: analytics engine + chat + LLM + spaces + MCP
 |   |-- frontend.md       # Frontend: components, hooks, visualization
 |-- silver_config.py      # Silver layer column definitions (single source of truth)
-|-- definitions.py        # Dagster wiring (assets + jobs + schedules)
+|-- definitions.py        # Dagster wiring (assets + jobs + schedules + sensors)
+|-- sensors.py            # bronze → silver → gold → anon trigger chain
 |-- docker-compose.yml    # ClickHouse container
 |-- start.sh              # Start all services
 ```
@@ -218,9 +227,11 @@ hs2ch/
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System overview, data flow, design decisions, relationship graph |
-| [Data Pipeline](docs/data-pipeline.md) | Bronze/silver/gold layers, Dagster jobs, incremental ingestion |
-| [Backend](docs/backend.md) | Analytics engine, chat API, LLM providers, SQL validation |
+| [Data Pipeline](docs/data-pipeline.md) | Bronze/silver/gold/anon layers, Dagster jobs, sensor chain |
+| [Backend](docs/backend.md) | Analytics engine, chat API, LLM providers, spaces, MCP, SQL validation |
 | [Frontend](docs/frontend.md) | Chat UI, visualization components, hooks, types |
+| [ClickHouse Evaluation](docs/clickhouse-evaluation.md) | ClickHouse design notes — what shipped, what's still open |
+| [Security Audit](SECURITY_AUDIT.md) | Findings + priority fixes (last run 2026-04-06; stale — see backend.md additions) |
 | [CLAUDE.md](CLAUDE.md) | Development commands and codebase conventions |
 
 ---
@@ -229,14 +240,15 @@ hs2ch/
 
 | | Count |
 |---|---|
-| Bronze tables | 38 (17 objects + 21 associations) |
-| Silver assets | 22 (10 dims + 2 facts + 9 bridges + DQ) |
+| Bronze tables | 36 (15 objects + 21 associations) |
+| Silver assets | 23 (10 dims + 3 facts + 9 bridges + DQ) |
 | Gold tables | 7 |
+| Anon mirrors | silver_anon + gold_anon (masked copies for external sharing) |
 | Dictionaries | 8 (in-memory lookups from silver dims) |
 | Silver columns | ~197 (across all dimensions) |
 | Graph relationships | 9 bridge edges |
-| API endpoints | 17 |
+| API endpoints | ~64 (analytics + chat + data + objects + dashboards + conversations + spaces) |
 | Computed metrics | 22 |
 | LLM providers | 4 |
 | Viz types | 6 (number, table, bar, line, funnel, comparison) |
-| Frontend pages | 5 (chat, dashboard, library, data explorer, architecture) |
+| Frontend pages | 9 (chat, dashboard, library, data explorer, architecture, spaces list/new/edit/overview/dashboard) |

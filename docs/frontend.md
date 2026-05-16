@@ -27,17 +27,25 @@ Runs on http://localhost:8193. Proxies `/api` requests to the backend at http://
 | Recharts | 3.8 | Chart library (area, bar, funnel) |
 | React Router | 7.14 | Client-side routing |
 | TanStack Query | 5.96 | API data fetching and caching |
+| @xyflow/react | 12.10 | Graph/diagram canvas (used by Data Spaces designer) |
+| react-grid-layout | 2.2 | Draggable/resizable dashboard grid |
+| xlsx + jspdf | 0.18 / 4.2 | Export helpers (table → XLSX / PDF) |
 
 ---
 
 ## Routing
 
 ```
-/                → App (main chat interface)
-/dashboard       → DashboardPage (persistent dashboards with global filters)
-/library         → ObjectLibraryPage (saved query/viz objects)
-/data            → DataExplorerPage (interactive table/query browser)
-/architecture    → ArchitecturePage (system diagrams)
+/                          → App (main chat interface)
+/dashboard                 → DashboardPage (persistent dashboards with global filters)
+/library                   → ObjectLibraryPage (saved query/viz objects)
+/data                      → DataExplorerPage (interactive table/query browser)
+/architecture              → ArchitecturePage (system diagrams)
+/spaces                    → DataSpaceListPage (browse all spaces)
+/spaces/new                → DataSpaceDesignerPage (create a new space)
+/spaces/:id/edit           → DataSpaceDesignerPage (edit an existing space)
+/spaces/:id                → SpaceOverviewPage (live preview + filters for a space)
+/spaces/:spaceId/dashboard → SpaceDashboardPage (dashboards scoped to a space)
 ```
 
 Set up in `main.tsx` with `BrowserRouter` from React Router.
@@ -51,8 +59,8 @@ Each page sets `document.title` to `"HubSpot Analytics | {page}"` via the `usePa
 ### Main Chat Interface (`/`)
 
 ```
-+-----------------------------------------------------+
-| HubSpot Analytics [Library] [Dashboard] [Data] [Arch] [Settings]|
++----------------------------------------------------------------------+
+| HubSpot Analytics [Library] [Dashboard] [Spaces] [Data] [Arch] [Settings]|
 +----------+------------------------------------------+
 | Sidebar  |                                          |
 |          |   Welcome! Ask me anything about your    |
@@ -130,6 +138,18 @@ Full-page system architecture view with:
 - **Query Flow diagram** (SVG) — Schema prompt assembly to LLM to validator to ClickHouse
 - Detailed text descriptions per layer
 - Design decision cards
+
+#### `DataSpaceListPage.tsx`
+Lists all Data Spaces with quick links to overview, edit, dashboards, and a "+ New Space" CTA.
+
+#### `DataSpaceDesignerPage.tsx`
+Visual designer for creating or editing a Data Space. Used at `/spaces/new` and `/spaces/:id/edit`. Drives `GET /api/v1/spaces/entities`, `GET /api/v1/spaces/dimensions/{grain}`, `POST /api/v1/spaces/preview`, and `POST/PUT /api/v1/spaces`. Components live under `components/spaces/` (column picker, dimension configurator, grain selector, filter input, preview panel).
+
+#### `SpaceOverviewPage.tsx`
+Interactive overview of a saved space: filter bar, live row preview, distinct-value lookups, and a chat drawer scoped to the space.
+
+#### `SpaceDashboardPage.tsx`
+Dashboards scoped to a single Data Space. Same `react-grid-layout` card grid as the global `DashboardPage`, but filters and saved cards are stored per-space via `/api/v1/spaces/{id}/dashboards/*` (see `useSpaceDashboards`).
 
 ### Chat Components
 
@@ -231,6 +251,31 @@ SVG diagram (900x440 viewBox) showing the query flow:
 | `DashboardFilterBar` | `components/dashboard/DashboardFilterBar.tsx` | Global filter bar with DatePicker.RangePicker, owner multi-select, pipeline multi-select, and Clear button. Stores both IDs and names for silver/gold compatibility. |
 | `AddObjectDrawer` | `components/dashboard/AddObjectDrawer.tsx` | Slide-out drawer for adding saved objects from the library to the current dashboard. |
 
+### Data Space Components (`components/spaces/`)
+
+| Component | Purpose |
+|-----------|---------|
+| `ColumnPicker` | Multi-select for the columns to expose in a space |
+| `DimensionConfigurator` | Configure dimensions discovered from a grain entity |
+| `FilterInput` | Add/edit fixed filters for a space |
+| `GrainSelector` | Pick the space's grain entity (e.g. `dim_deals`) |
+| `PreviewPanel` | Live preview of rows returned by the current space config |
+| `SpaceChatDrawer` | Slide-out chat scoped to a single space |
+| `SpaceDashboardCard` | Dashboard card variant scoped to a space (uses space SQL filter) |
+| `SpaceFilterBar` | Filter bar specific to a space's configured filterable columns |
+
+### Top-level shared components (`components/`)
+
+| Component | Purpose |
+|-----------|---------|
+| `DataTable.tsx` | Generic table used in the data explorer + space previews |
+| `FilterBar.tsx` | Generic filter bar shared by overview / dashboard contexts |
+| `KPICards.tsx` | KPI tiles row used in space overview and dashboards |
+| `PeriodSelector.tsx` | Date period picker (today, week, month, quarter, custom) |
+| `PipelineSelector.tsx` | Pipeline picker |
+| `SelectionBreadcrumbs.tsx` | Breadcrumb-style display of the current associative selection |
+| `ConversationSidebar.tsx` | Sidebar with chat history (used in `App.tsx`) |
+
 ---
 
 ## Hooks
@@ -239,7 +284,7 @@ SVG diagram (900x440 viewBox) showing the query flow:
 Sets `document.title` to `"HubSpot Analytics | {subtitle}"` or just `"HubSpot Analytics"` if no subtitle. Called in each page component.
 
 ### `useDashboards()`
-LocalStorage persistence for dashboards. Each dashboard stores items (object references + grid layout), filters, and metadata.
+Persists dashboards via `/api/v1/dashboards/*` (backed by SQLite in `app/store.py`). Each dashboard stores items (object references + grid layout), filters, and metadata.
 
 ```typescript
 const {
@@ -249,16 +294,16 @@ const {
 } = useDashboards();
 ```
 
-Storage key: `hs2ch_dashboards`. Filters (date range, owner IDs/names, pipeline IDs/labels) persist with the dashboard.
+Filters (date range, owner IDs/names, pipeline IDs/labels) persist with the dashboard.
 
 ### `useObjectRepo()`
-LocalStorage persistence for saved query/visualization objects. Objects are created from chat responses and can be added to dashboards.
+Persists saved query/visualization objects via `/api/v1/objects/*`. Objects are created from chat responses and can be added to dashboards.
 
 ```typescript
 const { objects, getObject, addObject, removeObject } = useObjectRepo();
 ```
 
-Storage key: `hs2ch_objects`. Each object stores `{id, title, sql, viz, contextKPIs, columns}`.
+Each object stores `{id, title, sql, viz, contextKPIs, columns}`.
 
 ### `useFilterOptions()`
 Fetches dropdown options for the dashboard filter bar from `GET /api/v1/filters/options`. Returns owners `{id, name}[]` and pipelines `{id, label}[]`. Cached at module level.
@@ -277,7 +322,7 @@ const { messages, isLoading, error, sendMessage, newChat, loadMessages } = useCh
 - **Error handling** — Catches API errors and displays them inline
 
 ### `useConversations()`
-LocalStorage persistence for chat history. Conversations survive page refreshes and service restarts.
+Persists chat history via `/api/v1/conversations` (backed by SQLite in `app/store.py`), with a localStorage fallback for offline state. Conversations survive page refreshes and service restarts.
 
 ```typescript
 const {
@@ -290,7 +335,22 @@ const {
 } = useConversations();
 ```
 
-Storage key: `hs2ch_conversations`. Each conversation stores `{id, title, messages, createdAt, updatedAt}`. Messages include full response data (SQL, results, viz type, context KPIs) so conversations are fully restorable.
+Each conversation stores `{id, title, messages, createdAt, updatedAt}`. Messages include full response data (SQL, results, viz type, context KPIs) so conversations are fully restorable.
+
+### `useAnalyticsQuery()`
+Wraps `POST /api/v1/query` (the associative analytics endpoint) with TanStack Query for caching, deduplication, and loading state. Used wherever the frontend needs reachable counts, field values, measures, or grouped measures.
+
+### `useSelectionState()`
+Holds the current `{table.column: [values]}` selection state for the associative engine, with helpers to add/remove/clear selections and serialize them for `useAnalyticsQuery`.
+
+### `useDataSpaces()`
+CRUD over `/api/v1/spaces` plus discovery helpers (`/entities`, `/dimensions/{grain}`, `/dicts`, `/test-filter`, `/preview`). Returns the saved spaces list and mutators used by the designer and list pages.
+
+### `useSpaceChat(spaceId)`
+Per-space chat hook — analogue of `useChat` but talks to `/api/v1/spaces/{id}/chat` and `/api/v1/spaces/{id}/conversation`. Each space has a single persistent conversation.
+
+### `useSpaceDashboards(spaceId)`
+CRUD over a space's dashboards (`/api/v1/spaces/{id}/dashboards/*`). Mirrors `useDashboards` but scoped to one space.
 
 ---
 

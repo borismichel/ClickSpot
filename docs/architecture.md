@@ -7,39 +7,41 @@ This document describes the overall system architecture, how components connect,
 ## System Overview
 
 ```
-+----------------+          +----------------+          +-------------------+
-|   HubSpot CRM  |  API     |    Dagster     |  SQL     |    ClickHouse     |
-|   (source)     | -------> |  (orchestrator)| -------> |   (warehouse)     |
-+----------------+          +----------------+          +-------------------+
-                                                          |  bronze.*  (raw) |
-                                                          |  silver.*  (dim) |
-                                                          |  gold.*    (agg) |
-                                                          +--------+--------+
-                                                                   |
-                            +-------------------+                  |
-                            |    FastAPI         | <---------------+
-                            |   (backend API)   |    SQL queries
-                            +--------+----------+
-                                     |
-                    +----------------+------------------+
-                    |                |                  |
-            +-------+-------+ +-----+------+ +--------+---------+
-            | Analytics API | | Data API   | |    Chat API       |
-            | (associative  | | (SQL exec  | |  (LLM -> SQL)     |
-            |  graph engine)| |  + filters)| +---+-------+-------+
-            +---------------+ +-----+------+     |       |
-                                    |            v       v
-                              +-----+----+ +----+--+ +--+-------+
-                              |SQL Filter| |  LLM  | | Semantic |
-                              | (sqlglot)| |Provider| |  Layer   |
-                              +----------+ +-------+ +---------+
-                                                          |
-                            +-------------------+         |
-                            |  React Frontend   | <-------+
-                            | (chat + dashboard |    via /api
-                            |  + data explorer) |
-                            +-------------------+
++----------------+      +----------------+      +-----------------------------+
+|   HubSpot CRM  | API  |    Dagster     | SQL  |        ClickHouse           |
+|   (source)     | ---> | (orchestrator) | ---> |        (warehouse)          |
++----------------+      +----------------+      +-----------------------------+
+                                                  | bronze.*       (raw)      |
+                                                  | silver.*       (dim/fact) |
+                                                  | gold.*         (agg)      |
+                                                  | silver_anon.*  (masked)   |
+                                                  | gold_anon.*    (masked)   |
+                                                  +--------+----------+-------+
+                                                           |          |
+                                                           |          | MCP
+        +--------------------+              +--------------+----+   server
+        |  FastAPI (backend) | <------------+   SQL queries     |     |
+        +--+---+---+---+----++              +-------------------+     v
+           |   |   |   |    |                            +----------------+
+           v   v   v   v    v                            | Claude Desktop |
+   Analytics  Chat Data Objects/  Spaces                 |   (MCP client) |
+     API     API  API  Dashboards  API                   +----------------+
+   (graph)  (LLM (SQL  (SQLite       |
+            -> + per-  store via     v
+            SQL) filter app/store)  app/spaces/*
+                  )                 (scoped views,
+                                    chat, dashboards)
+                       |
+                       v
+        +----------------------------+
+        |     React Frontend         |
+        | chat + dashboard +         |
+        | data explorer + spaces +   |
+        | architecture pages         |
+        +----------------------------+
 ```
+
+The MCP server (`app/mcp/`) is a separate process — not part of the FastAPI app — but it reuses the same schema-prompt builder, SQL validator, and table catalog so external Claude clients see the same grounded context as in-app chat.
 
 ---
 
@@ -268,13 +270,17 @@ Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution.
 ```
 hs2ch/
 |-- app/                          # FastAPI backend
-|   |-- main.py                   # App entry, CORS, router mounting
-|   |-- db.py                     # ClickHouse client singleton
-|   |-- config.py                 # Table/graph/join configuration
+|   |-- main.py                   # App entry, CORS, router mounting, SQLite init, space load
+|   |-- db.py                     # ClickHouse client singleton (session-id-disabled)
+|   |-- config.py                 # Table/graph/join configuration (derived from silver_config.py)
+|   |-- store.py                  # SQLite persistence for objects/dashboards/conversations/spaces
 |   |-- api/
 |   |   |-- routes.py             # Analytics engine endpoints
-|   |   |-- chat_routes.py        # Chat + settings + OAuth endpoints
-|   |   |-- data_routes.py        # SQL execution + filter injection + filter options
+|   |   |-- chat_routes.py        # Chat + settings + OAuth + schema/refresh endpoints
+|   |   |-- data_routes.py        # SQL execution + filter injection + filter options + test-filter
+|   |   |-- object_routes.py      # Saved query+viz objects CRUD (/api/v1/objects)
+|   |   |-- dashboard_routes.py   # Dashboards + items + layouts (/api/v1/dashboards)
+|   |   |-- conversation_routes.py# Chat history persistence (/api/v1/conversations)
 |   |   |-- models.py             # Analytics request/response models
 |   |   |-- chat_models.py        # Chat request/response models
 |   |-- engine/
@@ -284,24 +290,38 @@ hs2ch/
 |   |   |-- sql_builder.py        # SQL generation functions
 |   |   |-- sql_filter.py         # Dashboard filter SQL rewriting (sqlglot)
 |   |   |-- metrics.py            # 22 computed metrics registry
+|   |   |-- anon_masking.py       # PII masking for silver_anon / gold_anon
 |   |-- llm/
 |   |   |-- config.py             # Multi-provider config (~/.hs2ch/config.json)
 |   |   |-- providers.py          # Anthropic, OpenAI, OAuth, CLI providers
 |   |   |-- schema_prompt.py      # LLM system prompt builder
 |   |   |-- response_schema.py    # Structured output models
-|   |   |-- sql_validator.py      # SQL safety (whitelist + mutation blocking)
+|   |   |-- sql_validator.py      # SQL safety (whitelist + mutation blocking + LIMIT)
 |   |   |-- oauth.py              # Claude OAuth token management
-|   |   |-- warmup.py             # Prompt cache warmup (startup)
 |   |-- semantic/
-|       |-- layer.py              # HubSpot property metadata enrichment
+|   |   |-- layer.py              # HubSpot property metadata enrichment
+|   |-- spaces/                   # Data Spaces feature
+|   |   |-- config.py             # DataSpaceConfig schema
+|   |   |-- discovery.py          # Grain entity + dimension introspection
+|   |   |-- registry.py           # CRUD + preview + startup load_saved_spaces()
+|   |   |-- space_filter.py       # Per-space SQL rewriting
+|   |   |-- space_prompt.py       # Schema prompt scoped to a single space
+|   |   |-- generator.py          # Helpers for derived assets
+|   |   |-- routes.py             # 26 endpoints under /api/v1/spaces/*
+|   |-- mcp/                      # MCP server (separate process)
+|       |-- server.py             # FastMCP entrypoint (python -m app.mcp.server)
+|       |-- guardrails.py         # MCP_ALLOWED_TABLES + EXCLUDED_TABLES + activity strip
+|       |-- pii.py                # PII filters for MCP responses
 |
 |-- assets/                       # Dagster assets (ETL)
-|   |-- crm.py                    # CRM object extraction (5 assets)
+|   |-- crm.py                    # CRM object extraction (4 factory + hs_owners = 5 assets)
 |   |-- activities.py             # Activity extraction (5 assets)
-|   |-- marketing.py              # Marketing extraction (4 assets)
+|   |-- marketing.py              # Marketing extraction (4 factory + hs_form_submissions = 5 assets)
 |   |-- associations.py           # Association bridges (21 assets)
-|   |-- silver.py                 # Silver transform (10 dim + 2 fact + 9 bridge + DQ)
+|   |-- silver.py                 # Silver transform (10 dim + 3 fact + 9 bridge + DQ)
 |   |-- gold.py                   # Gold aggregates (7 assets)
+|   |-- silver_anon.py            # PII-masked silver mirrors in silver_anon db
+|   |-- gold_anon.py              # PII-masked gold mirrors in gold_anon db
 |
 |-- resources/                    # Dagster resources
 |   |-- hubspot.py                # HubSpot API client
@@ -309,17 +329,23 @@ hs2ch/
 |
 |-- frontend/                     # React application
 |   |-- src/
-|   |   |-- main.tsx              # Entry + router setup
-|   |   |-- App.tsx               # Main layout
+|   |   |-- main.tsx              # Entry + router setup (9 routes)
+|   |   |-- App.tsx               # Main chat layout + nav (Library / Dashboard / Spaces / Data / Arch)
 |   |   |-- components/
-|   |   |   |   |-- chat/             # Chat UI (container, message, input, SQL, suggestions)
+|   |   |   |-- chat/             # Chat UI (container, message, input, SQL, suggestions)
 |   |   |   |-- dashboard/        # Dashboard UI (card, filter bar, add drawer)
 |   |   |   |-- viz/              # Visualizations (number, table, bar, line, funnel, comparison)
+|   |   |   |-- charts/           # Lower-level chart primitives
+|   |   |   |-- spaces/           # Spaces UI (designer, picker, preview, chat drawer)
 |   |   |   |-- settings/         # Settings drawer
 |   |   |   |-- diagrams/         # Architecture SVG diagrams
-|   |   |-- hooks/                # useChat, useConversations, useDashboards, useObjectRepo, useFilterOptions, usePageTitle
+|   |   |-- hooks/                # useChat, useConversations, useDashboards, useObjectRepo,
+|   |   |                         # useFilterOptions, usePageTitle, useAnalyticsQuery,
+|   |   |                         # useDataSpaces, useSelectionState, useSpaceChat, useSpaceDashboards
 |   |   |-- types/                # TypeScript interfaces (chat, dashboard, api)
-|   |   |-- pages/                # DashboardPage, ObjectLibraryPage, DataExplorerPage, ArchitecturePage
+|   |   |-- pages/                # DashboardPage, ObjectLibraryPage, DataExplorerPage, ArchitecturePage,
+|   |                             # DataSpaceListPage, DataSpaceDesignerPage,
+|   |                             # SpaceOverviewPage, SpaceDashboardPage
 |   |-- vite.config.ts            # Dev server + proxy config
 |   |-- package.json
 |
@@ -327,10 +353,11 @@ hs2ch/
 |   |-- init_clickhouse.py        # Schema initialization
 |   |-- init_clickhouse.sql       # DDL for bronze/silver/gold databases
 |
-|-- definitions.py                # Dagster: assets + jobs + schedules + resources
-|-- jobs.py                       # Dagster: job definitions
-|-- schedules.py                  # Dagster: hourly cron schedule
-|-- silver_config.py              # Silver layer column definitions + dictionaries
+|-- definitions.py                # Dagster: assets + jobs + schedule + sensors + resources
+|-- jobs.py                       # Dagster: bronze_job, silver_job, gold_job, anon_job
+|-- schedules.py                  # Dagster: hourly cron on bronze_job (default STOPPED)
+|-- sensors.py                    # bronze → silver → gold → anon trigger chain
+|-- silver_config.py              # Silver layer column definitions + dictionaries (SSoT)
 |-- docker-compose.yml            # ClickHouse service
 |-- start.sh                      # Multi-service startup script
 |-- pyproject.toml                # Python project metadata + dependencies
