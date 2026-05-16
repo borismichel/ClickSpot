@@ -23,7 +23,7 @@ Start frontend: `cd frontend && npm run dev` → http://localhost:8193
 
 ClickHouse init (run once): `python scripts/init_clickhouse.py`
 
-ClickHouse local dev: `docker compose up -d` (port 8124)
+ClickHouse local dev: `docker compose up -d` (port 8124, pinned to `clickhouse/clickhouse-server:26.2.5.45`). Server config + user profile mount into the container from `clickhouse/config.xml` (`index_granularity=4096`) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`).
 
 ## Env Vars
 
@@ -63,12 +63,15 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
   - `dq_metrics`: append-only quality metrics (row counts, null rates, orphan counts, archived rates) with 90-day TTL
 - **Refresh**: Atomic swap via `EXCHANGE TABLES` — build into a staging table, swap in place, drop the old one. No downtime window
 - **Three source modes**: `properties` (Map column), `json` (JSONExtract from _raw), `nested_stages` (ARRAY JOIN)
+- **Partitioning**: optional `partition_by` field on dim/fact configs (consumed by `_build_ddl`). Silver dims partition by `toYYYYMM(toDate(createdate))`; `fact_form_submissions` by month of `submitted_at`; `fact_activities` + `fact_stage_history` by year (multi-year spans would otherwise exceed `max_partitions_per_insert_block`). Small lookup dims (`dim_owners`, `dim_pipelines`, `*_stages`) are intentionally unpartitioned. Verified with `EXPLAIN indexes=1` that partition pruning fires on date-ranged queries against partitioned columns.
+- **Skip indexes**: optional `indexes` field on dim configs. Bloom filters on `dim_deals.hubspot_owner_id`, `dim_contacts.email`, `dim_leads.hubspot_owner_id` for exact-match lookups not in any ORDER BY.
 
 ### Gold Layer
 
 - 7 aggregate tables: `agg_rep_performance`, `agg_deal_health`, `agg_deal_stage_funnel`, `agg_source_attribution`, `agg_lead_health`, `agg_deal_cohorts`, `fact_pipeline_snapshots`
 - Uses `dictGet()` for ID-to-label resolution (no JOINs)
 - Rebuilt from silver on each pipeline run
+- Partitioned where there's a natural date axis: `agg_rep_performance` (`period_start`), `agg_deal_cohorts` (`cohort_month`), `fact_pipeline_snapshots` (`snapshot_date`). The lookup-style aggregates (`agg_deal_health`, `agg_lead_health`, `agg_source_attribution`, `agg_deal_stage_funnel`) stay unpartitioned — they're keyed on entity IDs/sources.
 
 ### Anon Layer
 

@@ -357,8 +357,11 @@ hs2ch/
 |-- jobs.py                       # Dagster: bronze_job, silver_job, gold_job, anon_job
 |-- schedules.py                  # Dagster: hourly cron on bronze_job (default STOPPED)
 |-- sensors.py                    # bronze → silver → gold → anon trigger chain
-|-- silver_config.py              # Silver layer column definitions + dictionaries (SSoT)
-|-- docker-compose.yml            # ClickHouse service
+|-- silver_config.py              # Silver layer column definitions + dictionaries (SSoT — order_by, partition_by, indexes)
+|-- docker-compose.yml            # ClickHouse service (image pinned to 26.2.5.45)
+|-- clickhouse/
+|   |-- config.xml                # Server config: merge_tree.index_granularity=4096
+|   |-- users.xml                 # User profile: memory caps, spill thresholds, max_partitions_per_insert_block=500
 |-- start.sh                      # Multi-service startup script
 |-- pyproject.toml                # Python project metadata + dependencies
 |-- .env                          # Environment variables (gitignored)

@@ -216,17 +216,41 @@ Metrics are stored in `silver.dq_metrics` (append-only, 90-day TTL).
 
 ### Refresh Strategy
 
-Silver uses a full-rebuild approach:
+Silver uses a full-rebuild approach with atomic swap — no downtime window:
 
 ```
 1. DROP DICTIONARY (if dependent)
-2. DROP TABLE IF EXISTS
-3. CREATE TABLE
-4. INSERT INTO ... SELECT FROM bronze.* FINAL
-5. CREATE DICTIONARY (if applicable)
+2. DROP TABLE IF EXISTS silver.<table>_tmp
+3. CREATE TABLE silver.<table>_tmp (with ORDER BY, PARTITION BY, INDEX)
+4. INSERT INTO silver.<table>_tmp SELECT FROM bronze.<table> FINAL
+5. EXCHANGE TABLES silver.<table> AND silver.<table>_tmp
+6. DROP TABLE silver.<table>_tmp
+7. CREATE DICTIONARY (if applicable)
 ```
 
 This avoids migration complexity. ClickHouse's columnar storage makes full rebuilds fast (typically under 10 seconds for datasets up to 100K records per table).
+
+### Partitioning & Skip Indexes
+
+Silver dims/facts and three gold tables are partitioned by the natural date axis of each entity (see `silver_config.py` `partition_by` field and the bespoke fact/gold DDLs):
+
+| Table | Partition |
+|-------|-----------|
+| `silver.dim_contacts` / `dim_companies` / `dim_leads` | `toYYYYMM(toDate(createdate))` |
+| `silver.dim_deals` | `toYYYYMM(toDate(createdate))` — note `createdate`, not `closedate`, because `closedate` has 1970/2106 sentinel values |
+| `silver.fact_form_submissions` | `toYYYYMM(toDate(submitted_at))` |
+| `silver.fact_activities` / `fact_stage_history` | `toYear(toDate(...))` — multi-year spans would otherwise blow past `max_partitions_per_insert_block` |
+| `gold.agg_rep_performance` / `agg_deal_cohorts` / `fact_pipeline_snapshots` | `toYYYYMM(...)` of `period_start` / `cohort_month` / `snapshot_date` |
+
+Bloom-filter skip indexes (`bloom_filter(0.01) GRANULARITY 4`):
+
+| Table | Column |
+|-------|--------|
+| `silver.dim_deals` | `hubspot_owner_id` |
+| `silver.dim_contacts` | `email` |
+| `silver.dim_leads` | `hubspot_owner_id` |
+
+Small lookup dims (`dim_owners`, `dim_pipelines`, `*_stages`) and bridge tables are intentionally unpartitioned and un-indexed.
 
 ---
 

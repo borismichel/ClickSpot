@@ -98,9 +98,9 @@ Three-layer medallion architecture:
 
 | Layer | Tables | Engine | Strategy |
 |-------|--------|--------|----------|
-| **Bronze** | 15 objects + 21 associations | `ReplacingMergeTree` | Incremental (HWM) |
-| **Silver** | 10 dimensions + 3 facts + 9 bridges + 8 dicts | `ReplacingMergeTree` | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
-| **Gold** | 7 aggregates | `ReplacingMergeTree` | Full rebuild |
+| **Bronze** | 15 objects + 21 associations | `ReplacingMergeTree` (`_raw` ZSTD(3)) | Full list-endpoint loads, deduped on `_record_id` |
+| **Silver** | 10 dimensions + 3 facts + 9 bridges + 8 dicts | `ReplacingMergeTree` — partitioned + bloom-filter skip indexes on hot lookups | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
+| **Gold** | 7 aggregates | `ReplacingMergeTree` — partitioned where there's a natural date axis | Full rebuild |
 | **Anon** | Masked silver + gold mirrors in `silver_anon` / `gold_anon` | `ReplacingMergeTree` | Rebuilt after gold via sensor |
 
 ### Chat Interface
@@ -216,7 +216,8 @@ hs2ch/
 |-- silver_config.py      # Silver layer column definitions (single source of truth)
 |-- definitions.py        # Dagster wiring (assets + jobs + schedules + sensors)
 |-- sensors.py            # bronze → silver → gold → anon trigger chain
-|-- docker-compose.yml    # ClickHouse container
+|-- docker-compose.yml    # ClickHouse container (pinned to 26.2.5.45)
+|-- clickhouse/           # ClickHouse server config + users profile mounted into the container
 |-- start.sh              # Start all services
 ```
 
