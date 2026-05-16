@@ -1,0 +1,5 @@
+<clickhouse>
+    <merge_tree>
+        <index_granularity>4096</index_granularity>
+    </merge_tree>
+</clickhouse>

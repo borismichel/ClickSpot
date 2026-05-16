@@ -1,6 +1,6 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:26.2.5.45
     container_name: hs2ch-clickhouse
     ports:
       - "8124:8123"   # HTTP — offset from Langfuse's 8123
@@ -17,6 +17,8 @@ services:
     volumes:
       - hs2ch_ch_data:/var/lib/clickhouse
       - hs2ch_ch_logs:/var/log/clickhouse-server
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/hs2ch.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/hs2ch-profile.xml:ro
     ulimits:
       nofile:
         soft: 262144
