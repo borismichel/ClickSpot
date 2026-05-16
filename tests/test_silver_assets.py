@@ -185,3 +185,31 @@ class TestConfigStructure:
         ]:
             for col_name, _prop, col_type in config["columns"]:
                 assert col_type in valid_types, f"{name}.{col_name} has unknown type: {col_type}"
+
+
+# ---------------------------------------------------------------------------
+# PARTITION BY support in _build_ddl
+# ---------------------------------------------------------------------------
+
+class TestBuildDdlPartitioning:
+    def test_partition_by_emitted_when_configured(self):
+        ddl = _build_ddl(
+            "dim_contacts_tmp",
+            "contact_id",
+            DIM_CONTACTS["columns"],
+            order_by=DIM_CONTACTS["order_by"],
+            partition_by=DIM_CONTACTS["partition_by"],
+        )
+        assert "PARTITION BY toYYYYMM(toDate(createdate))" in ddl
+        assert "ORDER BY (archived, lifecyclestage, toDate(createdate), contact_id)" in ddl
+
+    def test_partition_by_omitted_when_absent(self):
+        ddl = _build_ddl(
+            "dim_owners_tmp",
+            "owner_id",
+            DIM_OWNERS["columns"],
+            source="json",
+            order_by=DIM_OWNERS.get("order_by"),
+            partition_by=DIM_OWNERS.get("partition_by"),
+        )
+        assert "PARTITION BY" not in ddl

@@ -7,6 +7,7 @@ DIM_CONTACTS = {
     "bronze_table": "hs_contacts",
     "primary_key": "contact_id",
     "order_by": "(archived, lifecyclestage, toDate(createdate), contact_id)",
+    "partition_by": "toYYYYMM(toDate(createdate))",
     "columns": [
         ("full_name",                                 "full_name",                                 "String"),
         ("email",                                     "email",                                     "String"),
@@ -69,6 +70,7 @@ DIM_COMPANIES = {
     "bronze_table": "hs_companies",
     "primary_key": "company_id",
     "order_by": "(archived, toDate(createdate), company_id)",
+    "partition_by": "toYYYYMM(toDate(createdate))",
     "columns": [
         ("name",                "name",                "String"),
         ("description",         "description",         "String"),
@@ -123,6 +125,7 @@ DIM_DEALS = {
     "bronze_table": "hs_deals",
     "primary_key": "deal_id",
     "order_by": "(pipeline, archived, toDate(closedate), deal_id)",
+    "partition_by": "toYYYYMM(toDate(closedate))",
     "columns": [
         ("dealname",                          "dealname",                          "String"),
         ("dealstage",                         "dealstage",                         "LowCardinality(String)"),
@@ -207,6 +210,7 @@ DIM_LEADS = {
     "bronze_table": "hs_leads",
     "primary_key": "lead_id",
     "order_by": "(archived, hs_pipeline, toDate(createdate), lead_id)",
+    "partition_by": "toYYYYMM(toDate(createdate))",
     "columns": [
         ("hs_lead_name",                  "hs_lead_name",                  "String"),
         ("hubspot_owner_id",              "hubspot_owner_id",              "String"),
@@ -381,6 +385,7 @@ FACT_FORM_SUBMISSIONS = {
     "bronze_table": "hs_form_submissions",
     "primary_key": "submission_id",
     "order_by": "(form_id, toDate(submitted_at), submission_id)",
+    "partition_by": "toYYYYMM(toDate(submitted_at))",
     "columns": [
         ("form_id",       "form_id",       "LowCardinality(String)"),
         ("form_name",     "form_name",     "LowCardinality(String)"),

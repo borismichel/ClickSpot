@@ -82,7 +82,15 @@ def _cast_expr(prop_key: str, ch_type: str, source: str = "properties") -> str:
         return raw_expr
 
 
-def _build_ddl(table_name: str, primary_key: str, columns: list, source: str = "properties", *, order_by: str | None = None) -> str:
+def _build_ddl(
+    table_name: str,
+    primary_key: str,
+    columns: list,
+    source: str = "properties",
+    *,
+    order_by: str | None = None,
+    partition_by: str | None = None,
+) -> str:
     """Build CREATE TABLE DDL from config."""
     col_defs = [f"    {primary_key} String"]
 
@@ -100,10 +108,12 @@ def _build_ddl(table_name: str, primary_key: str, columns: list, source: str = "
 
     cols_sql = ",\n".join(col_defs)
     order_clause = order_by or f"({primary_key})"
+    partition_clause = f"PARTITION BY {partition_by} " if partition_by else ""
     return (
         f"CREATE TABLE silver.{table_name} (\n"
         f"{cols_sql}\n"
-        f") ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY {order_clause}"
+        f") ENGINE = ReplacingMergeTree(_silver_loaded_at) "
+        f"{partition_clause}ORDER BY {order_clause}"
     )
 
 
@@ -160,7 +170,8 @@ def _make_dim_asset(name: str, config: dict):
         ch_silver.execute_sql(f"DROP TABLE IF EXISTS silver.{tmp}")
 
         ddl = _build_ddl(tmp, primary_key, config["columns"], source,
-                         order_by=config.get("order_by"))
+                         order_by=config.get("order_by"),
+                         partition_by=config.get("partition_by"))
         context.log.info(f"DDL: {ddl}")
         ch_silver.execute_sql(ddl)
 
@@ -226,6 +237,7 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     primary_key = config["primary_key"]
     columns = config["columns"]
     order_by = config.get("order_by", "(deal_id)")
+    partition_by = config.get("partition_by")
 
     # Build DDL with extra label columns
     col_defs = [f"    {primary_key} String"]
@@ -237,10 +249,13 @@ def dim_deals(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     col_defs.append("    archived UInt8")
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
 
+    partition_clause = f"PARTITION BY {partition_by} " if partition_by else ""
     ddl = (
         f"CREATE TABLE silver.{tmp} (\n"
         + ",\n".join(col_defs)
-        + f"\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY {order_by}"
+        + f"\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) "
+        + partition_clause
+        + f"ORDER BY {order_by}"
     )
     ch_silver.execute_sql(ddl)
 
@@ -505,6 +520,7 @@ def fact_form_submissions(context: AssetExecutionContext, ch_silver: ClickHouseR
     primary_key = config["primary_key"]
     columns = config["columns"]
     order_by = config.get("order_by", "(submission_id)")
+    partition_by = config.get("partition_by")
 
     # Build DDL
     col_defs = [f"    {primary_key} String"]
@@ -513,10 +529,13 @@ def fact_form_submissions(context: AssetExecutionContext, ch_silver: ClickHouseR
     col_defs.append("    archived UInt8")
     col_defs.append("    _silver_loaded_at DateTime DEFAULT now()")
 
+    partition_clause = f"PARTITION BY {partition_by} " if partition_by else ""
     ddl = (
         f"CREATE TABLE silver.{tmp} (\n"
         + ",\n".join(col_defs)
-        + f"\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) ORDER BY {order_by}"
+        + f"\n) ENGINE = ReplacingMergeTree(_silver_loaded_at) "
+        + partition_clause
+        + f"ORDER BY {order_by}"
     )
     ch_silver.execute_sql(ddl)
 
