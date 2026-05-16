@@ -128,7 +128,9 @@ DIM_DEALS = {
     "bronze_table": "hs_deals",
     "primary_key": "deal_id",
     "order_by": "(pipeline, archived, toDate(closedate), deal_id)",
-    "partition_by": "toYYYYMM(toDate(closedate))",
+    # Partition on createdate (bounded) — closedate has 1970/2106 sentinel values that
+    # would explode into hundreds of partitions.
+    "partition_by": "toYYYYMM(toDate(createdate))",
     "indexes": [
         "INDEX idx_owner hubspot_owner_id TYPE bloom_filter(0.01) GRANULARITY 4",
     ],

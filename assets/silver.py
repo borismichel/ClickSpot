@@ -457,7 +457,7 @@ CREATE TABLE silver.{tmp} (
     archived UInt8,
     _silver_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_silver_loaded_at)
-PARTITION BY toYYYYMM(toDate(hs_timestamp))
+PARTITION BY toYear(toDate(hs_timestamp))
 ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
 """.strip()
     ch_silver.execute_sql(ddl)
@@ -993,7 +993,7 @@ CREATE TABLE silver.{tmp} (
     duration_ms Nullable(Int64),
     _silver_loaded_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(_silver_loaded_at)
-PARTITION BY toYYYYMM(toDate(entered_at))
+PARTITION BY toYear(toDate(entered_at))
 ORDER BY (entity_type, stage_id, entity_id)
 """.strip())
 

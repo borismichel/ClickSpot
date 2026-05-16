@@ -6,6 +6,9 @@
             <max_bytes_before_external_sort>500000000</max_bytes_before_external_sort>
             <max_result_rows>100000</max_result_rows>
             <result_overflow_mode>throw</result_overflow_mode>
+            <!-- Default is 100. Safety margin for full silver/gold rebuilds, where
+                 a single INSERT can span 100+ partitions on multi-year tables. -->
+            <max_partitions_per_insert_block>500</max_partitions_per_insert_block>
         </default>
     </profiles>
 </clickhouse>
