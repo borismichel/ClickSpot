@@ -1,16 +1,20 @@
 """Request/response models for the chat API."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Server-side input cap (defense in depth on top of the client-side cap in
+# frontend/src/components/chat/ChatInput.tsx).
+MAX_CHAT_MESSAGE_LENGTH = 4000
 
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
-    content: str
+    content: str = Field(max_length=MAX_CHAT_MESSAGE_LENGTH)
     sql: str | None = None
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(max_length=MAX_CHAT_MESSAGE_LENGTH)
     history: list[ChatMessage] = []
 
 

@@ -178,9 +178,12 @@ def build_semantic_layer(hubspot_resource) -> SemanticLayer:
 
 
 def save_cache(layer: SemanticLayer) -> None:
-    """Save semantic layer to disk cache."""
+    """Save semantic layer to disk cache with restrictive perms."""
+    import os, stat
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(CACHE_DIR, stat.S_IRWXU)  # 0700
     CACHE_FILE.write_text(json.dumps(layer.to_dict(), indent=2))
+    os.chmod(CACHE_FILE, stat.S_IRUSR | stat.S_IWUSR)  # 0600
     log.info(f"Semantic layer cached to {CACHE_FILE}")
 
 

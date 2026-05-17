@@ -95,8 +95,8 @@ def auto_discover(ch_silver) -> dict[str, Any]:
         # Stages: from the largest pipeline (proxy for "main"), ordered, plus the
         # closed-won / closed-lost detections.
         rows = ch_silver.query("""
-            SELECT pipeline_id, count() AS n FROM silver.dim_deals
-            WHERE archived = 0 GROUP BY pipeline_id ORDER BY n DESC LIMIT 1
+            SELECT pipeline, count() AS n FROM silver.dim_deals
+            WHERE archived = 0 GROUP BY pipeline ORDER BY n DESC LIMIT 1
         """).result_rows
         biggest_pipeline_id = rows[0][0] if rows else None
 

@@ -26,11 +26,24 @@ _client = None
 def get_client():
     global _client
     if _client is None:
+        # Fail fast if credentials aren't explicitly set. The previous fallback
+        # ("default" superuser with empty password) is a security trap — it
+        # silently works against a fresh ClickHouse install and gives the app
+        # superuser privileges. Force the operator to set CLICKHOUSE_USER /
+        # CLICKHOUSE_PASSWORD via .env or environment.
+        user = os.environ.get("CLICKHOUSE_USER")
+        password = os.environ.get("CLICKHOUSE_PASSWORD")
+        if not user or password is None:
+            raise RuntimeError(
+                "CLICKHOUSE_USER and CLICKHOUSE_PASSWORD must be set "
+                "(see .env.example). Refusing to fall back to the 'default' "
+                "ClickHouse superuser."
+            )
         _client = clickhouse_connect.create_client(
             host=os.environ.get("CLICKHOUSE_HOST", "localhost"),
             port=int(os.environ.get("CLICKHOUSE_PORT", 8123)),
-            username=os.environ.get("CLICKHOUSE_USER", "default"),
-            password=os.environ.get("CLICKHOUSE_PASSWORD", ""),
+            username=user,
+            password=password,
             database="silver",
             autogenerate_session_id=False,
             settings={"cancel_http_readonly_queries_on_client_close": "0"},

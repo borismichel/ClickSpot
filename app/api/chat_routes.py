@@ -2,9 +2,56 @@
 
 import logging
 import os
+import re
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
+
+_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+def _require_localhost(request: Request) -> None:
+    """Raise 403 if the request didn't come from the loopback interface.
+
+    ClickSpot is self-hosted. The settings endpoint stores LLM API keys; it
+    must only be reachable from the same host. Combined with the docker bind
+    on 127.0.0.1 and the CORS allowlist, this is defense-in-depth against
+    a malicious process on the local network being able to read/overwrite keys.
+    """
+    host = request.client.host if request.client else None
+    if host not in _LOOPBACK:
+        raise HTTPException(
+            status_code=403,
+            detail="Settings endpoints accept only loopback connections; "
+            "set CLICKSPOT_TRUSTED_HOSTS to override for VPN setups.",
+        )
+
+
+# ClickHouse error messages look like:
+#   "Code: 60. DB::Exception: Received from localhost:9000. DB::Exception: Table
+#    silver.dim_foo doesn't exist. (UNKNOWN_TABLE) (version 26.2.5.45 ...)"
+# We surface the user-meaningful error class (UNKNOWN_TABLE) and Code: N, but
+# strip the full message (which can leak server version, file paths, internal
+# table names) before returning to the client.
+_CH_ERROR_CODE_RE = re.compile(r"Code:\s*(\d+)")
+_CH_ERROR_CLASS_RE = re.compile(r"\(([A-Z_][A-Z0-9_]*)\)")
+
+
+def _safe_clickhouse_error(exc: Exception) -> str:
+    """Convert a clickhouse_connect exception into a short client-safe message.
+
+    Falls back to a generic message if nothing useful can be extracted —
+    full details remain in the server-side log.
+    """
+    msg = str(exc)
+    code = _CH_ERROR_CODE_RE.search(msg)
+    klass = _CH_ERROR_CLASS_RE.search(msg)
+    if code and klass:
+        return f"ClickHouse error {code.group(1)}: {klass.group(1)}"
+    if klass:
+        return f"ClickHouse error: {klass.group(1)}"
+    return "Query execution failed"
 
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
 from app.db import async_query_rows, async_query_value
@@ -37,7 +84,7 @@ async def chat(req: ChatRequest):
         llm_response = await provider.generate(messages)
     except Exception as e:
         log.error(f"LLM call failed: {e}")
-        raise HTTPException(status_code=502, detail=f"LLM error: {e}")
+        raise HTTPException(status_code=502, detail="LLM provider error; see server log")
     llm_ms = int((time.time() - t0) * 1000)
 
     sql = llm_response.sql.strip().rstrip(";")
@@ -54,11 +101,10 @@ async def chat(req: ChatRequest):
     try:
         rows = await async_query_rows(sql)
     except Exception as e:
+        # Full error + SQL go to the server log; client gets a sanitized one-liner
+        # so we don't leak server version / table internals / file paths.
         log.error(f"ClickHouse query failed: {e}\nSQL: {sql}")
-        raise HTTPException(
-            status_code=422,
-            detail=f"ClickHouse error: {e}\n\nSQL: {sql}",
-        )
+        raise HTTPException(status_code=422, detail=_safe_clickhouse_error(e))
     query_ms = int((time.time() - t1) * 1000)
 
     columns = list(rows[0].keys()) if rows else []
@@ -143,7 +189,8 @@ def get_settings():
 
 
 @router.put("/settings")
-def update_settings(updates: dict):
+def update_settings(updates: dict, request: Request):
+    _require_localhost(request)
     config = load_config()
     for key in ("ai_provider", "anthropic_api_key", "openai_api_key", "anthropic_model", "openai_model"):
         val = updates.get(key, "")
@@ -193,8 +240,9 @@ def available_providers():
 
 
 @router.post("/oauth/save")
-def save_oauth_token(body: dict):
+def save_oauth_token(body: dict, request: Request):
     """Save a Claude OAuth token (from `claude setup-token`)."""
+    _require_localhost(request)
     access_token = body.get("access_token", "").strip()
     if not access_token:
         raise HTTPException(status_code=400, detail="access_token is required")
@@ -218,8 +266,9 @@ def oauth_status():
 
 
 @router.post("/oauth/logout")
-def oauth_logout():
+def oauth_logout(request: Request):
     """Clear stored OAuth tokens and reset provider if needed."""
+    _require_localhost(request)
     clear_tokens()
     config = load_config()
     if config.get("ai_provider") == "claude-oauth":

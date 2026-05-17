@@ -54,11 +54,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS — locked to localhost origins by default since ClickSpot is self-hosted.
+# Override via CLICKSPOT_CORS_ORIGINS env (comma-separated) for VPN / reverse-proxy setups.
+# DO NOT set this to "*" — combined with the no-auth model that lets any website on
+# the internet POST queries to your local instance.
+import os as _os
+_default_origins = ",".join([
+    "http://localhost:8193",   # Vite dev server (frontend)
+    "http://127.0.0.1:8193",
+    "http://localhost:8192",   # FastAPI itself (e.g. /docs swagger)
+    "http://127.0.0.1:8192",
+])
+_cors_origins = [
+    o.strip() for o in _os.environ.get("CLICKSPOT_CORS_ORIGINS", _default_origins).split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["content-type", "authorization"],
 )
 
 app.include_router(router)

@@ -3,8 +3,11 @@ services:
     image: clickhouse/clickhouse-server:26.2.5.45
     container_name: hs2ch-clickhouse
     ports:
-      - "8124:8123"   # HTTP — offset from Langfuse's 8123
-      - "9001:9000"   # Native — offset from Langfuse's 9000
+      # Bound to 127.0.0.1 — ClickSpot is self-hosted; ClickHouse must not be
+      # reachable from outside the host. Override only if you intentionally
+      # expose it on a private network.
+      - "127.0.0.1:8124:8123"   # HTTP — offset from Langfuse's 8123
+      - "127.0.0.1:9001:9000"   # Native — offset from Langfuse's 9000
     environment:
       CLICKHOUSE_USER: hs2ch
       CLICKHOUSE_PASSWORD: hs2ch

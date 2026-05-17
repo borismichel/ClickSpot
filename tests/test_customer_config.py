@@ -67,7 +67,7 @@ def test_auto_discover_pulls_pipelines_and_stages():
             result.result_rows = [("Main",), ("Legacy",)]
         elif "topK(1)(deal_currency_code)" in sql:
             result.result_rows = [(["EUR"],)]
-        elif "FROM silver.dim_deals" in sql and "GROUP BY pipeline_id" in sql:
+        elif "FROM silver.dim_deals" in sql and "GROUP BY pipeline" in sql:
             result.result_rows = [("pipe-id-123", 500)]
         elif "FROM silver.dim_pipeline_stages" in sql:
             result.result_rows = [

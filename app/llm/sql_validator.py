@@ -19,13 +19,39 @@ _BRIDGE_TABLES = [
 for bt in _BRIDGE_TABLES:
     ALLOWED_TABLES.add(f"silver.{bt}")
 
-# Forbidden keywords (case-insensitive)
+# Forbidden keywords (case-insensitive) — mutation, DDL, server control, batch ingest.
 _FORBIDDEN = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|SYSTEM|ATTACH|DETACH|RENAME)\b",
+    r"\b("
+    r"INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|"
+    r"ATTACH|DETACH|RENAME|"
+    r"SYSTEM|OPTIMIZE|KILL|EXCHANGE|FREEZE|UNFREEZE"
+    r")\b",
     re.IGNORECASE,
 )
 
-# Match table references in FROM/JOIN clauses
+# UNION can bypass table whitelisting by piggy-backing a SELECT off a permitted
+# table. Block it outright — analytics queries from the chat path don't need UNION.
+_UNION_PATTERN = re.compile(r"\bUNION\b", re.IGNORECASE)
+
+# `INTO OUTFILE` / `FORMAT` exfiltration sinks
+_OUTFILE_PATTERN = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
+
+# ClickHouse table functions that bypass the static table whitelist entirely:
+# url(), remote(), file(), s3(), hdfs(), mysql(), postgresql(), input(), merge(),
+# generateRandom(), cluster(), etc. Any of these in a FROM/JOIN can read external
+# data or system internals.
+_TABLE_FUNCTIONS = re.compile(
+    r"\b("
+    r"url|remote|remoteSecure|cluster|clusterAllReplicas|"
+    r"file|s3|s3Cluster|hdfs|hdfsCluster|"
+    r"mysql|postgresql|mongodb|jdbc|odbc|sqlite|"
+    r"input|merge|view"
+    r")\s*\(",
+    re.IGNORECASE,
+)
+
+# Match table references in FROM/JOIN clauses anywhere in the query (including
+# subqueries). The regex finds ALL occurrences, so subquery-embedded refs are caught.
 _TABLE_REF_PATTERN = re.compile(
     r"(?:FROM|JOIN)\s+(\w+\.\w+)",
     re.IGNORECASE,
@@ -49,12 +75,25 @@ def validate_sql(sql: str) -> tuple[bool, str | None]:
     if re.search(r"\bSELECT\s+\*\s+FROM\b", stripped, re.IGNORECASE):
         return False, "SELECT * is not allowed — enumerate columns explicitly"
 
-    # Check for forbidden mutation keywords
+    # Check for forbidden mutation / control keywords
     match = _FORBIDDEN.search(stripped)
     if match:
         return False, f"Forbidden keyword: {match.group(1)}"
 
-    # Check all table references are in the allowed set
+    # UNION can bypass the table whitelist
+    if _UNION_PATTERN.search(stripped):
+        return False, "UNION is not allowed (bypasses table whitelist)"
+
+    # Exfiltration sinks
+    if _OUTFILE_PATTERN.search(stripped):
+        return False, "INTO OUTFILE / DUMPFILE is not allowed"
+
+    # ClickHouse table functions that read arbitrary external data
+    tf = _TABLE_FUNCTIONS.search(stripped)
+    if tf:
+        return False, f"Table function {tf.group(1)}() is not allowed"
+
+    # Check all table references are in the allowed set (subqueries included)
     table_refs = _TABLE_REF_PATTERN.findall(stripped)
     for ref in table_refs:
         if ref.lower() not in {t.lower() for t in ALLOWED_TABLES}:
