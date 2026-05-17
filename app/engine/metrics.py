@@ -36,7 +36,9 @@ COMPUTED_METRICS = {
         "label": "Total ARR Closed",
         "format": "currency",
         "table": "dim_deals",
-        "sql": "sumIf(annual_recurring_revenue, hs_is_closed_won = 'true')",
+        # `{canonical_amount_col}` is interpolated at prompt-build time from
+        # customer_config.canonical_amount_col. Defaults to 'amount' on fresh portals.
+        "sql": "sumIf({canonical_amount_col}, hs_is_closed_won = 'true')",
     },
     "pipeline_value": {
         "label": "Open Pipeline Value",

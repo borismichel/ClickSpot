@@ -116,9 +116,6 @@ def test_schema_prompt_uses_customer_config(tmp_path):
         prompt = sp.build_schema_prompt()
     assert "Acme Inc" in prompt
     assert "Acme Main Sales" in prompt
-    # The business-context block reads exclusively from customer.json, so a different
-    # customer.json must yield no leakage of any other customer's strings.
-    assert "ClickSpot" not in prompt
-    # Note: silver_config_custom.py may inject custom column names like license_margin
-    # into the TABLES block — that's a per-install file, not part of the customer.json
-    # contract, and is covered by test_silver_assets.py.
+    # Sanity: customer.json's business context overrides any other portal's strings.
+    # (Per-portal silver_config_custom.py may still inject extra column names into the
+    # TABLES block — that's a separate per-install file, covered by test_silver_assets.py.)

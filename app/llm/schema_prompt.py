@@ -300,12 +300,15 @@ def _block_data_spaces() -> str:
 
 
 def _block_metrics() -> str:
+    cfg = customer_config.load()
     lines = ["REFERENCE SQL PATTERNS (battle-tested, use these for common metrics):"]
     for name, m in COMPUTED_METRICS.items():
         ref = _table_ref(m['table'])
         archived = _archived_condition(m['table'])
         where = f" WHERE {archived}" if archived else ""
-        lines.append(f"  {m['label']}: SELECT {m['sql']} FROM {ref}{where}")
+        # Metric SQL may contain `{canonical_amount_col}` etc. — fill from customer config
+        sql = m['sql'].format(**cfg) if "{" in m['sql'] else m['sql']
+        lines.append(f"  {m['label']}: SELECT {sql} FROM {ref}{where}")
     return "\n".join(lines)
 
 

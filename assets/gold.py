@@ -206,7 +206,13 @@ def agg_rep_performance(context: AssetExecutionContext, ch_gold: ClickHouseResou
     target = "agg_rep_performance"
     tmp = f"{target}_tmp"
 
-    context.log.info("Rebuilding gold.agg_rep_performance")
+    # Canonical revenue column comes from customer config; default `amount` always
+    # exists on every HubSpot portal. Per-portal overrides (e.g. annual_recurring_revenue,
+    # total_contract_value) flow in from ~/.clickspot/customer.json.
+    from app.customer import config as cc
+    canonical_amount = cc.load().get("canonical_amount_col", "amount")
+
+    context.log.info(f"Rebuilding gold.agg_rep_performance (revenue column: {canonical_amount})")
     ch_gold.execute_sql(f"DROP TABLE IF EXISTS gold.{tmp}")
 
     ch_gold.execute_sql(f"""
@@ -249,7 +255,7 @@ SELECT
     if(countIf(d.hs_is_closed = 'true') > 0,
        countIf(d.hs_is_closed_won = 'true') * 1.0 / countIf(d.hs_is_closed = 'true'),
        NULL) AS win_rate,
-    sumIf(d.annual_recurring_revenue, d.hs_is_closed_won = 'true') AS total_arr_closed,
+    sumIf(d.{canonical_amount}, d.hs_is_closed_won = 'true') AS total_arr_closed,
     avgIf(d.amount, d.hs_is_closed_won = 'true' AND d.amount > 0) AS avg_deal_size,
     avgIf(d.days_to_close, d.hs_is_closed_won = 'true' AND d.days_to_close > 0) AS avg_days_to_close,
     sumIf(d.amount, d.hs_is_closed = 'false' OR d.hs_is_closed = '') AS pipeline_value,

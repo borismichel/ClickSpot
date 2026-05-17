@@ -298,7 +298,7 @@ def apply_privacy(
 # and scrub any cell whose full lowercased value matches. This catches name
 # bypasses regardless of the output column name.
 #
-# Not caught: partial-substring leaks ("Mr. Bob Builder from BMW") —
+# Not caught: partial-substring leaks ("Mr. Alice Anderson from Acme Corp") —
 # exact-cell match only, to keep false-positive rate near zero.
 
 # Per-ID-type → (silver dim table, PII column tuple) for the scoped fetch.

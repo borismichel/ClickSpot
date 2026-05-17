@@ -19,16 +19,11 @@ with professional-services revenue split, plus a couple of custom enums.
 # Custom deal columns specific to this portal — license/ARR revenue model + lifecycle flags.
 EXTRA_DIM_DEALS = [
     # # Example: ARR-focused revenue model
-    # ("annual_recurring_revenue",                "annual_recurring_revenue",                "Nullable(Float64)"),
-    # ("renewal_revenue",                "renewal_revenue",                "Nullable(Float64)"),
-    # ("upsell_revenue",                 "upsell_revenue",                 "Nullable(Float64)"),
-    # # Example: professional services revenue split
-    # ("total_contract_value",                       "total_contract_value",                       "Nullable(Float64)"),
-    # ("services_revenue",                 "services_revenue",                 "Nullable(Float64)"),
-    # # Example: lifecycle / source flags
-    # ("new_logo",                          "new_logo",                          "LowCardinality(String)"),
-    # ("renewal",                           "renewal",                           "LowCardinality(String)"),
-    # ("partner",                           "partner",                           "LowCardinality(String)"),
+    # ("annual_recurring_revenue",          "annual_recurring_revenue",          "Nullable(Float64)"),
+    # ("total_contract_value",              "total_contract_value",              "Nullable(Float64)"),
+    # # Example: deal lifecycle / source flags (custom dropdowns on your portal)
+    # ("deal_type",                         "deal_type",                         "LowCardinality(String)"),
+    # ("acquisition_channel",               "acquisition_channel",               "LowCardinality(String)"),
 ]
 
 # Custom contact columns.
