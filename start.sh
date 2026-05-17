@@ -59,6 +59,14 @@ fi
 log "Ensuring ClickHouse schemas..."
 python scripts/init_clickhouse.py
 
+# ---------- 2a. Customer config hint (first-run portal setup) ----------
+if [ ! -f "$HOME/.clickspot/customer.json" ]; then
+  warn "No ~/.clickspot/customer.json found."
+  warn "On first run, the LLM will produce generic SQL without portal-specific filters."
+  warn "After bronze+silver load, run: python -m app.customer.onboarding"
+  warn "to walk through pipelines / main pipeline / canonical revenue column."
+fi
+
 # ---------- 3. FastAPI ----------
 log "Starting FastAPI on :8192..."
 uvicorn app.main:app --host 0.0.0.0 --port 8192 --reload --log-level info &
