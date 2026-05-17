@@ -1,6 +1,6 @@
 """Data space registry — CRUD operations + dynamic system registration.
 
-Persists configs as JSON files in ~/.hs2ch/spaces/. On create/update,
+Persists configs as JSON files in ~/.clickspot/spaces/. On create/update,
 executes CREATE OR REPLACE VIEW in ClickHouse. On delete, drops the VIEW.
 Registers data space VIEWs in FILTER_COLUMNS and ALLOWED_TABLES so the
 filter engine and SQL validator recognize them automatically.
@@ -18,7 +18,7 @@ from app.spaces.generator import generate_view_sql, generate_select_sql
 
 log = logging.getLogger("app.spaces.registry")
 
-SPACES_DIR = Path.home() / ".hs2ch" / "spaces"
+SPACES_DIR = Path.home() / ".clickspot" / "spaces"
 
 # In-memory registry of active data spaces
 _spaces: dict[str, DataSpaceConfig] = {}

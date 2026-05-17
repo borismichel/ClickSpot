@@ -162,7 +162,7 @@ class OpenAIProvider(LLMProvider):
 
 
 class ClaudeOAuthProvider(LLMProvider):
-    """Uses Claude OAuth token stored at ~/.hs2ch/claude-oauth.json.
+    """Uses Claude OAuth token stored at ~/.clickspot/claude-oauth.json.
 
     Token obtained via `claude setup-token`, pasted in Settings.
     Auto-refreshes when within 5 minutes of expiry.

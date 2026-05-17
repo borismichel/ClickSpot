@@ -1,4 +1,4 @@
-"""MCP server that exposes the hs2ch ClickHouse warehouse with semantic parity.
+"""MCP server that exposes the ClickSpot ClickHouse warehouse with semantic parity.
 
 Reuses the app's schema prompt, SQL validator, and table catalog so Claude
 Desktop (or any MCP client) sees the same dict hints, ILIKE guidance, and
@@ -39,7 +39,7 @@ from app.semantic.layer import load_cache
 
 load_dotenv()
 
-mcp = FastMCP("hs2ch")
+mcp = FastMCP("ClickSpot")
 
 
 # ---------------------------------------------------------------------------

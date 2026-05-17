@@ -17,7 +17,7 @@ from silver_config import (
 
 log = logging.getLogger("app.semantic")
 
-CACHE_DIR = Path.home() / ".hs2ch"
+CACHE_DIR = Path.home() / ".clickspot"
 CACHE_FILE = CACHE_DIR / "schema_cache.json"
 
 # Maps HubSpot object types to their silver configs.

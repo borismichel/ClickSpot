@@ -85,7 +85,7 @@ All dependencies use floor pins (`>=`) or no pin. No `requirements.txt` or `uv.l
 ### 13. Schema cache file world-readable
 **`app/semantic/layer.py:183`**
 
-`~/.hs2ch/schema_cache.json` written with no `chmod`. Directory `~/.hs2ch/` created without restrictive permissions (though `config.json` correctly gets `0600`).
+`~/.clickspot/schema_cache.json` written with no `chmod`. Directory `~/.clickspot/` created without restrictive permissions (though `config.json` correctly gets `0600`).
 
 ---
 
@@ -128,4 +128,4 @@ No rate limiting middleware on any endpoint.
 | **P2** | Strip `results` from conversations before persisting to localStorage. | #7 |
 | **P2** | Bind Docker ports to `127.0.0.1`, use env var for password, pin ClickHouse image. | #8, #12 |
 | **P2** | Add `pip-compile` or `uv lock` for Python dependency pinning. | #11 |
-| **P2** | `chmod 0600` on schema cache, `chmod 0700` on `~/.hs2ch/` directory. | #13 |
+| **P2** | `chmod 0600` on schema cache, `chmod 0700` on `~/.clickspot/` directory. | #13 |

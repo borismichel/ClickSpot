@@ -225,7 +225,7 @@ Four LLM providers with automatic fallback:
 |----------|-------|---------------|-------|
 | **Anthropic API** | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` or config file | Primary. Prompt caching via `cache_control`. |
 | **OpenAI API** | `gpt-4o` | `OPENAI_API_KEY` or config file | Fallback. JSON schema response format. |
-| **Claude OAuth** | Claude (via OAuth) | `~/.hs2ch/claude-oauth.json` | For Claude Pro/Max subscribers. Auto-refresh. |
+| **Claude OAuth** | Claude (via OAuth) | `~/.clickspot/claude-oauth.json` | For Claude Pro/Max subscribers. Auto-refresh. |
 | **Claude CLI** | Claude (via CLI) | `claude` binary in PATH | Zero-config local development. |
 
 **Auto-detection order:** Anthropic API > OpenAI > Claude OAuth > Claude CLI. Uses the first available provider.
@@ -269,13 +269,13 @@ Fetches HubSpot property metadata to enrich the schema prompt with human-readabl
 
 **Scope:** Only properties that match columns in `silver_config.py` — ~197 columns across all dimensions. This prevents the LLM from hallucinating columns that don't exist in ClickHouse.
 
-**Cache:** Written to `~/.hs2ch/schema_cache.json`. Rebuilt via `POST /api/v1/schema/refresh`. Loaded from cache on startup — no HubSpot API calls on the hot path.
+**Cache:** Written to `~/.clickspot/schema_cache.json`. Rebuilt via `POST /api/v1/schema/refresh`. Loaded from cache on startup — no HubSpot API calls on the hot path.
 
 ### OAuth Manager (`app/llm/oauth.py`)
 
 Manages Claude OAuth tokens for users with Claude Pro/Max subscriptions.
 
-- Token storage: `~/.hs2ch/claude-oauth.json` (permissions: `0600`)
+- Token storage: `~/.clickspot/claude-oauth.json` (permissions: `0600`)
 - Token lifetime: 8 hours with 5-minute refresh buffer
 - Auto-refresh via Anthropic's token endpoint
 - Thread-safe with `asyncio.Lock`
@@ -439,7 +439,7 @@ REFERENCE_JOINS = [
 
 ### LLM Config (`app/llm/config.py`)
 
-File-based config at `~/.hs2ch/config.json`:
+File-based config at `~/.clickspot/config.json`:
 
 ```json
 {

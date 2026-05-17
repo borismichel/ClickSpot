@@ -1,7 +1,7 @@
 """SQLite application store — persists dashboards, saved objects, and conversations.
 
 ClickHouse handles analytics data; SQLite handles app state.
-Database file: ~/.hs2ch/app.db
+Database file: ~/.clickspot/app.db
 """
 
 import logging
@@ -11,7 +11,7 @@ import aiosqlite
 
 log = logging.getLogger("app.store")
 
-DB_PATH = Path.home() / ".hs2ch" / "app.db"
+DB_PATH = Path.home() / ".clickspot" / "app.db"
 
 SCHEMA_SQL = """
 -- Saved objects (chat results saved to library)

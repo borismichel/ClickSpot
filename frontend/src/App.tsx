@@ -61,7 +61,7 @@ export default function App() {
         }}
       >
         <div style={{ fontWeight: 600, fontSize: 16 }}>
-          HubSpot Analytics
+          ClickSpot
         </div>
         <Space>
           <Button

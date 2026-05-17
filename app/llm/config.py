@@ -1,11 +1,11 @@
-"""LLM provider configuration — loads from ~/.hs2ch/config.json and env vars."""
+"""LLM provider configuration — loads from ~/.clickspot/config.json and env vars."""
 
 import json
 import os
 import stat
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".hs2ch"
+CONFIG_DIR = Path.home() / ".clickspot"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 _DEFAULTS = {

@@ -1,4 +1,4 @@
-# HubSpot Analytics
+# ClickSpot
 
 HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture, and serves it through a chat interface where natural language questions are converted to ClickHouse SQL by an LLM.
 
@@ -31,7 +31,7 @@ HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, 
 
 ```bash
 # Clone and enter
-cd hs2ch
+cd ClickSpot
 
 # Python environment
 python -m venv .venv
@@ -153,7 +153,7 @@ Qlik-inspired selection propagation. Select a value in any table and all connect
 
 ### LLM Providers
 
-Configure in the Settings drawer or `~/.hs2ch/config.json`:
+Configure in the Settings drawer or `~/.clickspot/config.json`:
 
 | Provider | Setup | Notes |
 |----------|-------|-------|
@@ -198,7 +198,7 @@ cd frontend && npm run dev                           # Frontend
 ### Project Structure
 
 ```
-hs2ch/
+ClickSpot/
 |-- app/                  # FastAPI backend (API + engine + LLM + spaces + MCP + SQL filter)
 |   |-- mcp/              # MCP server (Claude Desktop integration, anon warehouse)
 |   |-- spaces/           # Data Spaces feature (scoped warehouse views)

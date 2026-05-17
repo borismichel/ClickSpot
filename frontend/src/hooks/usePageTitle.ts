@@ -3,7 +3,7 @@ import { useEffect } from "react";
 export function usePageTitle(subtitle?: string) {
   useEffect(() => {
     document.title = subtitle
-      ? `HubSpot Analytics | ${subtitle}`
-      : "HubSpot Analytics";
+      ? `ClickSpot | ${subtitle}`
+      : "ClickSpot";
   }, [subtitle]);
 }

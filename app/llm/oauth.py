@@ -1,7 +1,7 @@
 """Claude OAuth token manager — stores and auto-refreshes OAuth tokens.
 
 Users obtain a token via `claude setup-token` (Claude Code CLI) and paste it
-into the settings UI. Tokens are stored in ~/.hs2ch/claude-oauth.json.
+into the settings UI. Tokens are stored in ~/.clickspot/claude-oauth.json.
 
 The access token (sk-ant-oat01-...) has an 8-hour lifetime and is auto-refreshed
 when within 5 minutes of expiry.
@@ -26,7 +26,7 @@ log = logging.getLogger("app.llm.oauth")
 
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 TOKEN_ENDPOINT = "https://console.anthropic.com/v1/oauth/token"
-TOKEN_FILE = Path.home() / ".hs2ch" / "claude-oauth.json"
+TOKEN_FILE = Path.home() / ".clickspot" / "claude-oauth.json"
 REFRESH_BUFFER_S = 5 * 60  # 5 minutes
 
 OAUTH_EXTRA_HEADERS = {

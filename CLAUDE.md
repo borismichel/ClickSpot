@@ -84,7 +84,7 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 - **LLM providers** (`app/llm/`): Anthropic API, OpenAI API, Claude OAuth, Claude CLI (auto-detection)
 - **Schema prompt** (`app/llm/schema_prompt.py`): Generated from `app/config.py` + `silver_config.py` DICT_CONFIGS + semantic layer. Enforces relative date expressions (`today()`, `toStartOfMonth()`) so saved queries stay current.
 - **SQL validator** (`app/llm/sql_validator.py`): Whitelist tables, block mutations, inject LIMIT
-- **Semantic layer** (`app/semantic/layer.py`): HubSpot property labels/descriptions cached to `~/.hs2ch/schema_cache.json`
+- **Semantic layer** (`app/semantic/layer.py`): HubSpot property labels/descriptions cached to `~/.clickspot/schema_cache.json`
 - **Frontend**: React chat UI with inline visualizations (number, table, bar, line, funnel, comparison)
 - **Period-over-period**: Context KPIs support `previous_sql` for delta computation. `comparison` viz type shows KPIs with colored trend badges.
 - **HubSpot linking**: Result tables auto-link entity names/IDs to HubSpot records. ID columns are auto-hidden when a paired name column exists.

@@ -50,7 +50,7 @@ Runs on http://localhost:8193. Proxies `/api` requests to the backend at http://
 
 Set up in `main.tsx` with `BrowserRouter` from React Router.
 
-Each page sets `document.title` to `"HubSpot Analytics | {page}"` via the `usePageTitle()` hook.
+Each page sets `document.title` to `"ClickSpot | {page}"` via the `usePageTitle()` hook.
 
 ---
 
@@ -60,7 +60,7 @@ Each page sets `document.title` to `"HubSpot Analytics | {page}"` via the `usePa
 
 ```
 +----------------------------------------------------------------------+
-| HubSpot Analytics [Library] [Dashboard] [Spaces] [Data] [Arch] [Settings]|
+| ClickSpot [Library] [Dashboard] [Spaces] [Data] [Arch] [Settings]|
 +----------+------------------------------------------+
 | Sidebar  |                                          |
 |          |   Welcome! Ask me anything about your    |
@@ -281,7 +281,7 @@ SVG diagram (900x440 viewBox) showing the query flow:
 ## Hooks
 
 ### `usePageTitle(subtitle?)`
-Sets `document.title` to `"HubSpot Analytics | {subtitle}"` or just `"HubSpot Analytics"` if no subtitle. Called in each page component.
+Sets `document.title` to `"ClickSpot | {subtitle}"` or just `"ClickSpot"` if no subtitle. Called in each page component.
 
 ### `useDashboards()`
 Persists dashboards via `/api/v1/dashboards/*` (backed by SQLite in `app/store.py`). Each dashboard stores items (object references + grid layout), filters, and metadata.

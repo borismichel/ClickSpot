@@ -268,7 +268,7 @@ Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution.
 ## File Structure
 
 ```
-hs2ch/
+ClickSpot/
 |-- app/                          # FastAPI backend
 |   |-- main.py                   # App entry, CORS, router mounting, SQLite init, space load
 |   |-- db.py                     # ClickHouse client singleton (session-id-disabled)
@@ -292,7 +292,7 @@ hs2ch/
 |   |   |-- metrics.py            # 22 computed metrics registry
 |   |   |-- anon_masking.py       # PII masking for silver_anon / gold_anon
 |   |-- llm/
-|   |   |-- config.py             # Multi-provider config (~/.hs2ch/config.json)
+|   |   |-- config.py             # Multi-provider config (~/.clickspot/config.json)
 |   |   |-- providers.py          # Anthropic, OpenAI, OAuth, CLI providers
 |   |   |-- schema_prompt.py      # LLM system prompt builder
 |   |   |-- response_schema.py    # Structured output models
@@ -403,6 +403,6 @@ See `SECURITY_AUDIT.md` for the full audit. Key points:
 - **SQL injection** — Analytics engine validates column names against config whitelist. Chat SQL validator blocks mutations and restricts table access.
 - **No authentication** — Currently no auth on any endpoint. Suitable for local/VPN-only deployment.
 - **CORS** — Wildcard (`*`) in development. Should be restricted to `http://localhost:8193` in production.
-- **API keys** — Stored in `~/.hs2ch/config.json` with `0600` permissions. Returned masked via API.
+- **API keys** — Stored in `~/.clickspot/config.json` with `0600` permissions. Returned masked via API.
 - **LLM data isolation** — The LLM never sees query results or business data. Only schema metadata and user questions.
 - **ClickHouse credentials** — Default `hs2ch`/`hs2ch` in development. Should use a read-only user in production.

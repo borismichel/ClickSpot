@@ -79,7 +79,7 @@ export default function ArchitecturePage() {
           </span>
         </div>
         <div style={{ fontWeight: 600, fontSize: 16, color: "#8c8c8c" }}>
-          HubSpot Analytics
+          ClickSpot
         </div>
       </Header>
 

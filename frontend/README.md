@@ -1,4 +1,4 @@
-# HubSpot Analytics — Frontend
+# ClickSpot — Frontend
 
 React 19 + TypeScript + Vite single-page app. Chat, dashboards, data spaces, data explorer.
 

@@ -1,6 +1,6 @@
 # Data Pipeline
 
-hs2ch runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
+ClickSpot runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
 
 ---
 

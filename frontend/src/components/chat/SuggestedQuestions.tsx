@@ -25,7 +25,7 @@ export function SuggestedQuestions({ onSelect }: Props) {
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 16px" }}>
       <Typography.Title level={3} style={{ textAlign: "center", marginBottom: 4 }}>
-        HubSpot Analytics
+        ClickSpot
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ textAlign: "center", marginBottom: 32 }}>
         Ask anything about your revenue data. Questions are converted to SQL — your data never leaves ClickHouse.
