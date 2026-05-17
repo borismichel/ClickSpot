@@ -10,6 +10,7 @@ The prompt is the most critical component for SQL accuracy. It's built from:
 """
 
 from app.config import TABLES, GRAPH_EDGES
+from app.customer import config as customer_config
 from app.engine.metrics import COMPUTED_METRICS
 from app.engine.sql_builder import _table_ref, _archived_condition
 from app.semantic.layer import SemanticLayer
@@ -309,66 +310,111 @@ def _block_metrics() -> str:
 
 
 def _block_business_context() -> str:
-    return """BUSINESS CONTEXT:
-- Company: ClickSpot Demo, a German B2B software company
-- Currency: EUR (all monetary values are in Euros)
-- Team: AE-led, quota-carrying reps
-- Revenue model: mix of new business (new_logo field) and renewals (renewal field)
-- Key ARR metric: annual_recurring_revenue column in dim_deals
+    cfg = customer_config.load()
 
-PIPELINES — CRITICAL:
-  "Main Sales Pipeline" — THE main sales pipeline. All AE deals live here.
-  "Legacy Leads" — Old pre-qualification pipeline, mostly historical junk. 2700 deals, inflates metrics.
-  "Partner Endcustomers" — Partner-sourced end-customer deals (small, 21 deals).
-  "New Partners" — Partner recruitment pipeline (no revenue, just tracking).
-  "Event Tracking" — Event/promo tracking, not real deals.
+    company_line = f"- Company: {cfg['company_name']}"
+    if cfg.get("company_blurb"):
+        company_line += f" — {cfg['company_blurb']}"
 
-DEFAULT PIPELINE RULE: Unless the user explicitly asks about "all pipelines", "legacy", "partner", or a specific pipeline by name, ALWAYS filter to the main pipeline:
-  pipeline_label = 'Main Sales Pipeline'
-If the user asks to "compare pipelines" or "break down by pipeline", include all. Otherwise, default to main.
-Gold tables also have pipeline_label — use pipeline_label = 'Main Sales Pipeline' there too (NOT pipeline = 'default').
+    currency = cfg.get("currency") or "USD"
+    pipelines = cfg.get("all_pipelines") or []
+    main = cfg.get("main_pipeline")
+    stages = cfg.get("stages") or []
+    forecast_cats = cfg.get("forecast_categories") or []
 
-STAGES (main pipeline, in order):
-  "Discovery" → "Scoping" → "Proof of Value" → "Contract & Negotiation" → "Closed Won" (Closed Won) / "Closed Lost" (Closed Lost) / "Disqualified"
+    if pipelines:
+        pipeline_lines = "\n".join(
+            f"  \"{p['label']}\"" + (f" — {p['note']}" if p.get('note') else "")
+            for p in pipelines
+        )
+        pipeline_block = f"PIPELINES:\n{pipeline_lines}\n"
+    else:
+        pipeline_block = "PIPELINES: (not yet discovered — run `python -m app.customer.onboarding` after silver loads)\n"
 
-OTHER CONTEXT:
-- dim_deals has denormalized columns: pipeline_label (human name), stage_label (human name), owner_name (rep full name)
-- hs_manual_forecast_category values: COMMIT, BEST_CASE, MOST_LIKELY, PIPELINE, OMIT
-- gold.agg_rep_performance: has owner_name column — use directly, no dictGet needed.
-- gold.agg_deal_health: has owner_name, pipeline_label, stage_label columns — use directly, no dictGet needed.
-  IMPORTANT: agg_deal_health contains ALL deals (open AND closed). When the user asks about "open" deals, stale deals, or at-risk deals, filter: hs_is_closed = 'false'
-- NEVER use dictGet() on gold tables — they have all labels pre-computed."""
+    if main:
+        default_rule = (
+            f"DEFAULT PIPELINE RULE: Unless the user explicitly asks about \"all pipelines\" or a specific "
+            f"pipeline by name, ALWAYS filter to the main pipeline:\n"
+            f"  pipeline_label = '{main}'\n"
+            f"If the user asks to \"compare pipelines\" or \"break down by pipeline\", include all. Otherwise, default to main.\n"
+            f"Gold tables also have pipeline_label — use pipeline_label = '{main}' there too (NOT pipeline = 'default').\n"
+        )
+    else:
+        default_rule = (
+            "DEFAULT PIPELINE RULE: No main pipeline configured yet. Do not filter by pipeline_label unless the user names one explicitly.\n"
+        )
+
+    if stages:
+        stages_line = "STAGES (main pipeline, in order):\n  " + " → ".join(f'"{s}"' for s in stages) + "\n"
+    else:
+        stages_line = ""
+
+    forecast_line = ""
+    if forecast_cats:
+        forecast_line = f"- hs_manual_forecast_category values: {', '.join(forecast_cats)}\n"
+
+    return (
+        "BUSINESS CONTEXT:\n"
+        f"{company_line}\n"
+        f"- Currency: {currency} (all monetary values are in {currency})\n"
+        "\n"
+        f"{pipeline_block}"
+        "\n"
+        f"{default_rule}"
+        "\n"
+        f"{stages_line}"
+        "OTHER CONTEXT:\n"
+        "- dim_deals has denormalized columns: pipeline_label (human name), stage_label (human name), owner_name (rep full name)\n"
+        f"{forecast_line}"
+        "- gold.agg_rep_performance: has owner_name column — use directly, no dictGet needed.\n"
+        "- gold.agg_deal_health: has owner_name, pipeline_label, stage_label columns — use directly, no dictGet needed.\n"
+        "  IMPORTANT: agg_deal_health contains ALL deals (open AND closed). When the user asks about \"open\" deals, stale deals, or at-risk deals, filter: hs_is_closed = 'false'\n"
+        "- NEVER use dictGet() on gold tables — they have all labels pre-computed."
+    )
 
 
 def _block_examples() -> str:
-    return """FEW-SHOT EXAMPLES:
+    cfg = customer_config.load()
+    main = cfg.get("main_pipeline")
+
+    # When main_pipeline is configured, examples include the pipeline filter inline.
+    # When not configured (fresh install before silver runs), drop the pipeline filter so
+    # generated SQL doesn't reference a pipeline that doesn't exist.
+    if main:
+        pipeline_and = f" AND pipeline_label = '{main}'"
+        title_suffix = " (main pipeline)"
+    else:
+        pipeline_and = ""
+        title_suffix = ""
+
+    return f"""FEW-SHOT EXAMPLES:
 
 Q: "What's our win rate this quarter?"
-A: {"sql": "SELECT countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0) AS win_rate FROM silver.dim_deals WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND closedate >= '2026-04-01' AND closedate <= '2026-06-30' AND closedate > '1970-01-02'", "viz": "number", "title": "Win Rate Q2 2026", "explanation": "Win rate for main pipeline deals closed in Q2 2026."}
+A: {{"sql": "SELECT countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0) AS win_rate FROM silver.dim_deals WHERE archived = 0{pipeline_and} AND closedate >= '2026-04-01' AND closedate <= '2026-06-30' AND closedate > '1970-01-02'", "viz": "number", "title": "Win Rate Q2 2026", "explanation": "Win rate for deals closed in Q2 2026{title_suffix}."}}
 
 Q: "Break that down by rep"
-A: {"sql": "SELECT owner_name, countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0) AS win_rate, countIf(hs_is_closed = 'true') AS total_closed FROM silver.dim_deals WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND closedate >= '2026-04-01' AND closedate <= '2026-06-30' AND closedate > '1970-01-02' AND owner_name != ' ' GROUP BY owner_name ORDER BY win_rate DESC LIMIT 20", "viz": "bar", "title": "Win Rate by Rep — Q2 2026", "explanation": "Win rate per rep for main pipeline deals closed in Q2 2026."}
+A: {{"sql": "SELECT owner_name, countIf(hs_is_closed_won = 'true') * 1.0 / nullIf(countIf(hs_is_closed = 'true'), 0) AS win_rate, countIf(hs_is_closed = 'true') AS total_closed FROM silver.dim_deals WHERE archived = 0{pipeline_and} AND closedate >= '2026-04-01' AND closedate <= '2026-06-30' AND closedate > '1970-01-02' AND owner_name != ' ' GROUP BY owner_name ORDER BY win_rate DESC LIMIT 20", "viz": "bar", "title": "Win Rate by Rep — Q2 2026", "explanation": "Win rate per rep for deals closed in Q2 2026{title_suffix}."}}
 
 Q: "Which deals are at risk?"
-A: {"sql": "SELECT dealname, owner_name, stage_label, amount, days_in_current_stage, days_since_last_activity, last_activity_type FROM gold.agg_deal_health WHERE hs_is_closed = 'false' AND is_stale = 1 AND pipeline_label = 'Main Sales Pipeline' AND amount > 0 ORDER BY amount DESC LIMIT 50", "viz": "table", "title": "Stale Deals at Risk", "explanation": "Open stale deals in the main pipeline with no recent activity, sorted by value."}
+A: {{"sql": "SELECT dealname, owner_name, stage_label, amount, days_in_current_stage, days_since_last_activity, last_activity_type FROM gold.agg_deal_health WHERE hs_is_closed = 'false' AND is_stale = 1{pipeline_and} AND amount > 0 ORDER BY amount DESC LIMIT 50", "viz": "table", "title": "Stale Deals at Risk", "explanation": "Open stale deals with no recent activity, sorted by value{title_suffix}."}}
 
 Q: "Show me monthly closed-won revenue for the last 12 months"
-A: {"sql": "SELECT toStartOfMonth(closedate) AS month, sum(amount) AS revenue FROM silver.dim_deals WHERE archived = 0 AND pipeline_label = 'Main Sales Pipeline' AND hs_is_closed_won = 'true' AND closedate >= toDate(now()) - INTERVAL 12 MONTH AND closedate > '1970-01-02' GROUP BY month ORDER BY month LIMIT 12", "viz": "line", "title": "Monthly Closed-Won Revenue", "explanation": "Monthly closed-won revenue from the main sales pipeline."}
+A: {{"sql": "SELECT toStartOfMonth(closedate) AS month, sum(amount) AS revenue FROM silver.dim_deals WHERE archived = 0{pipeline_and} AND hs_is_closed_won = 'true' AND closedate >= toDate(now()) - INTERVAL 12 MONTH AND closedate > '1970-01-02' GROUP BY month ORDER BY month LIMIT 12", "viz": "line", "title": "Monthly Closed-Won Revenue", "explanation": "Monthly closed-won revenue{title_suffix}."}}
 
 Q: "Pipeline by stage"
-A: {"sql": "SELECT stage_label, count() AS deals, sum(amount) AS total_value FROM silver.dim_deals WHERE archived = 0 AND (hs_is_closed = 'false' OR hs_is_closed = '') AND pipeline_label = 'Main Sales Pipeline' GROUP BY stage_label ORDER BY total_value DESC LIMIT 20", "viz": "bar", "title": "Open Pipeline by Stage", "explanation": "Open deals in the main sales pipeline grouped by stage."}
+A: {{"sql": "SELECT stage_label, count() AS deals, sum(amount) AS total_value FROM silver.dim_deals WHERE archived = 0 AND (hs_is_closed = 'false' OR hs_is_closed = ''){pipeline_and} GROUP BY stage_label ORDER BY total_value DESC LIMIT 20", "viz": "bar", "title": "Open Pipeline by Stage", "explanation": "Open deals grouped by stage{title_suffix}."}}
 
-Q: "Top reps by ARR this month"
-A: {"sql": "SELECT owner_name, deals_won, total_arr_closed, win_rate FROM gold.agg_rep_performance WHERE period_start = toStartOfMonth(today()) AND owner_name != '' ORDER BY total_arr_closed DESC NULLS LAST LIMIT 10", "viz": "bar", "title": "Top Reps by ARR This Month", "explanation": "Rep leaderboard by new ARR closed this month."}
+Q: "Top reps by revenue this month"
+A: {{"sql": "SELECT owner_name, deals_won, total_arr_closed, win_rate FROM gold.agg_rep_performance WHERE period_start = toStartOfMonth(today()) AND owner_name != '' ORDER BY total_arr_closed DESC NULLS LAST LIMIT 10", "viz": "bar", "title": "Top Reps This Month", "explanation": "Rep leaderboard by closed revenue this month."}}
 
 Q: "Compare all pipelines"
-A: {"sql": "SELECT pipeline_label, count() AS deals, sum(amount) AS total_value, countIf(hs_is_closed_won = 'true') AS won FROM silver.dim_deals WHERE archived = 0 GROUP BY pipeline_label ORDER BY total_value DESC LIMIT 10", "viz": "bar", "title": "All Pipelines Comparison", "explanation": "Deal count and total value across all pipelines."}
+A: {{"sql": "SELECT pipeline_label, count() AS deals, sum(amount) AS total_value, countIf(hs_is_closed_won = 'true') AS won FROM silver.dim_deals WHERE archived = 0 GROUP BY pipeline_label ORDER BY total_value DESC LIMIT 10", "viz": "bar", "title": "All Pipelines Comparison", "explanation": "Deal count and total value across all pipelines."}}
 
 Q: "How did our pipeline develop this month?"
-A: {"sql": "SELECT 1", "viz": "comparison", "title": "Pipeline Development This Month", "explanation": "Key pipeline metrics this month compared to last month.", "context": [{"sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1", "label": "Deals Created", "previous_sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today())"}, {"sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Deals Won", "previous_sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}, {"sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Revenue Won", "previous_sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}, {"sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1 AND amount > 0", "label": "Avg Deal Size", "previous_sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today()) AND amount > 0"}]}
+A: {{"sql": "SELECT 1", "viz": "comparison", "title": "Pipeline Development This Month", "explanation": "Key pipeline metrics this month compared to last month.", "context": [{{"sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1", "label": "Deals Created", "previous_sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today())"}}, {{"sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Deals Won", "previous_sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}}, {{"sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Revenue Won", "previous_sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}}, {{"sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1 AND amount > 0", "label": "Avg Deal Size", "previous_sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today()) AND amount > 0"}}]}}
 
 Q: "Show me leads from paid channels that are stuck"
-A: {"sql": "WITH paid_lead_ids AS (SELECT DISTINCT bridge.lead_id FROM silver.bridge_lead_contact AS bridge JOIN silver.dim_contacts AS contacts ON contacts.contact_id = bridge.contact_id WHERE contacts.archived = 0 AND contacts.hs_analytics_source IN ('PAID_SEARCH', 'PAID_SOCIAL')) SELECT leads.hs_lead_name AS lead_name, concat(dictGet('silver.dict_owners', 'first_name', tuple(leads.hubspot_owner_id)), ' ', dictGet('silver.dict_owners', 'last_name', tuple(leads.hubspot_owner_id))) AS owner, dictGet('silver.dict_lead_pipeline_stages', 'label', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) AS current_stage, if(leads.last_activity_date > '1970-01-02', dateDiff('day', toDate(leads.last_activity_date), today()), NULL) AS days_since_last_activity, toDate(leads.createdate) AS created_date FROM silver.dim_leads AS leads JOIN paid_lead_ids ON paid_lead_ids.lead_id = leads.lead_id WHERE leads.archived = 0 AND leads.createdate >= '2026-01-01' AND leads.createdate < '2027-01-01' AND dictGet('silver.dict_lead_pipeline_stages', 'is_closed', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) = 'false' ORDER BY days_since_last_activity DESC NULLS LAST LIMIT 200", "viz": "table", "title": "Stuck Paid Leads 2026", "explanation": "Open leads from paid search/social channels in 2026, sorted by days without activity."}"""
+A: {{"sql": "WITH paid_lead_ids AS (SELECT DISTINCT bridge.lead_id FROM silver.bridge_lead_contact AS bridge JOIN silver.dim_contacts AS contacts ON contacts.contact_id = bridge.contact_id WHERE contacts.archived = 0 AND contacts.hs_analytics_source IN ('PAID_SEARCH', 'PAID_SOCIAL')) SELECT leads.hs_lead_name AS lead_name, concat(dictGet('silver.dict_owners', 'first_name', tuple(leads.hubspot_owner_id)), ' ', dictGet('silver.dict_owners', 'last_name', tuple(leads.hubspot_owner_id))) AS owner, dictGet('silver.dict_lead_pipeline_stages', 'label', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) AS current_stage, if(leads.last_activity_date > '1970-01-02', dateDiff('day', toDate(leads.last_activity_date), today()), NULL) AS days_since_last_activity, toDate(leads.createdate) AS created_date FROM silver.dim_leads AS leads JOIN paid_lead_ids ON paid_lead_ids.lead_id = leads.lead_id WHERE leads.archived = 0 AND leads.createdate >= '2026-01-01' AND leads.createdate < '2027-01-01' AND dictGet('silver.dict_lead_pipeline_stages', 'is_closed', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) = 'false' ORDER BY days_since_last_activity DESC NULLS LAST LIMIT 200", "viz": "table", "title": "Stuck Paid Leads 2026", "explanation": "Open leads from paid search/social channels in 2026, sorted by days without activity."}}"""
 
 
 def _block_output_format() -> str:

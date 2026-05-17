@@ -29,6 +29,21 @@ async def lifespan(app: FastAPI):
         load_saved_spaces()
     except Exception as e:
         log.warning(f"Failed to load saved data spaces: {e}")
+
+    # Startup: auto-discover customer config from silver if not already populated.
+    # Only fills keys still at their default — never overwrites operator choices.
+    try:
+        from app.customer import config as customer_config
+        from app.db import get_client
+        cfg = customer_config.load()
+        discovered = customer_config.auto_discover(get_client())
+        if discovered:
+            merged = customer_config.merge_defaults_only(cfg, discovered)
+            if merged != cfg:
+                customer_config.save(merged)
+                log.info("Auto-discovered customer config from silver: %s", sorted(set(merged) - set(k for k in merged if cfg.get(k) == merged[k])))
+    except Exception as e:
+        log.warning(f"Customer config auto-discover skipped: {e}")
     yield
 
 

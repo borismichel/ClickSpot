@@ -47,7 +47,20 @@ cd frontend && npm install && cd ..
 
 # Start everything
 ./start.sh
+
+# (Optional, recommended on first run) walk through portal-specific config:
+python -m app.customer.onboarding
 ```
+
+### First-time portal setup
+
+ClickSpot ships with no portal-specific assumptions. On first run, three things tune it to your HubSpot account:
+
+1. **`HUBSPOT_TOKEN` + `HUBSPOT_HUB_ID`** in `.env` — required for bronze extraction and HubSpot record URLs.
+2. **`~/.clickspot/customer.json`** — your portal's pipeline names, stages, currency, company name. Auto-discovered from silver tables on the first successful run, then editable. Override via the onboarding wizard (`python -m app.customer.onboarding`) or by hand.
+3. **`silver_config_custom.py`** (optional, gitignored) — for non-standard HubSpot properties on your portal (e.g. ARR-specific deal amounts, custom dropdowns). Copy `silver_config_custom.py.example` and add tuples for the properties you want in silver. The onboarding wizard can also auto-suggest these by scanning `/crm/v3/properties/{deals,contacts}`.
+
+If neither file exists, the chat still works — it just produces generic SQL without portal-specific filters.
 
 This starts:
 

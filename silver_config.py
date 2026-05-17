@@ -2,6 +2,19 @@
 # Each dim is a dict with a column list.
 # (silver_column_name, bronze_property_key, clickhouse_type)
 # To add a property: add a tuple. To remove: delete the tuple.
+#
+# Per-portal custom properties live in a sibling file `silver_config_custom.py`
+# (gitignored). If it exists, its EXTRA_DIM_DEALS and EXTRA_DIM_CONTACTS lists
+# are appended to the core column sets. A fresh clone has none of these.
+
+try:
+    from silver_config_custom import EXTRA_DIM_DEALS as _EXTRA_DIM_DEALS  # type: ignore[import]
+except ImportError:
+    _EXTRA_DIM_DEALS: list = []
+try:
+    from silver_config_custom import EXTRA_DIM_CONTACTS as _EXTRA_DIM_CONTACTS  # type: ignore[import]
+except ImportError:
+    _EXTRA_DIM_CONTACTS: list = []
 
 DIM_CONTACTS = {
     "bronze_table": "hs_contacts",
@@ -64,9 +77,7 @@ DIM_CONTACTS = {
         ("hubspot_owner_id",                          "hubspot_owner_id",                          "String"),
         ("hubspot_owner_assigneddate",                "hubspot_owner_assigneddate",                "DateTime"),
         ("recent_deal_close_date",                    "recent_deal_close_date",                    "DateTime"),
-        # Custom event attribution
-        ("event_lead",                           "event_lead",                           "LowCardinality(String)"),
-    ],
+    ] + _EXTRA_DIM_CONTACTS,
 }
 
 DIM_COMPANIES = {
@@ -146,23 +157,10 @@ DIM_DEALS = {
         ("hs_exchange_rate",                  "hs_exchange_rate",                  "Nullable(Float64)"),
         ("hs_forecast_amount",                "hs_forecast_amount",                "Nullable(Float64)"),
         ("hs_projected_amount",               "hs_projected_amount",               "Nullable(Float64)"),
-        ("annual_contract_value",            "annual_contract_value",            "Nullable(Float64)"),
-        ("total_contract_value",                       "total_contract_value",                       "Nullable(Float64)"),
-        ("gross_profit",                  "gross_profit",                  "Nullable(Float64)"),
-        ("services_revenue",                 "services_revenue",                 "Nullable(Float64)"),
-        ("mrr_average",                     "mrr_average",                     "Nullable(Float64)"),
-        ("renewal_revenue",                "renewal_revenue",                "Nullable(Float64)"),
-        ("upsell_revenue",                 "upsell_revenue",                "Nullable(Float64)"),
-        ("annual_recurring_revenue",                "annual_recurring_revenue",                "Nullable(Float64)"),
-        ("license_margin",                    "license_margin",                    "Nullable(Float64)"),
-        ("services_margin",     "services_margin",     "Nullable(Float64)"),
-        ("services_days",   "services_days",   "Nullable(Float64)"),
         ("hs_deal_score",                     "hs_deal_score",                     "Nullable(Float64)"),
         ("hs_deal_stage_probability",         "hs_deal_stage_probability",         "Nullable(Float64)"),
-        ("fc_probability",                    "fc_probability",                    "Nullable(Float64)"),
         ("hs_forecast_probability",           "hs_forecast_probability",           "Nullable(Float64)"),
         ("hs_manual_forecast_category",       "hs_manual_forecast_category",       "LowCardinality(String)"),
-        ("contract_months",        "contract_months",        "Nullable(Float64)"),
         ("start_of_term",                     "start_of_term",                     "DateTime"),
         ("closedate",                         "closedate",                         "DateTime"),
         ("days_to_close",                     "days_to_close",                     "Nullable(Float64)"),
@@ -171,17 +169,9 @@ DIM_DEALS = {
         ("hs_v2_date_entered_contractsent",           "hs_v2_date_entered_contractsent",           "DateTime"),
         ("hs_v2_date_entered_qualifiedtobuy",         "hs_v2_date_entered_qualifiedtobuy",         "DateTime"),
         ("hs_v2_date_entered_decisionmakerboughtin",  "hs_v2_date_entered_decisionmakerboughtin",  "DateTime"),
-        ("hs_v2_date_entered_custom_stage",             "hs_v2_date_entered_custom_stage",             "DateTime"),
         ("hs_v2_date_entered_presentationscheduled",  "hs_v2_date_entered_presentationscheduled",  "DateTime"),
         ("closedlost_reason",                 "closedlost_reason",                 "LowCardinality(String)"),
-        ("closedlost_reason_description",     "closedlost_reason_description",     "String"),
         ("won_reason",                        "won_reason",                        "LowCardinality(String)"),
-        ("deal_source_details",               "deal_source_details",               "String"),
-        ("partner",                           "partner",                           "LowCardinality(String)"),
-        ("partner_involvement",                   "partner_involvement",                   "LowCardinality(String)"),
-        ("rfi_rfp",                           "rfi_rfp",                           "LowCardinality(String)"),
-        ("renewal",                           "renewal",                           "LowCardinality(String)"),
-        ("new_logo",                          "new_logo",                          "LowCardinality(String)"),
         ("hs_object_id",                      "hs_object_id",                      "String"),
         ("createdate",                        "createdate",                        "DateTime"),
         ("hs_lastmodifieddate",               "hs_lastmodifieddate",               "DateTime"),
@@ -193,7 +183,6 @@ DIM_DEALS = {
         ("hs_closed_deal_create_date",        "hs_closed_deal_create_date",        "DateTime"),
         ("hs_closed_won_date",                "hs_closed_won_date",                "DateTime"),
         ("hs_open_deal_create_date",          "hs_open_deal_create_date",          "DateTime"),
-        ("potential_close_date",                   "potential_close_date",                   "DateTime"),
         # Analytics timestamps
         ("hs_analytics_latest_source_timestamp",         "hs_analytics_latest_source_timestamp",         "DateTime"),
         ("hs_analytics_latest_source_timestamp_company", "hs_analytics_latest_source_timestamp_company", "DateTime"),
@@ -211,7 +200,7 @@ DIM_DEALS = {
         ("hs_notes_next_activity_type",       "hs_notes_next_activity_type",       "LowCardinality(String)"),
         # Owner
         ("hubspot_owner_assigneddate",        "hubspot_owner_assigneddate",        "DateTime"),
-    ],
+    ] + _EXTRA_DIM_DEALS,
 }
 
 DIM_LEADS = {

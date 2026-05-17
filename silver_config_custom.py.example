@@ -1,0 +1,38 @@
+"""Per-portal silver extension — adds customer-specific custom property columns to silver dims.
+
+Copy this file to `silver_config_custom.py` (gitignored) and fill in your portal's
+custom HubSpot properties. `silver_config.py` will try-import EXTRA_DIM_DEALS and
+EXTRA_DIM_CONTACTS from this module and concatenate them onto the core column lists.
+
+If this file is missing or any of the EXTRA_* names are absent, silver falls back to
+core columns only — a fresh install ships with zero custom properties.
+
+To discover your portal's custom properties automatically:
+    python -m app.customer.onboarding
+which inspects /crm/v3/properties/{deals,contacts} and walks you through adding
+the relevant ones.
+
+Examples below show what a typical SaaS portal might add — ARR-based revenue model
+with professional-services revenue split, plus a couple of custom enums.
+"""
+
+# Custom deal columns specific to this portal — license/ARR revenue model + lifecycle flags.
+EXTRA_DIM_DEALS = [
+    # # Example: ARR-focused revenue model
+    # ("annual_recurring_revenue",                "annual_recurring_revenue",                "Nullable(Float64)"),
+    # ("renewal_revenue",                "renewal_revenue",                "Nullable(Float64)"),
+    # ("upsell_revenue",                 "upsell_revenue",                 "Nullable(Float64)"),
+    # # Example: professional services revenue split
+    # ("total_contract_value",                       "total_contract_value",                       "Nullable(Float64)"),
+    # ("services_revenue",                 "services_revenue",                 "Nullable(Float64)"),
+    # # Example: lifecycle / source flags
+    # ("new_logo",                          "new_logo",                          "LowCardinality(String)"),
+    # ("renewal",                           "renewal",                           "LowCardinality(String)"),
+    # ("partner",                           "partner",                           "LowCardinality(String)"),
+]
+
+# Custom contact columns.
+EXTRA_DIM_CONTACTS = [
+    # Example: event attribution flag
+    # ("attended_user_conference",          "attended_user_conference",          "LowCardinality(String)"),
+]

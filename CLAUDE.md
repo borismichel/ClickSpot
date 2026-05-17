@@ -97,6 +97,13 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 - **Global filters** (`app/engine/sql_filter.py`): Rule-based SQL rewriting using sqlglot AST manipulation. Date, owner, pipeline filters injected into all card queries. Silver tables use IDs, gold tables use names. No AI involved.
 - **Filter registry** (`FILTER_COLUMNS` in `sql_filter.py`): Static mapping from `database.table` to filterable column names per dimension
 
+### Customer config (per-portal)
+
+- **Module** (`app/customer/config.py`): single source of truth for portal-specific runtime values (company name, currency, main pipeline, stage names, canonical revenue field). Lives in `~/.clickspot/customer.json` (0600). Defaults shipped in `DEFAULTS` make a fresh clone usable.
+- **Consumed by** `app/llm/schema_prompt.py::_block_business_context` + `_block_examples` — no portal-specific strings exist in the repo; the prompt templates against `customer.config.load()`.
+- **Auto-discovered on FastAPI startup**: `app/main.py` lifespan calls `customer_config.auto_discover(ch)` after silver loads and merges into `customer.json` *only for keys still at their default* — operator choices via `python -m app.customer.onboarding` are never overwritten.
+- **Per-portal silver extensions**: `silver_config_custom.py` (gitignored) appends extra deal/contact column tuples to the core lists. Worked example at `silver_config_custom.py.example`. A fresh clone has none.
+
 ### Data Spaces
 
 - **Module** (`app/spaces/`): `config.py` (DataSpaceConfig schema), `discovery.py` (entity/dimension introspection), `registry.py` (CRUD + preview), `space_filter.py` (per-space SQL rewriting), `space_prompt.py` (scoped schema prompt), `generator.py`, `routes.py` (`/api/v1/spaces/*` — 26 endpoints).
