@@ -22,6 +22,34 @@ _TIME_BUCKETS = {
 }
 
 
+def _validate_column(table: str, col: str) -> str:
+    """Validate that `col` is a known column on `table` (per app/config.py TABLES).
+
+    Returns the column name verbatim if valid; raises ValueError otherwise.
+    Use at every entry point where user input becomes a column reference in SQL.
+
+    Accepts the table's primary key in addition to its `fields` whitelist (the
+    pk is often passed as the "measure column" to compute counts).
+    """
+    meta = TABLES.get(table)
+    if not meta:
+        raise ValueError(f"Unknown table: {table}")
+    allowed = set(meta.get("fields", {}).keys())
+    pk = meta.get("primary_key")
+    if pk:
+        allowed.add(pk)
+    if col not in allowed:
+        raise ValueError(f"Unknown column {col!r} on table {table!r}")
+    return col
+
+
+def _validate_granularity(g: str) -> str:
+    """Validate a time-series granularity string against the bucket whitelist."""
+    if g not in _TIME_BUCKETS:
+        raise ValueError(f"Unknown granularity {g!r}; allowed: {sorted(_TIME_BUCKETS)}")
+    return g
+
+
 def _table_ref(table: str) -> str:
     """Return the fully qualified table reference (database.table)."""
     meta = TABLES.get(table, {})
@@ -50,10 +78,14 @@ def build_where_clause(table: str, filters: dict[str, list[str]]) -> str:
     Within a column: OR (any of the values).
     Across columns: AND.
     Excludes archived records for silver tables.
+
+    Each column name is validated against the TABLES catalog before being
+    interpolated — see _validate_column. Values are quoted + escaped.
     """
     conditions = [_archived_condition(table)]
 
     for col, values in filters.items():
+        _validate_column(table, col)
         if len(values) == 1:
             conditions.append(f"{col} = '{escape_value(values[0])}'")
         else:
@@ -123,6 +155,7 @@ def build_field_values_query(
     limit: int = 200,
 ) -> str:
     """Build query to get distinct values + counts for a field, optionally filtered."""
+    _validate_column(table, column)
     ref = _table_ref(table)
     final = _table_final(table)
     archived = _archived_condition(table)
@@ -149,6 +182,9 @@ def build_measure_query(
     id_filter_sql: str | None = None,
 ) -> str:
     """Build an aggregate measure query."""
+    if agg not in _ALLOWED_AGGS:
+        raise ValueError(f"Disallowed aggregation function: {agg}")
+    _validate_column(table, column)
     ref = _table_ref(table)
     final = _table_final(table)
     archived = _archived_condition(table)
@@ -199,28 +235,14 @@ def build_list_count_query(
 # Extension: Conditional aggregates
 # ---------------------------------------------------------------------------
 
-def build_conditional_measure_query(
-    table: str,
-    column: str,
-    agg: str,
-    condition: str,
-    pk: str,
-    id_filter_sql: str | None = None,
-) -> str:
-    """Build a conditional aggregate (sumIf, countIf, etc.)."""
-    ref = _table_ref(table)
-    final = _table_final(table)
-    archived = _archived_condition(table)
-    if agg not in _ALLOWED_AGGS:
-        raise ValueError(f"Disallowed aggregation function: {agg}")
-
-    if column == pk or agg == "count":
-        agg_expr = f"countIf({condition})"
-    else:
-        agg_expr = f"{agg}If({column}, {condition})"
-
-    where = f"{pk} IN ({id_filter_sql}) AND {archived}" if id_filter_sql else archived
-    return f"SELECT {agg_expr} FROM {ref} {final} WHERE {where}".replace("  ", " ")
+# build_conditional_measure_query was REMOVED for security: the `condition` arg
+# accepted raw SQL and went straight into f"countIf({condition})", an unauthenticated
+# SQL-injection vector via /api/v1/query.
+#
+# For pre-defined conditional metrics use the COMPUTED_METRICS registry in
+# app/engine/metrics.py (SQL is curated, not user-supplied). Ad-hoc conditional
+# aggregates from the REST API are no longer supported; use a regular measure
+# combined with selection filters (which go through _validate_column + escape_value).
 
 
 # ---------------------------------------------------------------------------
@@ -247,10 +269,13 @@ def build_grouped_measure_query(
     date_to: str | None = None,
 ) -> str:
     """Build an aggregate measure grouped by one or more columns."""
-    ref = _table_ref(table)
-    final = _table_final(table)
     if agg not in _ALLOWED_AGGS:
         raise ValueError(f"Disallowed aggregation function: {agg}")
+    _validate_column(table, column)
+    for gb in group_by:
+        _validate_column(table, gb)
+    ref = _table_ref(table)
+    final = _table_final(table)
 
     agg_expr = f"{agg}({column})" if column != pk else "count()"
     group_cols = ", ".join(group_by)
@@ -294,11 +319,12 @@ def build_time_series_query(
     date_to: str | None = None,
 ) -> str:
     """Build a time-series query bucketed by date period."""
-    ref = _table_ref(table)
     if agg not in _ALLOWED_AGGS:
         raise ValueError(f"Disallowed aggregation function: {agg}")
-    if granularity not in _TIME_BUCKETS:
-        raise ValueError(f"Unknown granularity: {granularity}")
+    _validate_granularity(granularity)
+    _validate_column(table, measure_column)
+    _validate_column(table, date_column)
+    ref = _table_ref(table)
 
     bucket_fn = _TIME_BUCKETS[granularity]
     final = _table_final(table)

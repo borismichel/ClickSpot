@@ -7,7 +7,9 @@ class MeasureRequest(BaseModel):
     table: str
     column: str
     agg: str = "sum"
-    condition: str | None = None
+    # `condition` (raw SQL fragment) was removed for security — see app/engine/sql_builder.py
+    # comment block where build_conditional_measure_query used to live. Use the
+    # COMPUTED_METRICS registry for pre-defined conditional aggregates.
 
 
 class GroupedMeasureRequest(BaseModel):

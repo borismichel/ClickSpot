@@ -88,21 +88,16 @@ async def query(req: QueryRequest) -> QueryResponse:
                 possible=[], excluded=[]
             )
 
-    # Measures (with optional conditions)
+    # Measures (raw conditional aggregates were removed for security — use COMPUTED_METRICS)
     for m in req.measures:
         if m.table not in TABLES:
             continue
         pk = graph.primary_key(m.table)
         id_filter = reachable.get(m.table)
 
-        if m.condition:
-            sql = sql_builder.build_conditional_measure_query(
-                m.table, m.column, m.agg, m.condition, pk, id_filter
-            )
-        else:
-            sql = sql_builder.build_measure_query(
-                m.table, m.column, m.agg, pk, id_filter
-            )
+        sql = sql_builder.build_measure_query(
+            m.table, m.column, m.agg, pk, id_filter
+        )
         try:
             val = await async_query_value(sql)
             key = f"{m.table}.{m.column}.{m.agg}"
