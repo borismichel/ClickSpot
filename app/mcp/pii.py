@@ -111,7 +111,7 @@ def mask_text(value):
 
 
 def mask_email(value):
-    """'alice.anderson@example.com' -> 'b***.m***@m***.com'. TLD preserved verbatim."""
+    """'alice.anderson@example.com' -> 'a***.a***@e***.com'. TLD preserved verbatim."""
     if value is None:
         return None
     if not isinstance(value, str):
@@ -447,8 +447,8 @@ dictionary enums, IDs, dates, numeric metrics, and country are copied verbatim.
 
 Mask shape — every masked token is a fixed-width '***' so length cannot be
 inferred by counting characters:
-  text   'Alice Anderson'           -> 'B*** M***'
-  email  'alice.anderson@example.com'  -> 'b***.m***@m***.com'   (TLD preserved)
+  text   'Alice Anderson'         -> 'A*** A***'
+  email  'alice.anderson@example.com' -> 'a***.a***@e***.com'   (TLD preserved)
   phone  '+33 6 12 34 56 78'      -> '+*** *** *** *** *** ***'
                                       (each digit run collapsed to '***')
 

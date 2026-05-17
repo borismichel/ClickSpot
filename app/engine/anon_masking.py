@@ -5,8 +5,8 @@ form. Fixed-width `***` per token (not one asterisk per character) so the
 reader cannot guess the original length from the mask width.
 
 Semantics:
-- text:  `"Alice Anderson"` -> `"B*** M***"`   (per-word first char + `***`)
-- email: `"alice.anderson@example.com"` -> `"b***.m***@m***.com"` (per segment, TLD kept)
+- text:  `"Alice Anderson"` -> `"A*** A***"`   (per-word first char + `***`)
+- email: `"alice.anderson@example.com"` -> `"a***.a***@e***.com"` (per segment, TLD kept)
 - phone: `"+33 6 12 34 56 78"` -> `"+*** *** *** *** *** ***"` (digit runs -> `***`)
 
 Empty/NULL inputs round-trip unchanged.

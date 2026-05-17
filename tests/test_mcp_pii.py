@@ -23,7 +23,7 @@ class TestMaskText:
         assert mask_text("Boris") == "B***"
 
     def test_two_words(self):
-        assert mask_text("Alice Anderson") == "B*** M***"
+        assert mask_text("Alice Anderson") == "A*** A***"
 
     def test_multiple_words(self):
         assert mask_text("Jean Claude Van Damme") == "J*** C*** V*** D***"
@@ -56,7 +56,7 @@ class TestMaskText:
 class TestMaskEmail:
     def test_basic(self):
         # TLD "com" preserved; every other segment becomes first char + ***
-        assert mask_email("alice.anderson@example.com") == "b***.m***@m***.com"
+        assert mask_email("alice.anderson@example.com") == "a***.a***@e***.com"
 
     def test_multi_segment_domain(self):
         assert mask_email("b@foo.bar.co.uk") == "b***@f***.b***.c***.uk"
@@ -180,7 +180,7 @@ class TestApplyPrivacyColumnSelection:
         # url col appended at end
         assert cols[:2] == ["contact_id", "full_name"]
         assert rows[0][0] == "c1"
-        assert rows[0][1] == "B*** M***"
+        assert rows[0][1] == "A*** A***"
 
     def test_email_column_uses_mask_email(self):
         cols, rows = apply_privacy(
@@ -188,7 +188,7 @@ class TestApplyPrivacyColumnSelection:
             [["alice.anderson@example.com"]],
             hub_id=None,
         )
-        assert rows[0][0] == "b***.m***@m***.com"
+        assert rows[0][0] == "a***.a***@e***.com"
 
     def test_phone_column_uses_mask_phone(self):
         cols, rows = apply_privacy(
@@ -231,7 +231,7 @@ class TestApplyPrivacyColumnSelection:
             [["Alice Anderson"]],
             hub_id=None,
         )
-        assert rows[0] == ["B*** M***"]
+        assert rows[0] == ["A*** A***"]
 
     def test_aliased_pii_not_masked_documented_limitation(self):
         # `SELECT full_name AS customer` produces an output column named "customer",
@@ -250,7 +250,7 @@ class TestApplyPrivacyColumnSelection:
             [["Alice Anderson", "b@x.com", "+49 30"]],
             hub_id=None,
         )
-        assert rows[0][0] == "B*** M***"
+        assert rows[0][0] == "A*** A***"
         assert rows[0][1] == "b***@x***.com"  # TLD preserved; all other segments fixed-width ***
         assert rows[0][2] == "+*** ***"
 
@@ -398,7 +398,7 @@ class TestApplyPrivacyEdgeCases:
             hub_id="9999",
         )
         assert rows[0][0] == "C1"  # ID visible
-        assert rows[0][1] == "B*** M***"
+        assert rows[0][1] == "A*** A***"
         assert rows[0][2].endswith("/record/0-1/C1")
 
 

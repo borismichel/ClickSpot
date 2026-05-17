@@ -24,13 +24,13 @@ from app.mcp.pii import (
 
 class TestInferAndMask:
     def test_email_routed_to_email_mask(self):
-        assert _infer_and_mask("alice@example.com") == "b***@m***.com"
+        assert _infer_and_mask("alice@example.com") == "a***@e***.com"
 
     def test_phone_routed_to_phone_mask(self):
         assert _infer_and_mask("+33 6 12 34 56 78") == "+*** *** *** *** *** ***"
 
     def test_plain_text_routed_to_text_mask(self):
-        assert _infer_and_mask("Bob Builder") == "S*** G***"
+        assert _infer_and_mask("Bob Builder") == "B*** B***"
 
 
 # ---------------------------------------------------------------------------
@@ -89,20 +89,20 @@ class TestScrubByValues:
         rows = [["Bob Builder", "SQL"]]
         known = {"bob builder"}
         out = scrub_by_values(cols, rows, known)
-        assert out == [["S*** G***", "SQL"]]
+        assert out == [["B*** B***", "SQL"]]
 
     def test_case_insensitive_matching(self):
         out = scrub_by_values(
             ["x"], [["ALICE ANDERSON"]], {"alice anderson"},
         )
-        assert out == [["B*** M***"]]
+        assert out == [["A*** A***"]]
 
     def test_strips_whitespace_before_matching(self):
         out = scrub_by_values(
             ["x"], [["  Bob Builder  "]], {"bob builder"},
         )
         # Matched, masked text preserves original spacing
-        assert out[0][0].strip().startswith("S***")
+        assert out[0][0].strip().startswith("B***")
 
     def test_no_match_passes_through(self):
         cols = ["stage", "owner"]
@@ -133,7 +133,7 @@ class TestScrubByValues:
             ["x", "y"], [[None, "Bob Builder"]], {"bob builder"},
         )
         assert out[0][0] is None
-        assert out[0][1].startswith("S***")
+        assert out[0][1].startswith("B***")
 
     def test_non_string_cells_ignored(self):
         out = scrub_by_values(
@@ -141,7 +141,7 @@ class TestScrubByValues:
             {"bob builder", "1000"},
         )
         assert out[0][0] == 1000  # int passes through
-        assert out[0][1].startswith("S***")
+        assert out[0][1].startswith("B***")
 
     def test_does_not_mutate_inputs(self):
         rows_in = [["Bob Builder"]]
@@ -153,8 +153,8 @@ class TestScrubByValues:
         rows = [["Bob Builder"], ["Carol Carter"], ["Product Spec"]]
         known = {"bob builder", "carol carter"}
         out = scrub_by_values(cols, rows, known)
-        assert out[0][0].startswith("S***")
-        assert out[1][0].startswith("R***")
+        assert out[0][0].startswith("B***")
+        assert out[1][0].startswith("C***")
         assert out[2][0] == "Product Spec"
 
 
@@ -232,10 +232,10 @@ class TestFetchOwnerNames:
 
     def test_returns_lowercased_owner_names(self):
         client = _StubClient([
-            [["boris"], ["michel"], ["alice anderson"]],
+            [["alice"], ["anderson"], ["alice anderson"]],
         ])
         got = fetch_owner_names(client)
-        assert got == {"boris", "michel", "alice anderson"}
+        assert got == {"alice", "anderson", "alice anderson"}
 
     def test_cached_after_first_call(self):
         client = _StubClient([[["ada"]]])
@@ -274,4 +274,4 @@ class TestScrubRespectsOwnerExemption:
         out = scrub_by_values(cols, rows, effective)
 
         assert out[0][0] == "Alice Anderson"       # owner untouched
-        assert out[0][1].startswith("S***")      # lead masked
+        assert out[0][1].startswith("B***")      # lead masked
