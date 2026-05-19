@@ -22,6 +22,7 @@ import {
 } from "@ant-design/icons";
 import { useCustomerConfig } from "../../hooks/useCustomerConfig";
 import { useOnboardingStatus } from "../../hooks/useOnboardingStatus";
+import { api } from "../../lib/apiClient";
 
 interface Props {
   onSaved: () => void;
@@ -72,8 +73,8 @@ export function OnboardingTab({ onSaved }: Props) {
   const loadDropdowns = useCallback(async () => {
     try {
       const [pipeRes, amountRes] = await Promise.all([
-        fetch("/api/v1/onboarding/pipelines").then((r) => r.json()),
-        fetch("/api/v1/onboarding/amount-columns").then((r) => r.json()),
+        api.get<{ pipelines: string[] }>("/api/v1/onboarding/pipelines"),
+        api.get<{ columns: string[] }>("/api/v1/onboarding/amount-columns"),
       ]);
       setPipelines(pipeRes.pipelines || []);
       setAmountCols(amountRes.columns || ["amount"]);
@@ -120,9 +121,10 @@ export function OnboardingTab({ onSaved }: Props) {
   const handleDiscover = async () => {
     setDiscovering(true);
     try {
-      const res = await fetch("/api/v1/onboarding/discover", { method: "POST" });
-      const data = await res.json();
-      const preview = data.merge_preview || {};
+      const data = await api.post<{ merge_preview?: Record<string, unknown> }>(
+        "/api/v1/onboarding/discover",
+      );
+      const preview = (data.merge_preview as Partial<typeof config>) || {};
       await update(preview);
       message.success("Discovered values applied (existing operator choices preserved)");
       await refreshConfig();

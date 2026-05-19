@@ -10,6 +10,7 @@ import { AIProviderTab } from "../components/settings/AIProviderTab";
 import { MCPTab } from "../components/settings/MCPTab";
 import { ArchitectureTab } from "../components/settings/ArchitectureTab";
 import { useCustomerConfig } from "../hooks/useCustomerConfig";
+import { api } from "../lib/apiClient";
 
 const { Header, Content } = Layout;
 
@@ -48,19 +49,11 @@ export default function SettingsPage() {
   const handleReload = async () => {
     setReloading(true);
     try {
-      const res = await fetch("/api/v1/extraction/reload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_bronze: runBronze }),
+      const data = await api.post<{ run_launched?: boolean }>("/api/v1/extraction/reload", {
+        run_bronze: runBronze,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || "Reload failed");
-      }
       message.success(
-        data.run_launched
-          ? "Dagster reloaded. Bronze job launched."
-          : "Dagster reloaded.",
+        data.run_launched ? "Dagster reloaded. Bronze job launched." : "Dagster reloaded.",
       );
       setPendingReload(false);
     } catch (e) {

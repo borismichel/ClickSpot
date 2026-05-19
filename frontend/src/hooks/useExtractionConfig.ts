@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { ObjectsState } from "../lib/extractionRules";
+import { api } from "../lib/apiClient";
 
 export interface ExtractionView {
   config: {
@@ -26,9 +27,7 @@ export function useExtractionConfig() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/extraction");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setView(await res.json());
+      setView(await api.get<ExtractionView>("/api/v1/extraction"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -42,18 +41,9 @@ export function useExtractionConfig() {
 
   const save = useCallback(
     async (body: { objects: ObjectsState; silver_properties: ExtractionView["config"]["silver_properties"] }) => {
-      const res = await fetch("/api/v1/extraction", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await api.put<ExtractionView>("/api/v1/extraction", body);
       setView(data);
-      return data as ExtractionView;
+      return data;
     },
     [],
   );

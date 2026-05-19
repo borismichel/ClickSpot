@@ -15,6 +15,7 @@ import {
 } from "antd";
 import { ReloadOutlined, LockOutlined, WarningOutlined } from "@ant-design/icons";
 import { useExtractionConfig } from "../../hooks/useExtractionConfig";
+import { api } from "../../lib/apiClient";
 
 interface Props {
   onSaved: () => void;
@@ -80,9 +81,7 @@ export function PropertyPickerPanel({ onSaved }: Props) {
   const loadProperties = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/extraction/properties/${objectType}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: PropertyResponse = await res.json();
+      const json = await api.get<PropertyResponse>(`/api/v1/extraction/properties/${objectType}`);
       setData(json);
       // Initialize draft state from current extras/removed for this dim
       const extras = view?.config.silver_properties?.[json.dim_name]?.extra || [];

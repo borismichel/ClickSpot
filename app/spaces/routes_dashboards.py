@@ -1,0 +1,205 @@
+"""Space-scoped dashboard CRUD, items, and layouts.
+
+Lifted out of app/spaces/routes.py.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from app.spaces.registry import get_space
+
+log = logging.getLogger("app.spaces.routes.dashboards")
+
+router = APIRouter()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@router.get("/{space_id}/dashboards")
+async def api_list_space_dashboards(space_id: str):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM space_dashboards WHERE space_id = ? ORDER BY updated_at DESC",
+            (space_id,),
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            data = await _get_space_dashboard(db, row["id"])
+            if data:
+                results.append(data)
+        return results
+    finally:
+        await db.close()
+
+
+@router.post("/{space_id}/dashboards", status_code=201)
+async def api_create_space_dashboard(space_id: str, req: CreateSpaceDashboardRequest):
+    from app.store import get_db
+    config = get_space(space_id)
+    if not config:
+        raise HTTPException(404, f"Data space '{space_id}' not found")
+
+    db = await get_db()
+    try:
+        now = _now()
+        dash_id = f"sdash-{uuid4().hex[:12]}"
+        await db.execute(
+            "INSERT INTO space_dashboards (id, space_id, title, pinned_columns, filters, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (dash_id, space_id, req.title, "[]", "[]", now, now),
+        )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()
+
+
+@router.get("/{space_id}/dashboards/{dash_id}")
+async def api_get_space_dashboard(space_id: str, dash_id: str):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        data = await _get_space_dashboard(db, dash_id)
+        if not data or data["space_id"] != space_id:
+            raise HTTPException(404, "Dashboard not found")
+        return data
+    finally:
+        await db.close()
+
+
+@router.put("/{space_id}/dashboards/{dash_id}")
+async def api_update_space_dashboard(space_id: str, dash_id: str, req: UpdateSpaceDashboardRequest):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM space_dashboards WHERE id = ? AND space_id = ?",
+            (dash_id, space_id),
+        )
+        dash = await cursor.fetchone()
+        if not dash:
+            raise HTTPException(404, "Dashboard not found")
+
+        now = _now()
+        title = req.title if req.title is not None else dash["title"]
+        pinned = json.dumps(req.pinned_columns) if req.pinned_columns is not None else dash["pinned_columns"]
+        filters = json.dumps(req.filters) if req.filters is not None else dash["filters"]
+
+        await db.execute(
+            "UPDATE space_dashboards SET title = ?, pinned_columns = ?, filters = ?, updated_at = ? WHERE id = ?",
+            (title, pinned, filters, now, dash_id),
+        )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()
+
+
+@router.delete("/{space_id}/dashboards/{dash_id}")
+async def api_delete_space_dashboard(space_id: str, dash_id: str):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM space_dashboards WHERE id = ? AND space_id = ?",
+            (dash_id, space_id),
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "Dashboard not found")
+        return {"deleted": dash_id}
+    finally:
+        await db.close()
+
+
+@router.post("/{space_id}/dashboards/{dash_id}/items", status_code=201)
+async def api_add_space_dash_item(space_id: str, dash_id: str, req: AddSpaceDashItemRequest):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id FROM space_dashboards WHERE id = ? AND space_id = ?",
+            (dash_id, space_id),
+        )
+        if not await cursor.fetchone():
+            raise HTTPException(404, "Dashboard not found")
+
+        # Auto-position
+        cursor = await db.execute(
+            "SELECT COALESCE(MAX(layout_y + layout_h), 0) AS max_y, COUNT(*) AS cnt "
+            "FROM space_dashboard_items WHERE dashboard_id = ?",
+            (dash_id,),
+        )
+        row = await cursor.fetchone()
+        max_y = row["max_y"]
+        cnt = row["cnt"]
+        col = (cnt % 3) * 4
+
+        now = _now()
+        item_id = f"sitem-{uuid4().hex[:12]}"
+        await db.execute(
+            "INSERT INTO space_dashboard_items "
+            "(id, dashboard_id, title, sql, viz, context_kpis, layout_x, layout_y, layout_w, layout_h, sort_order) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (item_id, dash_id, req.title, req.sql, req.viz, json.dumps(req.context_kpis), col, max_y, 4, 4, cnt),
+        )
+        await db.execute(
+            "UPDATE space_dashboards SET updated_at = ? WHERE id = ?", (now, dash_id)
+        )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()
+
+
+@router.delete("/{space_id}/dashboards/{dash_id}/items/{item_id}")
+async def api_remove_space_dash_item(space_id: str, dash_id: str, item_id: str):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM space_dashboard_items WHERE id = ? AND dashboard_id = ?",
+            (item_id, dash_id),
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "Item not found")
+        await db.execute(
+            "UPDATE space_dashboards SET updated_at = ? WHERE id = ?", (_now(), dash_id)
+        )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()
+
+
+@router.put("/{space_id}/dashboards/{dash_id}/layouts")
+async def api_update_space_layouts(space_id: str, dash_id: str, req: UpdateSpaceLayoutsRequest):
+    from app.store import get_db
+    db = await get_db()
+    try:
+        for layout in req.layouts:
+            await db.execute(
+                "UPDATE space_dashboard_items SET layout_x = ?, layout_y = ?, layout_w = ?, layout_h = ? "
+                "WHERE id = ? AND dashboard_id = ?",
+                (layout.x, layout.y, layout.w, layout.h, layout.item_id, dash_id),
+            )
+        await db.execute(
+            "UPDATE space_dashboards SET updated_at = ? WHERE id = ?", (_now(), dash_id)
+        )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()

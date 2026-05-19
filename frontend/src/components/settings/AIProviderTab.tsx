@@ -17,6 +17,7 @@ import {
   CloseCircleOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
+import { api } from "../../lib/apiClient";
 
 interface ProviderInfo {
   id: string;
@@ -52,9 +53,7 @@ export function AIProviderTab() {
 
   const loadOAuthStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/oauth/status");
-      const data = await res.json();
-      setOAuthStatus(data);
+      setOAuthStatus(await api.get<OAuthStatus>("/api/v1/oauth/status"));
     } catch {
       setOAuthStatus(null);
     }
@@ -62,8 +61,8 @@ export function AIProviderTab() {
 
   const loadAll = useCallback(() => {
     Promise.all([
-      fetch("/api/v1/settings").then((r) => r.json()),
-      fetch("/api/v1/settings/providers").then((r) => r.json()),
+      api.get<Record<string, string>>("/api/v1/settings"),
+      api.get<{ providers: ProviderInfo[] }>("/api/v1/settings/providers"),
     ])
       .then(([settings, providerData]) => {
         form.setFieldsValue(settings);
@@ -82,14 +81,10 @@ export function AIProviderTab() {
     const values = form.getFieldsValue();
     setSaving(true);
     try {
-      await fetch("/api/v1/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
+      await api.put("/api/v1/settings", values);
       message.success("AI provider settings saved");
-    } catch {
-      message.error("Failed to save");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -99,21 +94,13 @@ export function AIProviderTab() {
     if (!oauthToken.trim()) return;
     setSavingOAuth(true);
     try {
-      const res = await fetch("/api/v1/oauth/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: oauthToken.trim() }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || "Failed to save token");
-      }
+      await api.post("/api/v1/oauth/save", { access_token: oauthToken.trim() });
       message.success("OAuth token saved");
       setOAuthToken("");
       setSelectedProvider("claude-oauth");
       form.setFieldValue("ai_provider", "claude-oauth");
       await loadOAuthStatus();
-      const providerData = await fetch("/api/v1/settings/providers").then((r) => r.json());
+      const providerData = await api.get<{ providers: ProviderInfo[] }>("/api/v1/settings/providers");
       setProviders(providerData.providers || []);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "Failed to save token");
@@ -124,27 +111,26 @@ export function AIProviderTab() {
 
   const handleDisconnectOAuth = async () => {
     try {
-      await fetch("/api/v1/oauth/logout", { method: "POST" });
+      await api.post("/api/v1/oauth/logout");
       message.success("OAuth disconnected");
       setOAuthStatus({ authenticated: false, expires_at: null });
-      const providerData = await fetch("/api/v1/settings/providers").then((r) => r.json());
+      const providerData = await api.get<{ providers: ProviderInfo[] }>("/api/v1/settings/providers");
       setProviders(providerData.providers || []);
-      const settings = await fetch("/api/v1/settings").then((r) => r.json());
+      const settings = await api.get<Record<string, string>>("/api/v1/settings");
       setSelectedProvider(settings.ai_provider || "auto");
       form.setFieldValue("ai_provider", settings.ai_provider || "auto");
-    } catch {
-      message.error("Failed to disconnect");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "Failed to disconnect");
     }
   };
 
   const handleRefreshSchema = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/v1/schema/refresh", { method: "POST" });
-      const data = await res.json();
+      const data = await api.post<{ tables: number }>("/api/v1/schema/refresh");
       message.success(`Schema refreshed (${data.tables} tables)`);
-    } catch {
-      message.error("Schema refresh failed");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "Schema refresh failed");
     } finally {
       setRefreshing(false);
     }

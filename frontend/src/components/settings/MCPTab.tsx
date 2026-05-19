@@ -9,6 +9,7 @@ import {
   Table,
   message,
 } from "antd";
+import { api } from "../../lib/apiClient";
 import {
   CheckCircleFilled,
   CloseCircleFilled,
@@ -64,13 +65,13 @@ export function MCPTab() {
     setLoading(true);
     try {
       const [s, c] = await Promise.all([
-        fetch("/api/v1/mcp/status").then((r) => r.json()),
-        fetch("/api/v1/mcp/claude-desktop-config").then((r) => r.json()),
+        api.get<MCPStatus>("/api/v1/mcp/status"),
+        api.get<ClaudeConfigResponse>("/api/v1/mcp/claude-desktop-config"),
       ]);
       setStatus(s);
       setConfig(c);
-    } catch {
-      message.error("Failed to load MCP status");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "Failed to load MCP status");
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { api } from "../lib/apiClient";
 
 export interface OnboardingStatus {
   env: {
@@ -19,9 +20,7 @@ export function useOnboardingStatus() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/onboarding/status");
-      const data = await res.json();
-      setStatus(data);
+      setStatus(await api.get<OnboardingStatus>("/api/v1/onboarding/status"));
     } catch {
       setStatus(null);
     } finally {

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.chat_routes import router as chat_router
+from app.api.llm_routes import router as llm_router
 from app.api.data_routes import router as data_router
 from app.api.object_routes import router as object_router
 from app.api.dashboard_routes import router as dashboard_router
@@ -89,6 +90,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(chat_router)
+app.include_router(llm_router)
 app.include_router(data_router)
 app.include_router(object_router)
 app.include_router(dashboard_router)

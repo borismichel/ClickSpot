@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { api } from "../lib/apiClient";
 
 export interface ExtractionObjects {
   contacts?: boolean;
@@ -56,10 +57,7 @@ export function useCustomerConfig() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/customer-config");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setConfig(data);
+      setConfig(await api.get<CustomerConfig>("/api/v1/customer-config"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -71,23 +69,11 @@ export function useCustomerConfig() {
     refresh();
   }, [refresh]);
 
-  const update = useCallback(
-    async (patch: Partial<CustomerConfig>) => {
-      const res = await fetch("/api/v1/customer-config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setConfig(data);
-      return data as CustomerConfig;
-    },
-    [],
-  );
+  const update = useCallback(async (patch: Partial<CustomerConfig>) => {
+    const data = await api.put<CustomerConfig>("/api/v1/customer-config", patch);
+    setConfig(data);
+    return data;
+  }, []);
 
   return { config, loading, error, refresh, update };
 }
