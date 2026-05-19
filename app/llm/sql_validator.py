@@ -4,19 +4,23 @@ import re
 
 from app.config import TABLES
 from app.engine.sql_builder import _table_ref
+from silver_config import BRIDGE_TABLES as _SILVER_BRIDGE_TABLES
 
 # Build allowed table references: {"silver.dim_deals", "gold.agg_rep_performance", ...}
 ALLOWED_TABLES = set()
 for table_name in TABLES:
     ALLOWED_TABLES.add(_table_ref(table_name))
 
-# Bridge tables are also queryable
-_BRIDGE_TABLES = [
-    "bridge_contact_company", "bridge_contact_deal", "bridge_deal_company",
-    "bridge_lead_contact", "bridge_deal_lead", "bridge_lead_company",
+# Bridge tables are also queryable. The simple CRM↔CRM and Lists↔CRM bridges
+# live in silver_config.BRIDGE_TABLES — derive from there so new bridges show
+# up automatically. The three activity bridges are hand-rolled UNION assets
+# (see assets/silver/bridges.py) and not in BRIDGE_TABLES, so list them here.
+_HANDROLLED_BRIDGES = [
     "bridge_activity_contact", "bridge_activity_company", "bridge_activity_deal",
 ]
-for bt in _BRIDGE_TABLES:
+for silver_table, *_ in _SILVER_BRIDGE_TABLES:
+    ALLOWED_TABLES.add(f"silver.{silver_table}")
+for bt in _HANDROLLED_BRIDGES:
     ALLOWED_TABLES.add(f"silver.{bt}")
 
 # Forbidden keywords (case-insensitive) — mutation, DDL, server control, batch ingest.
