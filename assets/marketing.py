@@ -124,7 +124,7 @@ def _fetch_list_memberships_for_object_type(
     list_ids = [row[0] for row in res.result_rows]
     written = 0
     skipped = 0
-    for list_id in list_ids:
+    for idx, list_id in enumerate(list_ids):
         try:
             for batch in hubspot.fetch_list_memberships(list_id):
                 rows = [
@@ -135,6 +135,20 @@ def _fetch_list_memberships_for_object_type(
                 written += ch.insert_association_records(bronze_table, rows)
         except _requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "?"
+            body = e.response.text if e.response is not None else ""
+            # Portal-wide rejection: HubSpot says this objectTypeId isn't valid
+            # for lists in this portal at all. Every remaining list of this
+            # type will hit the same 400 — short-circuit instead of hammering.
+            if status == 400 and "INVALID_OBJECT_TYPE_FOR_LIST" in body:
+                remaining = len(list_ids) - idx
+                if log is not None:
+                    log.warning(
+                        f"Portal does not support objectTypeId={object_type_id} for lists "
+                        f"(ListError.INVALID_OBJECT_TYPE_FOR_LIST). Skipping all {remaining} "
+                        f"remaining list(s) of this type. HubSpot: {body[:300]}"
+                    )
+                skipped += remaining
+                break
             if log is not None:
                 log.warning(
                     f"Skipping list {list_id} for objectTypeId={object_type_id}: "
