@@ -6,6 +6,9 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import { OnboardingTab } from "../components/settings/OnboardingTab";
 import { ExtractionTab } from "../components/settings/ExtractionTab";
 import { PropertyTab } from "../components/settings/PropertyTab";
+import { AIProviderTab } from "../components/settings/AIProviderTab";
+import { MCPTab } from "../components/settings/MCPTab";
+import { ArchitectureTab } from "../components/settings/ArchitectureTab";
 import { useCustomerConfig } from "../hooks/useCustomerConfig";
 
 const { Header, Content } = Layout;
@@ -137,6 +140,21 @@ export default function SettingsPage() {
                 key: "properties",
                 label: "Properties",
                 children: <PropertyTab onSaved={onMarkDirty} />,
+              },
+              {
+                key: "ai",
+                label: "AI Provider",
+                children: <AIProviderTab />,
+              },
+              {
+                key: "mcp",
+                label: "MCP",
+                children: <MCPTab />,
+              },
+              {
+                key: "architecture",
+                label: "Architecture",
+                children: <ArchitectureTab />,
               },
             ]}
           />

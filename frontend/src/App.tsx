@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Layout, Button, Space } from "antd";
-import { SettingOutlined, ApartmentOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined, ClusterOutlined } from "@ant-design/icons";
+import { SettingOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined, ClusterOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
@@ -8,7 +8,6 @@ import { useConversations } from "./hooks/useConversations";
 import { useObjectRepo } from "./hooks/useObjectRepo";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { ConversationSidebar } from "./components/ConversationSidebar";
-import { SettingsDrawer } from "./components/settings/SettingsDrawer";
 
 const { Header, Sider, Content } = Layout;
 
@@ -25,7 +24,6 @@ export default function App() {
     deleteConversation,
   } = useConversations();
   const { addObject } = useObjectRepo();
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Save conversation whenever messages change (debounced by effect)
   useEffect(() => {
@@ -94,25 +92,10 @@ export default function App() {
           </Button>
           <Button
             type="text"
-            icon={<ApartmentOutlined />}
-            onClick={() => navigate("/architecture")}
-          >
-            Architecture
-          </Button>
-          <Button
-            type="text"
             icon={<SettingOutlined />}
             onClick={() => navigate("/settings")}
           >
             Settings
-          </Button>
-          <Button
-            type="text"
-            size="small"
-            onClick={() => setSettingsOpen(true)}
-            title="AI Provider settings"
-          >
-            AI
           </Button>
         </Space>
       </Header>
@@ -152,7 +135,6 @@ export default function App() {
         </Content>
       </Layout>
 
-      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Layout>
   );
 }
