@@ -28,7 +28,14 @@ dev = ["pytest", "pytest-mock"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["assets*", "resources*"]
+include = ["app*", "assets*", "resources*"]
+
+# Top-level Python modules (not in any package). Required so the MCP server,
+# which transitively imports silver_config via app.config, can be spawned from
+# any cwd (e.g. Claude Desktop, which doesn't reliably honor the `cwd` field
+# in its mcpServers config).
+[tool.setuptools]
+py-modules = ["silver_config", "definitions", "jobs", "schedules", "sensors"]
 
 [tool.dagster]
 module_name = "definitions"

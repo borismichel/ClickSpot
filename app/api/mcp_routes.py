@@ -119,6 +119,13 @@ def claude_desktop_config() -> dict[str, Any]:
         v = os.environ.get(k)
         if v:
             env_passthrough[k] = v
+    # Claude Desktop's `cwd` field is unreliable across versions, and even when
+    # honored, `python -m app.mcp.server` only works if `app` is importable.
+    # Setting PYTHONPATH explicitly guarantees the package is found regardless
+    # of cwd. (pyproject.toml also declares `app*` + the root .py modules so
+    # `pip install -e .` makes them importable site-wide — this PYTHONPATH is
+    # a belt-and-suspenders fallback for users who haven't reinstalled.)
+    env_passthrough["PYTHONPATH"] = project_root
 
     return {
         "config": {
