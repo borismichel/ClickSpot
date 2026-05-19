@@ -67,6 +67,51 @@ def save(cfg: dict[str, Any]) -> None:
     tmp.replace(CONFIG_FILE)
 
 
+def discover_amount_columns(ch_silver) -> list[str]:
+    """Return silver.dim_deals columns that look revenue-shaped.
+
+    Used by the onboarding CLI and the browser onboarding tab so both share one
+    detection heuristic. Errors return ['amount'] (the HubSpot default that
+    every portal has).
+    """
+    try:
+        rows = ch_silver.query(
+            "SELECT name FROM system.columns WHERE database = 'silver' AND table = 'dim_deals' ORDER BY name"
+        ).result_rows
+        candidates = []
+        for (name,) in rows:
+            low = name.lower()
+            if any(token in low for token in ("amount", "arr", "tcv", "mrr", "revenue", "acv", "value", "price")):
+                candidates.append(name)
+        candidates.sort(key=lambda n: (n != "amount", n))
+        return candidates or ["amount"]
+    except Exception as e:
+        log.warning("discover_amount_columns failed: %s", e)
+        return ["amount"]
+
+
+def is_complete(cfg: dict[str, Any]) -> tuple[bool, list[str]]:
+    """Return (complete, missing_keys) — what the onboarding wizard considers required.
+
+    Rules per key:
+      - company_name: must be set AND not still at the shipped placeholder
+        "ClickSpot Demo" (that placeholder means the operator never customized it).
+      - main_pipeline: must be non-empty (default is None, so any truthy value counts).
+      - canonical_amount_col: must be non-empty. The default value "amount" is the
+        canonical HubSpot field name and is a valid real choice — don't flag it as
+        missing just because it matches DEFAULTS.
+    """
+    missing: list[str] = []
+    company_name = (cfg.get("company_name") or "").strip()
+    if not company_name or company_name == DEFAULTS["company_name"]:
+        missing.append("company_name")
+    if not (cfg.get("main_pipeline") or "").strip():
+        missing.append("main_pipeline")
+    if not (cfg.get("canonical_amount_col") or "").strip():
+        missing.append("canonical_amount_col")
+    return (len(missing) == 0, missing)
+
+
 def auto_discover(ch_silver) -> dict[str, Any]:
     """Inspect silver tables to derive portal-specific values.
 

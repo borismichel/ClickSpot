@@ -3,18 +3,78 @@
 # (silver_column_name, bronze_property_key, clickhouse_type)
 # To add a property: add a tuple. To remove: delete the tuple.
 #
-# Per-portal custom properties live in a sibling file `silver_config_custom.py`
-# (gitignored). If it exists, its EXTRA_DIM_DEALS and EXTRA_DIM_CONTACTS lists
-# are appended to the core column sets. A fresh clone has none of these.
+# Two extension paths:
+#   1. NEW (preferred): per-portal extras + removals live in
+#      ~/.clickspot/customer.json under extraction.silver_properties.<dim>.
+#      The Settings → Properties tab edits this. See app/customer/extraction.py.
+#   2. LEGACY: a sibling file `silver_config_custom.py` (gitignored). If it
+#      exists, its EXTRA_DIM_DEALS / EXTRA_DIM_CONTACTS lists are appended for
+#      one release of backward compatibility (with a deprecation warning).
 
-try:
-    from silver_config_custom import EXTRA_DIM_DEALS as _EXTRA_DIM_DEALS  # type: ignore[import]
-except ImportError:
-    _EXTRA_DIM_DEALS: list = []
-try:
-    from silver_config_custom import EXTRA_DIM_CONTACTS as _EXTRA_DIM_CONTACTS  # type: ignore[import]
-except ImportError:
-    _EXTRA_DIM_CONTACTS: list = []
+import logging as _logging
+_log = _logging.getLogger("silver_config")
+
+
+def _load_legacy_extras():
+    legacy_deals: list = []
+    legacy_contacts: list = []
+    try:
+        from silver_config_custom import EXTRA_DIM_DEALS as legacy_deals  # type: ignore[import]
+        _log.warning(
+            "silver_config_custom.py is deprecated. Migrate EXTRA_DIM_DEALS to "
+            "the Settings → Properties tab (writes to ~/.clickspot/customer.json)."
+        )
+    except ImportError:
+        pass
+    try:
+        from silver_config_custom import EXTRA_DIM_CONTACTS as legacy_contacts  # type: ignore[import]
+        _log.warning(
+            "silver_config_custom.py is deprecated. Migrate EXTRA_DIM_CONTACTS to "
+            "the Settings → Properties tab."
+        )
+    except ImportError:
+        pass
+    return list(legacy_deals), list(legacy_contacts)
+
+
+_LEGACY_DEALS, _LEGACY_CONTACTS = _load_legacy_extras()
+
+
+def _user_extras(dim_name: str):
+    """Look up extras + removed-property-keys for a dim from customer.json.
+
+    Falls back to empty lists if app.customer.extraction can't be imported
+    (e.g. during early Dagster bootstrap before app/ is on sys.path).
+    """
+    try:
+        from app.customer import extraction
+        extras, removed = extraction.get_silver_column_overrides(dim_name)
+        return extras, set(removed)
+    except Exception:
+        return [], set()
+
+
+def _compose_columns(core: list, dim_name: str, legacy: list) -> list:
+    """Merge core silver columns with user extras and apply removals.
+
+    Order: core (with removals applied) → legacy (deprecated) → user extras.
+    Duplicate column names from extras silently overwrite earlier entries.
+    """
+    extras, removed = _user_extras(dim_name)
+    out = [t for t in core if t[0] not in removed]
+    out += legacy
+    seen = {t[0] for t in out}
+    for tup in extras:
+        if tup[0] in seen:
+            # Replace existing entry with the user-supplied one
+            out = [(c, p, ty) for c, p, ty in out if c != tup[0]]
+        out.append(tup)
+        seen.add(tup[0])
+    return out
+
+
+_EXTRA_DIM_DEALS: list = []  # placeholder; actual merge happens via _compose_columns below
+_EXTRA_DIM_CONTACTS: list = []
 
 DIM_CONTACTS = {
     "bronze_table": "hs_contacts",
@@ -77,8 +137,9 @@ DIM_CONTACTS = {
         ("hubspot_owner_id",                          "hubspot_owner_id",                          "String"),
         ("hubspot_owner_assigneddate",                "hubspot_owner_assigneddate",                "DateTime"),
         ("recent_deal_close_date",                    "recent_deal_close_date",                    "DateTime"),
-    ] + _EXTRA_DIM_CONTACTS,
+    ],
 }
+DIM_CONTACTS["columns"] = _compose_columns(DIM_CONTACTS["columns"], "dim_contacts", _LEGACY_CONTACTS)
 
 DIM_COMPANIES = {
     "bronze_table": "hs_companies",
@@ -134,6 +195,7 @@ DIM_COMPANIES = {
         ("hubspot_owner_assigneddate",           "hubspot_owner_assigneddate",           "DateTime"),
     ],
 }
+DIM_COMPANIES["columns"] = _compose_columns(DIM_COMPANIES["columns"], "dim_companies", [])
 
 DIM_DEALS = {
     "bronze_table": "hs_deals",
@@ -200,8 +262,9 @@ DIM_DEALS = {
         ("hs_notes_next_activity_type",       "hs_notes_next_activity_type",       "LowCardinality(String)"),
         # Owner
         ("hubspot_owner_assigneddate",        "hubspot_owner_assigneddate",        "DateTime"),
-    ] + _EXTRA_DIM_DEALS,
+    ],
 }
+DIM_DEALS["columns"] = _compose_columns(DIM_DEALS["columns"], "dim_deals", _LEGACY_DEALS)
 
 DIM_LEADS = {
     "bronze_table": "hs_leads",
@@ -253,6 +316,7 @@ DIM_LEADS = {
         ("createdate",                    "hs_createdate",                 "DateTime"),
     ],
 }
+DIM_LEADS["columns"] = _compose_columns(DIM_LEADS["columns"], "dim_leads", [])
 
 # Owners -- flat structure from /crm/v3/owners (no properties map)
 DIM_OWNERS = {

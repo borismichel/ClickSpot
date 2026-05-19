@@ -3,6 +3,7 @@
 from dagster import asset, AssetExecutionContext, AssetKey, MaterializeResult, MetadataValue
 
 from resources.clickhouse import ClickHouseResource
+from app.customer import extraction as _ext
 
 
 def _swap_gold_table(ch: ClickHouseResource, table: str, log):
@@ -496,16 +497,42 @@ PARTITION BY toYYYYMM(cohort_month)
 ORDER BY (cohort_month, pipeline, deal_origin)
 """.strip())
 
+    # deal_origin is portal-specific. Probe which optional origin-signal columns
+    # exist in silver.dim_deals — these come from per-portal HubSpot properties
+    # added via Settings → Properties (or the legacy silver_config_custom.py).
+    # On a fresh install neither column exists, so the expression collapses to a
+    # constant 'other'. On portals that have one or both, multiIf picks the
+    # first non-empty signal.
+    available_cols = set()
+    try:
+        cols_result = ch_gold.execute_sql(
+            "SELECT groupArray(name) FROM system.columns "
+            "WHERE database = 'silver' AND table = 'dim_deals'"
+        )
+        if cols_result:
+            # execute_sql returns the array as a string repr for `command`; parse defensively
+            raw = str(cols_result).strip("[]").replace("'", "")
+            available_cols = {c.strip() for c in raw.split(",") if c.strip()}
+    except Exception as e:
+        context.log.warning(f"Could not introspect dim_deals columns: {e}")
+
+    origin_clauses = []
+    if "renewal" in available_cols:
+        origin_clauses.append("renewal != '', 'renewal'")
+    if "new_logo" in available_cols:
+        origin_clauses.append("new_logo != '', 'new_logo'")
+    if origin_clauses:
+        deal_origin_expr = "multiIf(\n        " + ",\n        ".join(origin_clauses) + ",\n        'other'\n    )"
+    else:
+        deal_origin_expr = "'other'"
+    context.log.info(f"agg_deal_cohorts deal_origin expression: {deal_origin_expr}")
+
     ch_gold.execute_sql(f"""
 INSERT INTO gold.{tmp}
 SELECT
     toStartOfMonth(createdate) AS cohort_month,
     pipeline,
-    multiIf(
-        renewal != '', 'renewal',
-        new_logo != '', 'new_logo',
-        'other'
-    ) AS deal_origin,
+    {deal_origin_expr} AS deal_origin,
     count() AS deals_created,
     countIf(hs_is_closed_won = 'true') AS deals_won,
     countIf(hs_is_closed = 'true' AND hs_is_closed_won != 'true') AS deals_lost,
@@ -589,12 +616,20 @@ GROUP BY pipeline
 # Export
 # ---------------------------------------------------------------------------
 
-all_gold_assets = [
-    agg_deal_stage_funnel,
-    agg_deal_health,
-    agg_rep_performance,
-    agg_source_attribution,
-    agg_lead_health,
-    agg_deal_cohorts,
-    fact_pipeline_snapshots,
-]
+_ALL_GOLD_ASSET_MAP = {
+    "agg_deal_stage_funnel": agg_deal_stage_funnel,
+    "agg_deal_health": agg_deal_health,
+    "agg_rep_performance": agg_rep_performance,
+    "agg_source_attribution": agg_source_attribution,
+    "agg_lead_health": agg_lead_health,
+    "agg_deal_cohorts": agg_deal_cohorts,
+    "fact_pipeline_snapshots": fact_pipeline_snapshots,
+}
+
+
+def _build_gold_assets():
+    enabled = _ext.get_enabled_gold_tables()
+    return [a for name, a in _ALL_GOLD_ASSET_MAP.items() if name in enabled]
+
+
+all_gold_assets = _build_gold_assets()

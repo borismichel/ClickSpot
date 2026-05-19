@@ -11,6 +11,8 @@ from app.api.data_routes import router as data_router
 from app.api.object_routes import router as object_router
 from app.api.dashboard_routes import router as dashboard_router
 from app.api.conversation_routes import router as conversation_router
+from app.api.onboarding_routes import router as onboarding_router
+from app.api.extraction_routes import router as extraction_router
 from app.spaces.routes import router as spaces_router
 
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +46,13 @@ async def lifespan(app: FastAPI):
                 log.info("Auto-discovered customer config from silver: %s", sorted(set(merged) - set(k for k in merged if cfg.get(k) == merged[k])))
     except Exception as e:
         log.warning(f"Customer config auto-discover skipped: {e}")
+
+    # Log extraction summary so operators can sanity-check the enabled set
+    try:
+        from app.customer import extraction
+        log.info(extraction.summary())
+    except Exception as e:
+        log.warning(f"Extraction summary skipped: {e}")
     yield
 
 
@@ -83,6 +92,8 @@ app.include_router(data_router)
 app.include_router(object_router)
 app.include_router(dashboard_router)
 app.include_router(conversation_router)
+app.include_router(onboarding_router)
+app.include_router(extraction_router)
 app.include_router(spaces_router)
 
 

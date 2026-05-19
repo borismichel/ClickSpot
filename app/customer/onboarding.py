@@ -77,22 +77,10 @@ def _confirm(prompt: str, default: bool = True) -> bool:
 
 
 def _discover_amount_columns(client) -> list[str]:
-    """Returns dim_deals columns that look revenue-shaped (amount, arr, tcv, mrr, revenue, ACV)."""
-    try:
-        rows = client.query(
-            "SELECT name FROM system.columns WHERE database = 'silver' AND table = 'dim_deals' ORDER BY name"
-        ).result_rows
-        candidates = []
-        for (name,) in rows:
-            low = name.lower()
-            if any(token in low for token in ("amount", "arr", "tcv", "mrr", "revenue", "acv", "value", "price")):
-                candidates.append(name)
-        # Make sure 'amount' (the HubSpot default) comes first
-        candidates.sort(key=lambda n: (n != "amount", n))
-        return candidates
-    except Exception as e:
-        log.warning("Could not discover amount columns: %s", e)
-        return ["amount"]
+    """Returns dim_deals columns that look revenue-shaped. Thin wrapper around the
+    shared discovery helper in app.customer.config so the browser onboarding tab
+    and this CLI stay in lockstep."""
+    return cc.discover_amount_columns(client)
 
 
 def run() -> int:
@@ -102,6 +90,9 @@ def run() -> int:
     print("=" * 70)
     print("ClickSpot — first-time portal setup")
     print("=" * 70)
+    print("Note: the browser Settings page at http://localhost:8193/settings now")
+    print("offers the same flow. This CLI remains for headless installs.")
+    print()
 
     # ---- Step 1: env vars
     token = os.environ.get("HUBSPOT_TOKEN", "").strip()

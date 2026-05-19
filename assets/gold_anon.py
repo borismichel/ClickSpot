@@ -7,6 +7,7 @@ Purely additive — the main gold pipeline is unaffected if this job fails.
 from dagster import asset, AssetExecutionContext, AssetKey, MaterializeResult, MetadataValue
 
 from app.engine.anon_masking import mask_column
+from app.customer import extraction as _ext
 from resources.clickhouse import ClickHouseResource
 from silver_config import ANON_PII_COLUMNS
 
@@ -118,4 +119,9 @@ anon_agg_deal_cohorts = _anon_assets["agg_deal_cohorts"]
 anon_fact_pipeline_snapshots = _anon_assets["fact_pipeline_snapshots"]
 
 
-all_gold_anon_assets = list(_anon_assets.values())
+def _build_gold_anon_assets():
+    enabled = _ext.get_enabled_anon_gold_tables()
+    return [_anon_assets[t] for t in _ANON_TABLES if t in enabled and t in _anon_assets]
+
+
+all_gold_anon_assets = _build_gold_anon_assets()

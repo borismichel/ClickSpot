@@ -102,9 +102,17 @@ export default function App() {
           <Button
             type="text"
             icon={<SettingOutlined />}
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => navigate("/settings")}
           >
             Settings
+          </Button>
+          <Button
+            type="text"
+            size="small"
+            onClick={() => setSettingsOpen(true)}
+            title="AI Provider settings"
+          >
+            AI
           </Button>
         </Space>
       </Header>

@@ -11,6 +11,7 @@ silver_anon / gold_anon so the LLM physically cannot retrieve raw PII.
 from dagster import asset, AssetExecutionContext, AssetKey, MaterializeResult, MetadataValue
 
 from app.engine.anon_masking import mask_column
+from app.customer import extraction as _ext
 from resources.clickhouse import ClickHouseResource
 from silver_config import ANON_PII_COLUMNS, DICT_CONFIGS
 
@@ -184,4 +185,9 @@ anon_bridge_deal_lead = _anon_assets["bridge_deal_lead"]
 anon_bridge_lead_company = _anon_assets["bridge_lead_company"]
 
 
-all_silver_anon_assets = list(_anon_assets.values())
+def _build_silver_anon_assets():
+    enabled = _ext.get_enabled_anon_silver_tables()
+    return [_anon_assets[t] for t in _ANON_TABLES if t in enabled and t in _anon_assets]
+
+
+all_silver_anon_assets = _build_silver_anon_assets()

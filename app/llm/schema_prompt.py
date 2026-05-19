@@ -11,6 +11,7 @@ The prompt is the most critical component for SQL accuracy. It's built from:
 
 from app.config import TABLES, GRAPH_EDGES
 from app.customer import config as customer_config
+from app.customer import extraction as customer_extraction
 from app.engine.metrics import COMPUTED_METRICS
 from app.engine.sql_builder import _table_ref, _archived_condition
 from app.semantic.layer import SemanticLayer
@@ -89,54 +90,118 @@ RULES:
 
 
 def _block_data_model() -> str:
-    return """DATA MODEL (HubSpot CRM → ClickHouse):
-This follows the standard HubSpot entity model (see dbt_hubspot).
+    enabled_silver = customer_extraction.get_enabled_silver_tables()
+    enabled_gold = customer_extraction.get_enabled_gold_tables()
 
-Entities:
-  DEALS (silver.dim_deals) — Sales opportunities. Central entity.
-    Has denormalized: owner_name, pipeline_label, stage_label (human-readable, use directly).
-    Also has raw IDs: hubspot_owner_id, pipeline, dealstage.
-  CONTACTS (silver.dim_contacts) — People (leads, customers).
-  COMPANIES (silver.dim_companies) — Organizations.
-  LEADS (silver.dim_leads) — Lead objects (separate from contacts).
-    Has raw IDs: hubspot_owner_id, hs_pipeline (lead pipeline ID), hs_lead_status (lead stage ID).
-    Use dictGet to resolve: owner via dict_owners, pipeline via dict_lead_pipelines, stage via dict_lead_pipeline_stages (composite key: pipeline + stage).
-  ACTIVITIES (silver.fact_activities) — Calls, meetings, emails, notes, tasks.
-    activity_type column discriminates type: 'call', 'meeting', 'email', 'note', 'task'.
-    "By type" means GROUP BY activity_type or pivot with countIf(activity_type = '...').
-  FORM SUBMISSIONS (silver.fact_form_submissions) — HubSpot form submissions.
-    Each row = one form submission. Has form_id, form_name, submitted_at (DateTime), page_url, and submitter fields (email, firstname, lastname, company, jobtitle, phone).
-    submitted_at is epoch-converted to DateTime. Use toStartOfMonth(submitted_at) etc. for time series.
-  OWNERS (silver.dim_owners) — Sales reps / users.
-  PIPELINES (silver.dim_pipelines) — Deal pipeline definitions.
-  PIPELINE_STAGES (silver.dim_pipeline_stages) — Stages within pipelines.
+    lines = [
+        "DATA MODEL (HubSpot CRM → ClickHouse):",
+        "This follows the standard HubSpot entity model (see dbt_hubspot).",
+        "",
+        "Entities:",
+    ]
+    if "dim_deals" in enabled_silver:
+        lines += [
+            "  DEALS (silver.dim_deals) — Sales opportunities. Central entity.",
+            "    Has denormalized: owner_name, pipeline_label, stage_label (human-readable, use directly).",
+            "    Also has raw IDs: hubspot_owner_id, pipeline, dealstage.",
+        ]
+    if "dim_contacts" in enabled_silver:
+        lines.append("  CONTACTS (silver.dim_contacts) — People (leads, customers).")
+    if "dim_companies" in enabled_silver:
+        lines.append("  COMPANIES (silver.dim_companies) — Organizations.")
+    if "dim_leads" in enabled_silver:
+        lines += [
+            "  LEADS (silver.dim_leads) — Lead objects (separate from contacts).",
+            "    Has raw IDs: hubspot_owner_id, hs_pipeline (lead pipeline ID), hs_lead_status (lead stage ID).",
+            "    Use dictGet to resolve: owner via dict_owners, pipeline via dict_lead_pipelines, stage via dict_lead_pipeline_stages (composite key: pipeline + stage).",
+        ]
+    if "fact_activities" in enabled_silver:
+        lines += [
+            "  ACTIVITIES (silver.fact_activities) — Calls, meetings, emails, notes, tasks.",
+            "    activity_type column discriminates type: 'call', 'meeting', 'email', 'note', 'task'.",
+            "    \"By type\" means GROUP BY activity_type or pivot with countIf(activity_type = '...').",
+        ]
+    if "fact_form_submissions" in enabled_silver:
+        lines += [
+            "  FORM SUBMISSIONS (silver.fact_form_submissions) — HubSpot form submissions.",
+            "    Each row = one form submission. Has form_id, form_name, submitted_at (DateTime), page_url, and submitter fields (email, firstname, lastname, company, jobtitle, phone).",
+            "    submitted_at is epoch-converted to DateTime. Use toStartOfMonth(submitted_at) etc. for time series.",
+        ]
+    if "dim_owners" in enabled_silver:
+        lines.append("  OWNERS (silver.dim_owners) — Sales reps / users.")
+    if "dim_pipelines" in enabled_silver:
+        lines.append("  PIPELINES (silver.dim_pipelines) — Deal pipeline definitions.")
+    if "dim_pipeline_stages" in enabled_silver:
+        lines.append("  PIPELINE_STAGES (silver.dim_pipeline_stages) — Stages within pipelines.")
 
-Relationships (all N:M via bridge tables):
-  CONTACTS ↔ DEALS      via silver.bridge_contact_deal (contact_id, deal_id)
-  CONTACTS ↔ COMPANIES  via silver.bridge_contact_company (contact_id, company_id)
-  DEALS ↔ COMPANIES     via silver.bridge_deal_company (deal_id, company_id)
-  LEADS ↔ CONTACTS      via silver.bridge_lead_contact (lead_id, contact_id)
-  LEADS ↔ DEALS         via silver.bridge_deal_lead (lead_id, deal_id)
-  LEADS ↔ COMPANIES     via silver.bridge_lead_company (lead_id, company_id)
-  ACTIVITIES ↔ CONTACTS via silver.bridge_activity_contact (activity_id, contact_id)
-  ACTIVITIES ↔ COMPANIES via silver.bridge_activity_company (activity_id, company_id)
-  ACTIVITIES ↔ DEALS    via silver.bridge_activity_deal (activity_id, deal_id)
+    lines += ["", "Relationships (all N:M via bridge tables):"]
+    rel_table = [
+        ("dim_contacts", "dim_deals", "bridge_contact_deal", "contact_id, deal_id"),
+        ("dim_contacts", "dim_companies", "bridge_contact_company", "contact_id, company_id"),
+        ("dim_deals", "dim_companies", "bridge_deal_company", "deal_id, company_id"),
+        ("dim_leads", "dim_contacts", "bridge_lead_contact", "lead_id, contact_id"),
+        ("dim_leads", "dim_deals", "bridge_deal_lead", "lead_id, deal_id"),
+        ("dim_leads", "dim_companies", "bridge_lead_company", "lead_id, company_id"),
+        ("fact_activities", "dim_contacts", "bridge_activity_contact", "activity_id, contact_id"),
+        ("fact_activities", "dim_companies", "bridge_activity_company", "activity_id, company_id"),
+        ("fact_activities", "dim_deals", "bridge_activity_deal", "activity_id, deal_id"),
+    ]
+    for a, b, bridge, cols in rel_table:
+        if a in enabled_silver and b in enabled_silver and bridge in enabled_silver:
+            label_a = a.removeprefix("dim_").upper().replace("FACT_", "")
+            label_b = b.removeprefix("dim_").upper().replace("FACT_", "")
+            lines.append(f"  {label_a} ↔ {label_b}      via silver.{bridge} ({cols})")
 
-Foreign keys (direct, no bridge):
-  dim_deals.hubspot_owner_id → dim_owners.owner_id
-  dim_deals.pipeline → dim_pipelines.pipeline_id
-  dim_deals.dealstage → dim_pipeline_stages.stage_id
+    if "dim_deals" in enabled_silver:
+        lines += [
+            "",
+            "Foreign keys (direct, no bridge):",
+        ]
+        if "dim_owners" in enabled_silver:
+            lines.append("  dim_deals.hubspot_owner_id → dim_owners.owner_id")
+        if "dim_pipelines" in enabled_silver:
+            lines.append("  dim_deals.pipeline → dim_pipelines.pipeline_id")
+        if "dim_pipeline_stages" in enabled_silver:
+            lines.append("  dim_deals.dealstage → dim_pipeline_stages.stage_id")
 
-Gold layer (pre-aggregated, has denormalized labels — use directly, no dictGet needed):
-  gold.agg_rep_performance — Monthly per-rep aggregates. Has owner_name (use directly).
-  gold.agg_deal_health — Per-deal health indicators. Has owner_name, pipeline_label, stage_label (use directly).
-  gold.agg_source_attribution — Source/channel attribution metrics
-  gold.agg_deal_stage_funnel — Deals per pipeline stage with values and weighted values. Has stage_label.
-  gold.agg_lead_health — Per-lead health indicators. Has owner_name, pipeline_label, stage_label (use directly).
-  gold.agg_deal_cohorts — Creation-month cohort analysis (win/loss/open by cohort)
-  gold.fact_pipeline_snapshots — Historical daily pipeline state (append-only)
+    if enabled_gold:
+        lines += [
+            "",
+            "Gold layer (pre-aggregated, has denormalized labels — use directly, no dictGet needed):",
+        ]
+        gold_blurbs = {
+            "agg_rep_performance": "gold.agg_rep_performance — Monthly per-rep aggregates. Has owner_name (use directly).",
+            "agg_deal_health": "gold.agg_deal_health — Per-deal health indicators. Has owner_name, pipeline_label, stage_label (use directly).",
+            "agg_source_attribution": "gold.agg_source_attribution — Source/channel attribution metrics",
+            "agg_deal_stage_funnel": "gold.agg_deal_stage_funnel — Deals per pipeline stage with values and weighted values. Has stage_label.",
+            "agg_lead_health": "gold.agg_lead_health — Per-lead health indicators. Has owner_name, pipeline_label, stage_label (use directly).",
+            "agg_deal_cohorts": "gold.agg_deal_cohorts — Creation-month cohort analysis (win/loss/open by cohort)",
+            "fact_pipeline_snapshots": "gold.fact_pipeline_snapshots — Historical daily pipeline state (append-only)",
+        }
+        for k, blurb in gold_blurbs.items():
+            if k in enabled_gold:
+                lines.append(f"  {blurb}")
+        lines += [
+            "",
+            "IMPORTANT: Gold tables have pre-denormalized human-readable labels (owner_name, pipeline_label, stage_label). Use these columns directly — do NOT use dictGet() on gold tables.",
+        ]
 
-IMPORTANT: Gold tables have pre-denormalized human-readable labels (owner_name, pipeline_label, stage_label). Use these columns directly — do NOT use dictGet() on gold tables."""
+    # If something major is disabled, tell the LLM explicitly so it stops
+    # suggesting queries against missing tables.
+    disabled = []
+    if "dim_leads" not in enabled_silver:
+        disabled.append("Leads (HubSpot free-tier portals don't have lead access)")
+    if "fact_form_submissions" not in enabled_silver:
+        disabled.append("Form submissions")
+    if disabled:
+        lines += [
+            "",
+            "NOT AVAILABLE on this portal — DO NOT query these tables:",
+            *[f"  - {d}" for d in disabled],
+            "  If the user asks about a disabled area, respond that the data is not available on this portal.",
+        ]
+
+    return "\n".join(lines)
 
 
 def _block_dictionaries() -> str:
@@ -148,6 +213,8 @@ def _block_dictionaries() -> str:
     - Ready-to-use dictGet() examples
     - Composite-key patterns where applicable
     """
+    enabled_silver = customer_extraction.get_enabled_silver_tables()
+
     lines = [
         "DICTIONARIES (in-memory hash lookups — use dictGet() instead of JOINs for ID→label resolution):",
         "Always wrap keys in tuple(). Composite-key dicts need tuple(key1, key2).",
@@ -155,6 +222,9 @@ def _block_dictionaries() -> str:
     ]
 
     for table_name, cfg in DICT_CONFIGS.items():
+        # Skip dicts whose source dim is disabled
+        if table_name not in enabled_silver:
+            continue
         dict_name = "dict_" + table_name.removeprefix("dim_")
         fq = f"silver.{dict_name}"
         key_names = [k[0] for k in cfg["keys"]]
@@ -172,6 +242,11 @@ def _block_dictionaries() -> str:
 
         # Per-table usage — tells the LLM exactly which columns to pass
         used_by = cfg.get("used_by", {})
+        # Drop usages whose target table is disabled
+        used_by = {
+            tt: cm for tt, cm in used_by.items()
+            if tt in enabled_silver or tt in customer_extraction.get_enabled_gold_tables()
+        }
         if used_by:
             lines.append(f"    Used in:")
             for target_table, col_map in used_by.items():
@@ -205,9 +280,16 @@ def _block_dictionaries() -> str:
 
 def _block_tables(semantic_layer: SemanticLayer | None) -> str:
     lines = ["TABLES AND COLUMNS:"]
+    enabled_silver = customer_extraction.get_enabled_silver_tables()
+    enabled_gold = customer_extraction.get_enabled_gold_tables()
 
     for table_name, meta in TABLES.items():
         db = meta.get("database", "silver")
+        # Skip silver/gold tables that aren't enabled for this portal
+        if db == "silver" and table_name not in enabled_silver:
+            continue
+        if db == "gold" and table_name not in enabled_gold:
+            continue
         ref = f"{db}.{table_name}"
         archived = _archived_condition(table_name)
         pk = meta["primary_key"]
@@ -255,13 +337,17 @@ def _block_tables(semantic_layer: SemanticLayer | None) -> str:
 
 
 def _block_relationships() -> str:
+    enabled_silver = customer_extraction.get_enabled_silver_tables()
     lines = ["RELATIONSHIPS (for JOINs):"]
 
     lines.append("\nBridge tables (N:M associations — use JOIN through bridge):")
     for edge in GRAPH_EDGES:
+        bridge = edge["bridge"]
+        # Skip relationships whose bridge table isn't materialized on this portal
+        if bridge not in enabled_silver:
+            continue
         from_t = edge["from"]
         to_t = edge["to"]
-        bridge = edge["bridge"]
         from_key = edge["from_key"]
         to_key = edge["to_key"]
         lines.append(
@@ -301,10 +387,16 @@ def _block_data_spaces() -> str:
 
 def _block_metrics() -> str:
     cfg = customer_config.load()
+    enabled_silver = customer_extraction.get_enabled_silver_tables()
+    enabled_gold = customer_extraction.get_enabled_gold_tables()
     lines = ["REFERENCE SQL PATTERNS (battle-tested, use these for common metrics):"]
     for name, m in COMPUTED_METRICS.items():
-        ref = _table_ref(m['table'])
-        archived = _archived_condition(m['table'])
+        # Skip metrics whose source table isn't materialized on this portal
+        t = m["table"]
+        if t not in enabled_silver and t not in enabled_gold:
+            continue
+        ref = _table_ref(t)
+        archived = _archived_condition(t)
         where = f" WHERE {archived}" if archived else ""
         # Metric SQL may contain `{canonical_amount_col}` etc. — fill from customer config
         sql = m['sql'].format(**cfg) if "{" in m['sql'] else m['sql']
@@ -379,6 +471,7 @@ def _block_business_context() -> str:
 def _block_examples() -> str:
     cfg = customer_config.load()
     main = cfg.get("main_pipeline")
+    enabled_silver = customer_extraction.get_enabled_silver_tables()
 
     # When main_pipeline is configured, examples include the pipeline filter inline.
     # When not configured (fresh install before silver runs), drop the pipeline filter so
@@ -416,8 +509,11 @@ A: {{"sql": "SELECT pipeline_label, count() AS deals, sum(amount) AS total_value
 Q: "How did our pipeline develop this month?"
 A: {{"sql": "SELECT 1", "viz": "comparison", "title": "Pipeline Development This Month", "explanation": "Key pipeline metrics this month compared to last month.", "context": [{{"sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1", "label": "Deals Created", "previous_sql": "SELECT count() FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today())"}}, {{"sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Deals Won", "previous_sql": "SELECT countIf(hs_is_closed_won = 'true') FROM silver.dim_deals WHERE archived = 0 AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}}, {{"sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today()) AND closedate < today() + 1", "label": "Revenue Won", "previous_sql": "SELECT sum(amount) FROM silver.dim_deals WHERE archived = 0 AND hs_is_closed_won = 'true' AND closedate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND closedate < toStartOfMonth(today())"}}, {{"sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today()) AND createdate < today() + 1 AND amount > 0", "label": "Avg Deal Size", "previous_sql": "SELECT avg(amount) FROM silver.dim_deals WHERE archived = 0 AND createdate >= toStartOfMonth(today() - INTERVAL 1 MONTH) AND createdate < toStartOfMonth(today()) AND amount > 0"}}]}}
 
-Q: "Show me leads from paid channels that are stuck"
-A: {{"sql": "WITH paid_lead_ids AS (SELECT DISTINCT bridge.lead_id FROM silver.bridge_lead_contact AS bridge JOIN silver.dim_contacts AS contacts ON contacts.contact_id = bridge.contact_id WHERE contacts.archived = 0 AND contacts.hs_analytics_source IN ('PAID_SEARCH', 'PAID_SOCIAL')) SELECT leads.hs_lead_name AS lead_name, concat(dictGet('silver.dict_owners', 'first_name', tuple(leads.hubspot_owner_id)), ' ', dictGet('silver.dict_owners', 'last_name', tuple(leads.hubspot_owner_id))) AS owner, dictGet('silver.dict_lead_pipeline_stages', 'label', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) AS current_stage, if(leads.last_activity_date > '1970-01-02', dateDiff('day', toDate(leads.last_activity_date), today()), NULL) AS days_since_last_activity, toDate(leads.createdate) AS created_date FROM silver.dim_leads AS leads JOIN paid_lead_ids ON paid_lead_ids.lead_id = leads.lead_id WHERE leads.archived = 0 AND leads.createdate >= '2026-01-01' AND leads.createdate < '2027-01-01' AND dictGet('silver.dict_lead_pipeline_stages', 'is_closed', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) = 'false' ORDER BY days_since_last_activity DESC NULLS LAST LIMIT 200", "viz": "table", "title": "Stuck Paid Leads 2026", "explanation": "Open leads from paid search/social channels in 2026, sorted by days without activity."}}"""
+{_LEAD_EXAMPLE if "dim_leads" in enabled_silver else ""}"""
+
+
+_LEAD_EXAMPLE = """Q: \"Show me leads from paid channels that are stuck\"
+A: {\"sql\": \"WITH paid_lead_ids AS (SELECT DISTINCT bridge.lead_id FROM silver.bridge_lead_contact AS bridge JOIN silver.dim_contacts AS contacts ON contacts.contact_id = bridge.contact_id WHERE contacts.archived = 0 AND contacts.hs_analytics_source IN ('PAID_SEARCH', 'PAID_SOCIAL')) SELECT leads.hs_lead_name AS lead_name, concat(dictGet('silver.dict_owners', 'first_name', tuple(leads.hubspot_owner_id)), ' ', dictGet('silver.dict_owners', 'last_name', tuple(leads.hubspot_owner_id))) AS owner, dictGet('silver.dict_lead_pipeline_stages', 'label', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) AS current_stage, if(leads.last_activity_date > '1970-01-02', dateDiff('day', toDate(leads.last_activity_date), today()), NULL) AS days_since_last_activity, toDate(leads.createdate) AS created_date FROM silver.dim_leads AS leads JOIN paid_lead_ids ON paid_lead_ids.lead_id = leads.lead_id WHERE leads.archived = 0 AND leads.createdate >= '2026-01-01' AND leads.createdate < '2027-01-01' AND dictGet('silver.dict_lead_pipeline_stages', 'is_closed', tuple(leads.hs_pipeline, leads.hs_pipeline_stage)) = 'false' ORDER BY days_since_last_activity DESC NULLS LAST LIMIT 200\", \"viz\": \"table\", \"title\": \"Stuck Paid Leads 2026\", \"explanation\": \"Open leads from paid search/social channels in 2026, sorted by days without activity.\"}"""
 
 
 def _block_output_format() -> str:

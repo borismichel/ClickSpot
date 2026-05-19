@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.customer import config as _customer_config
 from app.llm.sql_validator import ALLOWED_TABLES
 from app.llm.schema_prompt import build_schema_prompt
 from app.mcp.guardrails import (
@@ -11,6 +12,17 @@ from app.mcp.guardrails import (
     reject_excluded_tables,
     validate_mcp_sql,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_customer_config(tmp_path, monkeypatch):
+    """Run every test in this file against a non-existent customer.json so the
+    extraction settings on the developer's machine don't change the schema
+    prompt out from under us. With no file, app.customer.extraction falls back
+    to "everything enabled", matching the assumptions baked into these tests.
+    """
+    monkeypatch.setattr(_customer_config, "CONFIG_FILE", tmp_path / "nonexistent.json")
+    monkeypatch.setattr(_customer_config, "CONFIG_DIR", tmp_path)
 
 
 class TestExclusionSet:

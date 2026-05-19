@@ -11,6 +11,7 @@ from silver_config import (
     BRIDGE_ACTIVITY_CONTACT, BRIDGE_ACTIVITY_COMPANY, BRIDGE_ACTIVITY_DEAL,
     DICTIONARIES,
 )
+from app.customer import extraction as _ext
 
 
 # ---------------------------------------------------------------------------
@@ -424,16 +425,20 @@ _ACTIVITY_BRONZE = {
 }
 
 
+def _fact_activities_deps():
+    enabled_bronze = _ext.get_enabled_bronze_tables()
+    return [AssetKey(t) for _, (t, _lit) in _ACTIVITY_BRONZE.items() if t in enabled_bronze]
+
+
+def _enabled_activity_bronze_map():
+    enabled_bronze = _ext.get_enabled_bronze_tables()
+    return {k: v for k, v in _ACTIVITY_BRONZE.items() if v[0] in enabled_bronze}
+
+
 @asset(
     name="fact_activities",
     group_name="silver",
-    deps=[
-        AssetKey("hs_calls"),
-        AssetKey("hs_meetings"),
-        AssetKey("hs_engagement_emails"),
-        AssetKey("hs_notes"),
-        AssetKey("hs_tasks"),
-    ],
+    deps=_fact_activities_deps(),
 )
 def fact_activities(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     target = "fact_activities"
@@ -462,9 +467,12 @@ ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
 """.strip()
     ch_silver.execute_sql(ddl)
 
-    # Build UNION ALL
+    # Build UNION ALL — only across activity types whose bronze is enabled
+    enabled_activity_map = _enabled_activity_bronze_map()
     union_parts = []
     for act_key, mapping in FACT_ACTIVITIES.items():
+        if act_key not in enabled_activity_map:
+            continue
         bronze_table, type_literal = _ACTIVITY_BRONZE[act_key]
 
         subject_prop = mapping["subject"]
@@ -653,16 +661,20 @@ bridge_lead_company = _bridge_assets["bridge_lead_company"]
 # Special bridge: bridge_activity_contact (UNION ALL across 5 assoc tables)
 # ---------------------------------------------------------------------------
 
+def _bridge_activity_deps(activity_list):
+    enabled_assoc = _ext.get_enabled_assoc_tables()
+    return [AssetKey(t) for _, t in activity_list if t in enabled_assoc]
+
+
+def _enabled_bridge_activity(activity_list):
+    enabled_assoc = _ext.get_enabled_assoc_tables()
+    return [(at, t) for at, t in activity_list if t in enabled_assoc]
+
+
 @asset(
     name="bridge_activity_contact",
     group_name="silver",
-    deps=[
-        AssetKey("hs_assoc_call_contact"),
-        AssetKey("hs_assoc_meeting_contact"),
-        AssetKey("hs_assoc_email_contact"),
-        AssetKey("hs_assoc_note_contact"),
-        AssetKey("hs_assoc_task_contact"),
-    ],
+    deps=_bridge_activity_deps(BRIDGE_ACTIVITY_CONTACT),
 )
 def bridge_activity_contact(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     target = "bridge_activity_contact"
@@ -682,7 +694,7 @@ CREATE TABLE silver.{tmp} (
     ch_silver.execute_sql(ddl)
 
     union_parts = []
-    for activity_type, bronze_table in BRIDGE_ACTIVITY_CONTACT:
+    for activity_type, bronze_table in _enabled_bridge_activity(BRIDGE_ACTIVITY_CONTACT):
         part = f"""SELECT
     _from_id AS activity_id,
     '{activity_type}' AS activity_type,
@@ -715,13 +727,7 @@ FROM bronze.{bronze_table} FINAL"""
 @asset(
     name="bridge_activity_company",
     group_name="silver",
-    deps=[
-        AssetKey("hs_assoc_call_company"),
-        AssetKey("hs_assoc_meeting_company"),
-        AssetKey("hs_assoc_email_company"),
-        AssetKey("hs_assoc_note_company"),
-        AssetKey("hs_assoc_task_company"),
-    ],
+    deps=_bridge_activity_deps(BRIDGE_ACTIVITY_COMPANY),
 )
 def bridge_activity_company(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     target = "bridge_activity_company"
@@ -741,7 +747,7 @@ CREATE TABLE silver.{tmp} (
     ch_silver.execute_sql(ddl)
 
     union_parts = []
-    for activity_type, bronze_table in BRIDGE_ACTIVITY_COMPANY:
+    for activity_type, bronze_table in _enabled_bridge_activity(BRIDGE_ACTIVITY_COMPANY):
         part = f"""SELECT
     _from_id AS activity_id,
     '{activity_type}' AS activity_type,
@@ -774,13 +780,7 @@ FROM bronze.{bronze_table} FINAL"""
 @asset(
     name="bridge_activity_deal",
     group_name="silver",
-    deps=[
-        AssetKey("hs_assoc_call_deal"),
-        AssetKey("hs_assoc_meeting_deal"),
-        AssetKey("hs_assoc_email_deal"),
-        AssetKey("hs_assoc_note_deal"),
-        AssetKey("hs_assoc_task_deal"),
-    ],
+    deps=_bridge_activity_deps(BRIDGE_ACTIVITY_DEAL),
 )
 def bridge_activity_deal(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     target = "bridge_activity_deal"
@@ -800,7 +800,7 @@ CREATE TABLE silver.{tmp} (
     ch_silver.execute_sql(ddl)
 
     union_parts = []
-    for activity_type, bronze_table in BRIDGE_ACTIVITY_DEAL:
+    for activity_type, bronze_table in _enabled_bridge_activity(BRIDGE_ACTIVITY_DEAL):
         part = f"""SELECT
     _from_id AS activity_id,
     '{activity_type}' AS activity_type,
@@ -830,28 +830,71 @@ FROM bronze.{bronze_table} FINAL"""
 # DQ metrics (append-only)
 # ---------------------------------------------------------------------------
 
-_ALL_SILVER_DIM_ASSETS = [
+_ALL_SILVER_DIM_ASSETS_FULL = [
     "dim_contacts", "dim_companies", "dim_deals", "dim_leads",
     "dim_owners",
     "dim_pipelines", "dim_pipeline_stages",
     "dim_lead_pipelines", "dim_lead_pipeline_stages",
 ]
-_ALL_SILVER_FACT_ASSETS = ["fact_activities", "fact_form_submissions"]
-_ALL_SILVER_BRIDGE_ASSETS = [
+_ALL_SILVER_FACT_ASSETS_FULL = ["fact_activities", "fact_form_submissions"]
+_ALL_SILVER_BRIDGE_ASSETS_FULL = [
     "bridge_contact_company", "bridge_contact_deal", "bridge_deal_company",
     "bridge_lead_contact", "bridge_deal_lead", "bridge_lead_company",
     "bridge_activity_contact", "bridge_activity_company", "bridge_activity_deal",
 ]
-_ALL_SILVER_TABLES = _ALL_SILVER_DIM_ASSETS + _ALL_SILVER_FACT_ASSETS + _ALL_SILVER_BRIDGE_ASSETS
+
+
+def _enabled_silver_dq_tables():
+    """Silver tables that exist on this portal (the only ones we should DQ-check)."""
+    enabled = _ext.get_enabled_silver_tables()
+    full = _ALL_SILVER_DIM_ASSETS_FULL + _ALL_SILVER_FACT_ASSETS_FULL + _ALL_SILVER_BRIDGE_ASSETS_FULL
+    return [t for t in full if t in enabled]
+
+
+# All possible (bridge_table, bridge_col, dim_table, dim_col) orphan checks.
+# Each row is filtered at runtime against the enabled silver-table set.
+_ALL_ORPHAN_CHECKS = [
+    ("bridge_contact_company", "contact_id", "dim_contacts", "contact_id"),
+    ("bridge_contact_company", "company_id", "dim_companies", "company_id"),
+    ("bridge_contact_deal", "contact_id", "dim_contacts", "contact_id"),
+    ("bridge_contact_deal", "deal_id", "dim_deals", "deal_id"),
+    ("bridge_deal_company", "deal_id", "dim_deals", "deal_id"),
+    ("bridge_deal_company", "company_id", "dim_companies", "company_id"),
+    ("bridge_lead_contact", "lead_id", "dim_leads", "lead_id"),
+    ("bridge_lead_contact", "contact_id", "dim_contacts", "contact_id"),
+    ("bridge_deal_lead", "deal_id", "dim_deals", "deal_id"),
+    ("bridge_deal_lead", "lead_id", "dim_leads", "lead_id"),
+    ("bridge_lead_company", "lead_id", "dim_leads", "lead_id"),
+    ("bridge_lead_company", "company_id", "dim_companies", "company_id"),
+    ("bridge_activity_contact", "activity_id", "fact_activities", "activity_id"),
+    ("bridge_activity_contact", "contact_id", "dim_contacts", "contact_id"),
+    ("bridge_activity_company", "activity_id", "fact_activities", "activity_id"),
+    ("bridge_activity_company", "company_id", "dim_companies", "company_id"),
+    ("bridge_activity_deal", "activity_id", "fact_activities", "activity_id"),
+    ("bridge_activity_deal", "deal_id", "dim_deals", "deal_id"),
+]
+
+
+# dq_metrics depends only on silver tables that actually exist on this portal.
+# Listing disabled assets as deps would cause Dagster to re-materialize them as
+# external source-asset stubs in the graph (which is what the user sees as
+# "leads still showing in Dagster after disabling").
+_DQ_DEP_TABLES = [
+    t for t in _ALL_SILVER_DIM_ASSETS_FULL + _ALL_SILVER_FACT_ASSETS_FULL + _ALL_SILVER_BRIDGE_ASSETS_FULL
+    if t in _ext.get_enabled_silver_tables()
+]
 
 
 @asset(
     name="dq_metrics",
     group_name="silver",
-    deps=[AssetKey(t) for t in _ALL_SILVER_TABLES],
+    deps=[AssetKey(t) for t in _DQ_DEP_TABLES],
 )
 def dq_metrics(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     context.log.info("Running data quality checks")
+
+    enabled_tables = set(_enabled_silver_dq_tables())
+    context.log.info(f"DQ scope: {sorted(enabled_tables)}")
 
     # Create table if not exists (never drop)
     ch_silver.execute_sql("""
@@ -866,21 +909,23 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
 
     metrics = []
 
-    # Row counts for all silver tables
-    for table in _ALL_SILVER_TABLES:
+    # Row counts — only for tables that actually exist on this portal
+    for table in sorted(enabled_tables):
         try:
             count = int(ch_silver.execute_sql(f"SELECT count() FROM silver.{table}"))
         except Exception:
             count = 0
         metrics.append(f"(now(), '{table}', 'row_count', {count}, '')")
 
-    # Null rate checks for dims
+    # Null rate checks for dims (skip if dim is disabled)
     null_checks = [
         ("dim_contacts", "email", "null_rate_email"),
         ("dim_companies", "name", "null_rate_name"),
         ("dim_deals", "dealname", "null_rate_dealname"),
     ]
     for table, col, metric_name in null_checks:
+        if table not in enabled_tables:
+            continue
         try:
             rate = float(ch_silver.execute_sql(
                 f"SELECT countIf({col} = '') / count() FROM silver.{table}"
@@ -889,8 +934,10 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
             rate = 0.0
         metrics.append(f"(now(), '{table}', '{metric_name}', {rate}, '')")
 
-    # Archived rate for dim tables
-    for table in _ALL_SILVER_DIM_ASSETS:
+    # Archived rate for enabled dim tables
+    for table in _ALL_SILVER_DIM_ASSETS_FULL:
+        if table not in enabled_tables:
+            continue
         try:
             rate = float(ch_silver.execute_sql(
                 f"SELECT countIf(archived = 1) / count() FROM silver.{table}"
@@ -899,27 +946,10 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
             rate = 0.0
         metrics.append(f"(now(), '{table}', 'archived_rate', {rate}, '')")
 
-    # Orphan checks for bridges
-    orphan_checks = [
-        ("bridge_contact_company", "contact_id", "dim_contacts", "contact_id"),
-        ("bridge_contact_company", "company_id", "dim_companies", "company_id"),
-        ("bridge_contact_deal", "contact_id", "dim_contacts", "contact_id"),
-        ("bridge_contact_deal", "deal_id", "dim_deals", "deal_id"),
-        ("bridge_deal_company", "deal_id", "dim_deals", "deal_id"),
-        ("bridge_deal_company", "company_id", "dim_companies", "company_id"),
-        ("bridge_lead_contact", "lead_id", "dim_leads", "lead_id"),
-        ("bridge_lead_contact", "contact_id", "dim_contacts", "contact_id"),
-        ("bridge_deal_lead", "deal_id", "dim_deals", "deal_id"),
-        ("bridge_deal_lead", "lead_id", "dim_leads", "lead_id"),
-        ("bridge_lead_company", "lead_id", "dim_leads", "lead_id"),
-        ("bridge_lead_company", "company_id", "dim_companies", "company_id"),
-        ("bridge_activity_contact", "activity_id", "fact_activities", "activity_id"),
-        ("bridge_activity_company", "activity_id", "fact_activities", "activity_id"),
-        ("bridge_activity_company", "company_id", "dim_companies", "company_id"),
-        ("bridge_activity_deal", "activity_id", "fact_activities", "activity_id"),
-        ("bridge_activity_deal", "deal_id", "dim_deals", "deal_id"),
-    ]
-    for bridge_table, bridge_col, dim_table, dim_col in orphan_checks:
+    # Orphan checks for bridges — skip any that reference a disabled table
+    for bridge_table, bridge_col, dim_table, dim_col in _ALL_ORPHAN_CHECKS:
+        if bridge_table not in enabled_tables or dim_table not in enabled_tables:
+            continue
         try:
             count = int(ch_silver.execute_sql(
                 f"SELECT count() FROM silver.{bridge_table} "
@@ -956,24 +986,47 @@ CREATE TABLE IF NOT EXISTS silver.dq_metrics (
 # discovered dynamically from the bronze properties map at build time.
 # ---------------------------------------------------------------------------
 
-# (bronze_table, entity_type, id_column, stage_lookup_table)
-_STAGE_HISTORY_SOURCES = [
-    ("hs_leads",    "lead",    "_record_id", "dim_lead_pipeline_stages"),
-    ("hs_deals",    "deal",    "_record_id", "dim_pipeline_stages"),
-    ("hs_contacts", "contact", "_record_id", None),  # lifecycle stages, no lookup table
+# (bronze_table, entity_type, id_column, stage_lookup_table, required_object_key)
+_STAGE_HISTORY_SOURCES_FULL = [
+    ("hs_leads",    "lead",    "_record_id", "dim_lead_pipeline_stages", "leads"),
+    ("hs_deals",    "deal",    "_record_id", "dim_pipeline_stages",      "deals"),
+    ("hs_contacts", "contact", "_record_id", None,                       "contacts"),
 ]
+
+
+def _enabled_stage_history_sources():
+    enabled = _ext.get_enabled_objects()
+    enabled_silver = _ext.get_enabled_silver_tables()
+    out = []
+    for bronze_table, entity_type, id_col, stage_table, required in _STAGE_HISTORY_SOURCES_FULL:
+        if required not in enabled:
+            continue
+        # If a stage_table is referenced but the dim isn't built, drop the lookup
+        if stage_table and stage_table not in enabled_silver:
+            stage_table = None
+        out.append((bronze_table, entity_type, id_col, stage_table))
+    return out
+
+
+_STAGE_HISTORY_SOURCES = _enabled_stage_history_sources()
+
+
+def _fact_stage_history_deps():
+    deps = []
+    enabled_bronze = _ext.get_enabled_bronze_tables()
+    enabled_silver = _ext.get_enabled_silver_tables()
+    for bronze, _et, _id, stage, _req in _STAGE_HISTORY_SOURCES_FULL:
+        if bronze in enabled_bronze:
+            deps.append(AssetKey(bronze))
+        if stage and stage in enabled_silver:
+            deps.append(AssetKey(stage))
+    return deps
 
 
 @asset(
     name="fact_stage_history",
     group_name="silver",
-    deps=[
-        AssetKey("hs_leads"),
-        AssetKey("hs_deals"),
-        AssetKey("hs_contacts"),
-        AssetKey("dim_lead_pipeline_stages"),
-        AssetKey("dim_pipeline_stages"),
-    ],
+    deps=_fact_stage_history_deps(),
 )
 def fact_stage_history(context: AssetExecutionContext, ch_silver: ClickHouseResource):
     target = "fact_stage_history"
@@ -1088,14 +1141,37 @@ WHERE properties['{entered_v1}'] != '' OR properties['{entered_v2}'] != ''
 # Export all assets for definitions.py
 # ---------------------------------------------------------------------------
 
-all_silver_assets = [
-    dim_contacts, dim_companies, dim_deals, dim_leads,
-    dim_owners,
-    dim_pipelines, dim_pipeline_stages,
-    dim_lead_pipelines, dim_lead_pipeline_stages,
-    fact_activities, fact_form_submissions, fact_stage_history,
-    bridge_contact_company, bridge_contact_deal, bridge_deal_company,
-    bridge_lead_contact, bridge_deal_lead, bridge_lead_company,
-    bridge_activity_contact, bridge_activity_company, bridge_activity_deal,
-    dq_metrics,
-]
+_ALL_SILVER_ASSET_MAP = {
+    "dim_contacts": dim_contacts,
+    "dim_companies": dim_companies,
+    "dim_deals": dim_deals,
+    "dim_leads": dim_leads,
+    "dim_owners": dim_owners,
+    "dim_pipelines": dim_pipelines,
+    "dim_pipeline_stages": dim_pipeline_stages,
+    "dim_lead_pipelines": dim_lead_pipelines,
+    "dim_lead_pipeline_stages": dim_lead_pipeline_stages,
+    "fact_activities": fact_activities,
+    "fact_form_submissions": fact_form_submissions,
+    "fact_stage_history": fact_stage_history,
+    "bridge_contact_company": bridge_contact_company,
+    "bridge_contact_deal": bridge_contact_deal,
+    "bridge_deal_company": bridge_deal_company,
+    "bridge_lead_contact": bridge_lead_contact,
+    "bridge_deal_lead": bridge_deal_lead,
+    "bridge_lead_company": bridge_lead_company,
+    "bridge_activity_contact": bridge_activity_contact,
+    "bridge_activity_company": bridge_activity_company,
+    "bridge_activity_deal": bridge_activity_deal,
+}
+
+
+def _build_silver_assets():
+    enabled = _ext.get_enabled_silver_tables()
+    out = [a for name, a in _ALL_SILVER_ASSET_MAP.items() if name in enabled]
+    # dq_metrics always runs (it tolerates missing tables gracefully via try/except)
+    out.append(dq_metrics)
+    return out
+
+
+all_silver_assets = _build_silver_assets()
