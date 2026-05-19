@@ -23,10 +23,43 @@ def _request_with_retry(method: str, url: str, max_retries: int = 5, **kwargs) -
     return resp
 
 
+_REGION_PERSISTED = False  # process-local guard; reset on each Dagster reload
+
+
+def _persist_region_from_token(token: str) -> None:
+    """Write the token's region into customer.json the first time we see it.
+
+    Idempotent + best-effort: silently swallows failures (the field is a
+    convenience for URL building, never a hard dependency). This lets MCP +
+    chat resolve the right HubSpot app subdomain without ever touching the
+    token themselves.
+    """
+    global _REGION_PERSISTED
+    if _REGION_PERSISTED:
+        return
+    _REGION_PERSISTED = True  # mark first so a failure doesn't loop forever
+    try:
+        from app.customer import config as customer_config
+        from app.mcp.pii import parse_region_from_token
+
+        region = parse_region_from_token(token)
+        if not region:
+            return
+        cfg = customer_config.load()
+        if (cfg.get("hubspot_region") or "").strip().lower() == region:
+            return  # already correct
+        cfg["hubspot_region"] = region
+        customer_config.save(cfg)
+        log.info(f"Persisted hubspot_region={region!r} to customer.json")
+    except Exception as e:
+        log.warning(f"Could not persist hubspot_region: {e}")
+
+
 class HubSpotResource(ConfigurableResource):
     access_token: str
 
     def _headers(self) -> dict:
+        _persist_region_from_token(self.access_token)
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def _crm_url(self, *segments: str) -> str:

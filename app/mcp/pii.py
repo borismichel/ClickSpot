@@ -156,25 +156,65 @@ def mask_phone(value):
 _DEFAULT_APP_HOST = "app.hubspot.com"
 
 
-def hubspot_app_host(token: str | None = None) -> str:
-    """Derive the HubSpot app host from the token region (pat-eu1-... -> app-eu1.hubspot.com).
+def parse_region_from_token(token: str | None) -> str | None:
+    """Extract the region code from a HubSpot private app token.
 
-    NA1 tokens map to the canonical `app.hubspot.com` (no subdomain). Other
-    regions (`eu1`, `na2`, ...) map to `app-<region>.hubspot.com`. Falls back
-    to the NA1 host if the token is missing or unrecognized.
+    Tokens look like `pat-<region>-<rest>` (e.g. `pat-eu1-...`). Returns the
+    lowercase region string, or None if the token is missing/malformed.
     """
-    tok = token if token is not None else os.environ.get("HUBSPOT_TOKEN", "")
-    if not tok.startswith("pat-"):
-        return _DEFAULT_APP_HOST
-    parts = tok.split("-", 2)
+    if not token or not token.startswith("pat-"):
+        return None
+    parts = token.split("-", 2)
     if len(parts) < 3:
-        return _DEFAULT_APP_HOST
+        return None
     region = parts[1].lower()
-    if region == "na1":
-        return _DEFAULT_APP_HOST
     if not region.isalnum():
+        return None
+    return region
+
+
+def _region_to_host(region: str | None) -> str:
+    """Map a region code to the matching HubSpot app subdomain."""
+    if not region or region == "na1":
         return _DEFAULT_APP_HOST
     return f"app-{region}.hubspot.com"
+
+
+def hubspot_app_host(token: str | None = None) -> str:
+    """Resolve the HubSpot app host with this precedence:
+
+    1. ``customer.json``'s ``hubspot_region`` (set by the bronze pipeline on
+       first call, or by the operator).
+    2. ``HUBSPOT_REGION`` env var (explicit override for ops setups).
+    3. Parsed from ``token`` arg or ``HUBSPOT_TOKEN`` env var (legacy fallback —
+       leaks a secret as a config hint, kept only for backward compat).
+    4. NA1 default.
+
+    NA1 always maps to the canonical ``app.hubspot.com`` (no subdomain).
+    """
+    # 1. customer.json — preferred; survives across processes without re-parsing the token
+    try:
+        from app.customer import config as _customer_config
+        region = (_customer_config.load().get("hubspot_region") or "").strip().lower()
+        if region:
+            return _region_to_host(region)
+    except Exception:
+        # Bootstrap edge case (e.g. tests stubbing the module) — fall through
+        pass
+
+    # 2. Explicit env override
+    env_region = (os.environ.get("HUBSPOT_REGION") or "").strip().lower()
+    if env_region:
+        return _region_to_host(env_region)
+
+    # 3. Legacy: parse the token. Kept so existing installs keep working until
+    # the bronze pipeline runs and writes hubspot_region into customer.json.
+    tok = token if token is not None else os.environ.get("HUBSPOT_TOKEN", "")
+    region = parse_region_from_token(tok)
+    if region:
+        return _region_to_host(region)
+
+    return _DEFAULT_APP_HOST
 
 
 def hubspot_url(hub_id, id_col: str, id_value, app_host: str = _DEFAULT_APP_HOST) -> str | None:

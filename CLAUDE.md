@@ -27,7 +27,7 @@ ClickHouse local dev: `docker compose up -d` (port 8124, pinned to `clickhouse/c
 
 ## Env Vars
 
-Copy `.env.example` → `.env`. Required: `HUBSPOT_TOKEN`, `HUBSPOT_HUB_ID` (used to build canonical HubSpot record URLs in result tables and MCP responses), `CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`. Optional: `CLICKHOUSE_PORT` (project default 8124; `app/db.py` falls back to 8123 if unset).
+Copy `.env.example` → `.env`. Required: `HUBSPOT_TOKEN`, `HUBSPOT_HUB_ID` (used to build canonical HubSpot record URLs in result tables and MCP responses), `CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`. Optional: `CLICKHOUSE_PORT` (project default 8124; `app/db.py` falls back to 8123 if unset). Optional: `HUBSPOT_REGION` (region code like `eu1`, `na2` — auto-detected from `HUBSPOT_TOKEN` on the first bronze API call and cached in `~/.clickspot/customer.json::hubspot_region`; only set explicitly when running MCP without the token).
 
 ## Architecture
 

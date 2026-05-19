@@ -497,6 +497,7 @@ Standalone process (`python -m app.mcp.server`) that wraps the `silver_anon` and
 - `app/mcp/guardrails.py` enforces an explicit `MCP_ALLOWED_TABLES` allowlist + `EXCLUDED_TABLES` denylist on top of the validator and strips raw activity payloads (`ACTIVITY_STRIP_RE`).
 - `app/mcp/pii.py` provides the PII filters specific to MCP-exposed responses.
 - **No LLM lives in this server** — the MCP client drives SQL generation; this process just exposes grounded context and a guarded execution path against the anon databases.
+- **No HubSpot API access.** MCP never calls hubapi.com — it only reads ClickHouse. `HUBSPOT_TOKEN` is *not* a required env var for the MCP process. The only HubSpot-tied data MCP needs is the region (so click-through `_url` columns point at the right subdomain, e.g. `app-eu1.hubspot.com`). Resolution order in `hubspot_app_host()`: (1) `~/.clickspot/customer.json::hubspot_region`, auto-populated by the bronze pipeline on its first HubSpot call; (2) `HUBSPOT_REGION` env var (explicit override); (3) legacy token parse for backward compat; (4) NA1 default.
 
 ---
 

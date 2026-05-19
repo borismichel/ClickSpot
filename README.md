@@ -156,6 +156,7 @@ Qlik-inspired selection propagation. Select a value in any table and all connect
 |----------|----------|-------------|
 | `HUBSPOT_TOKEN` | Yes | HubSpot private app token |
 | `HUBSPOT_HUB_ID` | Yes | HubSpot portal/hub ID — used to build canonical record URLs for the frontend and MCP responses |
+| `HUBSPOT_REGION` | No | Region code (`na1`, `eu1`, `na2`, …) for click-through URL subdomain. Auto-detected from `HUBSPOT_TOKEN` on first bronze call and cached in `~/.clickspot/customer.json`; only set explicitly when running MCP without the token. |
 | `CLICKHOUSE_HOST` | Yes | ClickHouse hostname (default: `localhost`) |
 | `CLICKHOUSE_PORT` | Yes | ClickHouse HTTP port (default: `8124`) |
 | `CLICKHOUSE_USER` | Yes | ClickHouse username (default: `hs2ch`) |

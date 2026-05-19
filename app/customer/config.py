@@ -41,6 +41,11 @@ DEFAULTS: dict[str, Any] = {
     "closed_lost_stage": None,
     "canonical_amount_col": "amount",
     "forecast_categories": ["COMMIT", "BEST_CASE", "MOST_LIKELY", "PIPELINE", "OMIT"],
+    # HubSpot region code (e.g. "na1", "eu1", "na2"). Used only to derive the
+    # right app subdomain for click-through URLs in chat results and MCP
+    # responses. Auto-populated from HUBSPOT_TOKEN on the first bronze API call;
+    # can also be set via HUBSPOT_REGION in .env or by hand here.
+    "hubspot_region": None,
 }
 
 
