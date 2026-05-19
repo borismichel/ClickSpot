@@ -7,13 +7,21 @@ the main spaces router from routes.py's __init__-style composition so the URLs
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
 from app.spaces.registry import get_space
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 log = logging.getLogger("app.spaces.routes.chat")
 
