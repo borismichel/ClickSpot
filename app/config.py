@@ -15,6 +15,7 @@ from silver_config import (
     DIM_LEAD_PIPELINES,
     DIM_LEAD_PIPELINE_STAGES,
     DIM_LEADS,
+    DIM_LISTS,
     DIM_OWNERS,
     DIM_PIPELINES,
     DIM_PIPELINE_STAGES,
@@ -65,6 +66,35 @@ GRAPH_EDGES = [
         "bridge": "bridge_lead_company",
         "from_key": "lead_id",
         "to_key": "company_id",
+    },
+    # Lists ↔ CRM
+    {
+        "from": "dim_lists",
+        "to": "dim_contacts",
+        "bridge": "bridge_list_contact",
+        "from_key": "list_id",
+        "to_key": "contact_id",
+    },
+    {
+        "from": "dim_lists",
+        "to": "dim_companies",
+        "bridge": "bridge_list_company",
+        "from_key": "list_id",
+        "to_key": "company_id",
+    },
+    {
+        "from": "dim_lists",
+        "to": "dim_deals",
+        "bridge": "bridge_list_deal",
+        "from_key": "list_id",
+        "to_key": "deal_id",
+    },
+    {
+        "from": "dim_lists",
+        "to": "dim_leads",
+        "bridge": "bridge_list_lead",
+        "from_key": "list_id",
+        "to_key": "lead_id",
     },
     # Activity ↔ CRM (direct bridges)
     {
@@ -159,6 +189,7 @@ _SILVER_SOURCES = [
     (DIM_PIPELINE_STAGES,      "dim_pipeline_stages",      "stage_id",      "Pipeline Stages"),
     (DIM_LEAD_PIPELINES,       "dim_lead_pipelines",       "pipeline_id",   "Lead Pipelines"),
     (DIM_LEAD_PIPELINE_STAGES, "dim_lead_pipeline_stages", "stage_id",      "Lead Pipeline Stages"),
+    (DIM_LISTS,                "dim_lists",                "list_id",       "Lists / Segments"),
     (FACT_FORM_SUBMISSIONS,    "fact_form_submissions",    "submission_id", "Form Submissions"),
 ]
 
@@ -365,6 +396,20 @@ _SILVER_OVERLAY: dict[str, dict] = {
             "pipeline_id": "Pipeline ID",
             "is_closed": "Is Closed",
             "display_order": "Display Order",
+        },
+    },
+    "dim_lists": {
+        "field_displays": {
+            "name": "List / Segment Name",
+            "list_type": "List Type",
+            "processing_type": "Processing Type",
+            "object_type_id": "Member Object Type (0-1 contacts, 0-2 companies, 0-3 deals, 0-136 leads)",
+            "processing_status": "Processing Status",
+            "created_by_id": "Created By (Owner ID)",
+            "updated_by_id": "Updated By (Owner ID)",
+            "created_at": "Created",
+            "updated_at": "Last Updated",
+            "filters_updated_at": "Filters Last Updated",
         },
     },
     "fact_form_submissions": {

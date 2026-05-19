@@ -26,7 +26,7 @@ OBJECT_GROUPS: dict[str, dict] = {
         "container_key": "activities",
     },
     "Marketing": {
-        "children": ["campaigns", "forms", "form_submissions"],
+        "children": ["campaigns", "forms", "form_submissions", "lists"],
         "expandable": False,
     },
     "Other": {

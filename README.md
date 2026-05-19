@@ -111,8 +111,8 @@ Three-layer medallion architecture:
 
 | Layer | Tables | Engine | Strategy |
 |-------|--------|--------|----------|
-| **Bronze** | 15 objects + 21 associations | `ReplacingMergeTree` (`_raw` ZSTD(3)) | Full list-endpoint loads, deduped on `_record_id` |
-| **Silver** | 10 dimensions + 3 facts + 9 bridges + 8 dicts | `ReplacingMergeTree` — partitioned + bloom-filter skip indexes on hot lookups | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
+| **Bronze** | 16 objects + 25 associations | `ReplacingMergeTree` (`_raw` ZSTD(3)) | Full list-endpoint loads, deduped on `_record_id` |
+| **Silver** | 11 dimensions + 3 facts + 13 bridges + 9 dicts | `ReplacingMergeTree` — partitioned + bloom-filter skip indexes on hot lookups | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
 | **Gold** | 7 aggregates | `ReplacingMergeTree` — partitioned where there's a natural date axis | Full rebuild |
 | **Anon** | Masked silver + gold mirrors in `silver_anon` / `gold_anon` | `ReplacingMergeTree` | Rebuilt after gold via sensor |
 
@@ -180,6 +180,7 @@ ClickSpot reads from HubSpot via a **private app token** (recommended) or a lega
 | Associations (`/crm/v4/objects/.../associations/...`) | 21 bridge tables | Covered by the parent-object scopes above |
 | Marketing campaigns (`/marketing/v3/campaigns`) | `hs_campaigns` bronze | `marketing.campaigns.read` |
 | Forms + form submissions (`/marketing/v3/forms`, `/form-integrations/v1/submissions`) | `hs_forms`, `hs_form_submissions` bronze | `forms` |
+| Lists / segments (`/crm/v3/lists/search`, `/crm/v3/lists/{id}/memberships`) | `hs_lists`, `hs_assoc_list_{contact,company,deal,lead}` bronze | `crm.lists.read` |
 
 After creating the app, copy the access token into `HUBSPOT_TOKEN` in `.env` and grab the portal ID from the app page URL for `HUBSPOT_HUB_ID`. If you skip the marketing scopes (`marketing.campaigns.read`, `forms`), the corresponding bronze assets will fail to materialize but the CRM pipeline will still run.
 
@@ -273,13 +274,13 @@ ClickSpot/
 
 | | Count |
 |---|---|
-| Bronze tables | 36 (15 objects + 21 associations) |
-| Silver assets | 23 (10 dims + 3 facts + 9 bridges + DQ) |
+| Bronze tables | 41 (16 objects + 25 associations) |
+| Silver assets | 28 (11 dims + 3 facts + 13 bridges + DQ) |
 | Gold tables | 7 |
 | Anon mirrors | silver_anon + gold_anon (masked copies for external sharing) |
-| Dictionaries | 8 (in-memory lookups from silver dims) |
-| Silver columns | ~197 (across all dimensions) |
-| Graph relationships | 9 bridge edges |
+| Dictionaries | 9 (in-memory lookups from silver dims) |
+| Silver columns | ~207 (across all dimensions) |
+| Graph relationships | 13 bridge edges |
 | API endpoints | ~64 (analytics + chat + data + objects + dashboards + conversations + spaces) |
 | Computed metrics | 22 |
 | LLM providers | 4 |

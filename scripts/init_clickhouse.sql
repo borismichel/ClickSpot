@@ -165,6 +165,27 @@ CREATE TABLE IF NOT EXISTS bronze.hs_assoc_task_deal
     (_from_id String, _to_id String, _association_type String, _extracted_at DateTime DEFAULT now())
     ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_from_id, _to_id, _association_type);
 
+-- Lists / segments (metadata + per-object-type memberships)
+CREATE TABLE IF NOT EXISTS bronze.hs_lists
+    (_record_id String, _extracted_at DateTime DEFAULT now(), properties Map(String, String), _raw String CODEC(ZSTD(3)))
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_record_id);
+
+CREATE TABLE IF NOT EXISTS bronze.hs_assoc_list_contact
+    (_from_id String, _to_id String, _association_type String, _extracted_at DateTime DEFAULT now())
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_from_id, _to_id, _association_type);
+
+CREATE TABLE IF NOT EXISTS bronze.hs_assoc_list_company
+    (_from_id String, _to_id String, _association_type String, _extracted_at DateTime DEFAULT now())
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_from_id, _to_id, _association_type);
+
+CREATE TABLE IF NOT EXISTS bronze.hs_assoc_list_deal
+    (_from_id String, _to_id String, _association_type String, _extracted_at DateTime DEFAULT now())
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_from_id, _to_id, _association_type);
+
+CREATE TABLE IF NOT EXISTS bronze.hs_assoc_list_lead
+    (_from_id String, _to_id String, _association_type String, _extracted_at DateTime DEFAULT now())
+    ENGINE = ReplacingMergeTree(_extracted_at) ORDER BY (_from_id, _to_id, _association_type);
+
 -- Gold database
 CREATE DATABASE IF NOT EXISTS gold;
 

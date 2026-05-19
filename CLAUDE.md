@@ -44,11 +44,11 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 ### Bronze Layer
 
 - **Resources** (`resources/`): `HubSpotResource` (API pagination + 429 retry), `ClickHouseResource` (bulk insert + `execute_sql`)
-- **Assets** (`assets/`): 15 object tables + 21 association tables = 36 bronze tables
+- **Assets** (`assets/`): 16 object tables + 25 association tables = 41 bronze tables
   - `crm.py`: contacts, companies, deals, leads (via `_make_crm_asset` factory) + `hs_owners`
   - `activities.py`: calls, meetings, engagement_emails, notes, tasks (reuses `_make_crm_asset`)
-  - `marketing.py`: campaigns, forms, pipelines, lead_pipelines (via `_make_marketing_asset` factory) + `hs_form_submissions` (legacy `/form-integrations/v1` endpoint, bespoke asset)
-  - `associations.py`: 21 N:M:N association bridges (6 CRM-to-CRM + 15 activity-to-CRM)
+  - `marketing.py`: campaigns, forms, pipelines, lead_pipelines (via `_make_marketing_asset` factory) + `hs_form_submissions` (legacy `/form-integrations/v1` endpoint, bespoke asset) + `hs_lists` (v3 lists catalog via `POST /crm/v3/lists/search`) + per-objectType list membership assoc assets
+  - `associations.py`: 21 N:M:N association bridges (6 CRM-to-CRM + 15 activity-to-CRM). Lists add 4 more (`hs_assoc_list_{contact,company,deal,lead}`), built in `marketing.py` from `/crm/v3/lists/{id}/memberships`.
 - **Schema**: `ReplacingMergeTree(_extracted_at) ORDER BY (_record_id)` — `properties Map(String, String)` + raw JSON in `_raw`
 - **Extraction**: Dynamic property discovery per object (calls `/crm/objects/{API_VERSION}/{type}/properties` first, then lists with explicit `properties=` query param). Cursor pagination via `paging.next.after`. Note: incremental HWM filtering via `/search` is NOT currently wired up — bronze does full list-endpoint loads, deduped by `ReplacingMergeTree` on `_record_id`
 
@@ -56,10 +56,10 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 
 - **Config** (`silver_config.py`): Single source of truth for field selection — adding/removing a property is a 1-line change. ~197 columns across all dimensions.
 - **Assets** (`assets/silver.py`): Config-driven factories generate DDL + transform SQL
-  - 10 dimension tables: `dim_contacts`, `dim_companies`, `dim_deals`, `dim_leads`, `dim_owners`, `dim_pipelines`, `dim_pipeline_stages`, `dim_lead_pipelines`, `dim_lead_pipeline_stages`
+  - 11 dimension tables: `dim_contacts`, `dim_companies`, `dim_deals`, `dim_leads`, `dim_owners`, `dim_pipelines`, `dim_pipeline_stages`, `dim_lead_pipelines`, `dim_lead_pipeline_stages`, `dim_lists`
   - 3 fact tables: `fact_activities` (UNION ALL across 5 activity types), `fact_stage_history` (stage enter/exit tracking), `fact_form_submissions`
-  - 9 bridge tables: `bridge_contact_company`, `bridge_contact_deal`, `bridge_deal_company`, `bridge_lead_contact`, `bridge_deal_lead`, `bridge_lead_company`, `bridge_activity_contact`, `bridge_activity_company`, `bridge_activity_deal`
-  - 8 dictionaries: in-memory lookups from silver dims (`DICT_CONFIGS` in `silver_config.py` → auto DDL via `_build_dict_ddl()`). Single-key dicts use `HASHED()`; composite (`dim_lead_pipeline_stages`) uses `COMPLEX_KEY_HASHED()`
+  - 13 bridge tables: `bridge_contact_company`, `bridge_contact_deal`, `bridge_deal_company`, `bridge_lead_contact`, `bridge_deal_lead`, `bridge_lead_company`, `bridge_list_contact`, `bridge_list_company`, `bridge_list_deal`, `bridge_list_lead`, `bridge_activity_contact`, `bridge_activity_company`, `bridge_activity_deal`
+  - 9 dictionaries: in-memory lookups from silver dims (`DICT_CONFIGS` in `silver_config.py` → auto DDL via `_build_dict_ddl()`). Single-key dicts use `HASHED()`; composite (`dim_lead_pipeline_stages`) uses `COMPLEX_KEY_HASHED()`
   - `dq_metrics`: append-only quality metrics (row counts, null rates, orphan counts, archived rates) with 90-day TTL
 - **Refresh**: Atomic swap via `EXCHANGE TABLES` — build into a staging table, swap in place, drop the old one. No downtime window
 - **Three source modes**: `properties` (Map column), `json` (JSONExtract from _raw), `nested_stages` (ARRAY JOIN)

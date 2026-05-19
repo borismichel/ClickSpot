@@ -51,6 +51,114 @@ hs_lead_pipelines = _make_marketing_asset(
 )
 
 
+# ---------------------------------------------------------------------------
+# Lists / segments — flat JSON catalog + per-object-type memberships
+# ---------------------------------------------------------------------------
+
+@asset(name="hs_lists", group_name="bronze")
+def hs_lists(
+    context: AssetExecutionContext,
+    hubspot: HubSpotResource,
+    ch: ClickHouseResource,
+):
+    """List catalog from POST /crm/v3/lists/search (flat JSON, no properties map)."""
+    run_start = datetime.utcnow()
+    records_written = 0
+    for batch in hubspot.fetch_lists():
+        rows = [
+            (
+                str(r["listId"]),
+                run_start,
+                {},
+                json.dumps(r, default=_json_default),
+            )
+            for r in batch
+            if r.get("listId") is not None
+        ]
+        records_written += ch.insert_records("hs_lists", rows)
+
+    context.log.info(f"hs_lists: {records_written} records written")
+    yield MaterializeResult(
+        metadata={
+            "records_written": MetadataValue.int(records_written),
+            "api_path": MetadataValue.text("/crm/v3/lists/search"),
+        }
+    )
+
+
+# objectTypeId values per HubSpot docs. Confirm against /crm/v3/lists/search on
+# a live portal if a future API rev introduces new IDs.
+_LIST_OBJECT_TYPE_IDS = {
+    "contact": "0-1",
+    "company": "0-2",
+    "deal":    "0-3",
+    "lead":    "0-136",
+}
+
+
+def _fetch_list_memberships_for_object_type(
+    hubspot: HubSpotResource,
+    ch: ClickHouseResource,
+    *,
+    object_type_id: str,
+    bronze_table: str,
+    run_start: datetime,
+) -> int:
+    """Iterate every list of the given objectTypeId, write memberships as
+    (_from_id=list_id, _to_id=record_id, _association_type='MEMBER',
+    _extracted_at) tuples into the assoc-shaped bronze table."""
+    res = ch.get_client().query(
+        "SELECT _record_id FROM bronze.hs_lists FINAL "
+        "WHERE JSONExtractString(_raw, 'objectTypeId') = %(otid)s",
+        parameters={"otid": object_type_id},
+    )
+    list_ids = [row[0] for row in res.result_rows]
+    written = 0
+    for list_id in list_ids:
+        for batch in hubspot.fetch_list_memberships(list_id):
+            rows = [
+                (list_id, str(m["recordId"]), "MEMBER", run_start)
+                for m in batch
+                if m.get("recordId") is not None
+            ]
+            written += ch.insert_association_records(bronze_table, rows)
+    return written
+
+
+def _make_list_membership_asset(suffix: str):
+    object_type_id = _LIST_OBJECT_TYPE_IDS[suffix]
+    bronze_table = f"hs_assoc_list_{suffix}"
+
+    @asset(name=bronze_table, group_name="bronze", deps=[hs_lists])
+    def _asset(
+        context: AssetExecutionContext,
+        hubspot: HubSpotResource,
+        ch: ClickHouseResource,
+    ):
+        run_start = datetime.utcnow()
+        n = _fetch_list_memberships_for_object_type(
+            hubspot, ch,
+            object_type_id=object_type_id,
+            bronze_table=bronze_table,
+            run_start=run_start,
+        )
+        context.log.info(f"{bronze_table}: {n} memberships written")
+        yield MaterializeResult(
+            metadata={
+                "records_written": MetadataValue.int(n),
+                "object_type_id": MetadataValue.text(object_type_id),
+            }
+        )
+
+    return _asset
+
+
+hs_assoc_list_contact = _make_list_membership_asset("contact")
+hs_assoc_list_company = _make_list_membership_asset("company")
+hs_assoc_list_deal = _make_list_membership_asset("deal")
+hs_assoc_list_lead = _make_list_membership_asset("lead")
+
+
 @asset(name="hs_form_submissions", group_name="bronze", deps=[])
 def hs_form_submissions(
     context: AssetExecutionContext,

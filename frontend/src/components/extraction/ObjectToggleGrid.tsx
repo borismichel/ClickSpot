@@ -41,6 +41,7 @@ const TOGGLE_LABELS: Record<string, string> = {
   campaigns: "Campaigns",
   forms: "Forms",
   form_submissions: "Form submissions",
+  lists: "Lists / Segments",
 };
 
 const TOGGLE_HINTS: Record<string, string> = {
@@ -48,6 +49,7 @@ const TOGGLE_HINTS: Record<string, string> = {
   lead_pipelines: "Auto-disabled when Leads is off.",
   form_submissions: "Auto-disabled when Forms is off.",
   owners: "Disabling leaves owner_name columns empty in dim/gold tables.",
+  lists: "Requires the crm.lists.read scope on the HubSpot token.",
 };
 
 function isDisabledByCascade(key: string, state: ObjectsState): boolean {

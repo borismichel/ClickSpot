@@ -162,8 +162,9 @@ class TestConfigStructure:
         for entry in BRIDGE_ACTIVITY_DEAL:
             assert len(entry) == 2, f"Activity bridge {entry} is not a 2-tuple"
 
-    def test_all_bridge_tables_have_6_entries(self):
-        assert len(BRIDGE_TABLES) == 6, f"Expected 6 bridge tables, got {len(BRIDGE_TABLES)}"
+    def test_all_bridge_tables_have_10_entries(self):
+        # 6 CRM↔CRM + 4 list↔CRM (contact/company/deal/lead)
+        assert len(BRIDGE_TABLES) == 10, f"Expected 10 bridge tables, got {len(BRIDGE_TABLES)}"
 
     def test_all_activity_bridge_configs_have_5_entries(self):
         assert len(BRIDGE_ACTIVITY_CONTACT) == 5

@@ -348,6 +348,25 @@ DIM_PIPELINES = {
     ],
 }
 
+# Lists / segments -- flat JSON catalog from /crm/v3/lists/search
+DIM_LISTS = {
+    "bronze_table": "hs_lists",
+    "primary_key": "list_id",
+    "source": "json",
+    "columns": [
+        ("name",               "name",             "String"),
+        ("list_type",          "listType",         "LowCardinality(String)"),
+        ("processing_type",    "processingType",   "LowCardinality(String)"),
+        ("object_type_id",     "objectTypeId",     "LowCardinality(String)"),
+        ("processing_status",  "processingStatus", "LowCardinality(String)"),
+        ("created_by_id",      "createdById",      "String"),
+        ("updated_by_id",      "updatedById",      "String"),
+        ("created_at",         "createdAt",        "DateTime"),
+        ("updated_at",         "updatedAt",        "DateTime"),
+        ("filters_updated_at", "filtersUpdatedAt", "DateTime"),
+    ],
+}
+
 # Pipeline stages -- flattened from stages[] array nested in pipeline JSON
 # Special handling: not a simple property extraction
 DIM_PIPELINE_STAGES = {
@@ -383,6 +402,11 @@ BRIDGE_TABLES = [
     ("bridge_lead_contact",    "hs_assoc_lead_contact",    "lead_id",    "contact_id"),
     ("bridge_deal_lead",       "hs_assoc_deal_lead",       "deal_id",    "lead_id"),
     ("bridge_lead_company",    "hs_assoc_lead_company",    "lead_id",    "company_id"),
+    # Lists ↔ CRM
+    ("bridge_list_contact",    "hs_assoc_list_contact",    "list_id",    "contact_id"),
+    ("bridge_list_company",    "hs_assoc_list_company",    "list_id",    "company_id"),
+    ("bridge_list_deal",       "hs_assoc_list_deal",       "list_id",    "deal_id"),
+    ("bridge_list_lead",       "hs_assoc_list_lead",       "list_id",    "lead_id"),
 ]
 
 BRIDGE_ACTIVITY_CONTACT = [
@@ -570,6 +594,21 @@ DICT_CONFIGS = {
             "agg_lead_health": {"pipeline_id": "hs_pipeline"},
         },
     },
+    "dim_lists": {
+        "description": "HubSpot list / segment metadata lookup",
+        "keys": [("list_id", "String")],
+        "values": [
+            ("name",           "String", "List/segment name"),
+            ("list_type",      "String", "STATIC | DYNAMIC"),
+            ("object_type_id", "String", "Member object type (0-1 contacts, 0-2 companies, 0-3 deals, 0-136 leads)"),
+        ],
+        "used_by": {
+            "bridge_list_contact": {"list_id": "list_id"},
+            "bridge_list_company": {"list_id": "list_id"},
+            "bridge_list_deal":    {"list_id": "list_id"},
+            "bridge_list_lead":    {"list_id": "list_id"},
+        },
+    },
     "dim_lead_pipeline_stages": {
         "description": "Lead pipeline stage lookup (composite key: pipeline + stage)",
         "keys": [("pipeline_id", "String"), ("stage_id", "String")],
@@ -645,6 +684,15 @@ ANON_PII_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
     "dim_leads": [
         ("hs_lead_name", "text"),
+    ],
+    "dim_lists": [
+        # Segment names can leak business strategy ("VIP customers Q3",
+        # "Churn risk - Enterprise"). Mask in the anon mirror so MCP
+        # clients only see synthetic labels.
+        ("name", "text"),
+    ],
+    "dict_lists": [
+        ("name", "text"),
     ],
     # Silver facts
     "fact_form_submissions": [

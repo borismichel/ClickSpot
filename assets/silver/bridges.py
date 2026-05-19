@@ -80,6 +80,10 @@ bridge_deal_company = _bridge_assets["bridge_deal_company"]
 bridge_lead_contact = _bridge_assets["bridge_lead_contact"]
 bridge_deal_lead = _bridge_assets["bridge_deal_lead"]
 bridge_lead_company = _bridge_assets["bridge_lead_company"]
+bridge_list_contact = _bridge_assets["bridge_list_contact"]
+bridge_list_company = _bridge_assets["bridge_list_company"]
+bridge_list_deal = _bridge_assets["bridge_list_deal"]
+bridge_list_lead = _bridge_assets["bridge_list_lead"]
 
 
 # ---------------------------------------------------------------------------

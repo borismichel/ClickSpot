@@ -19,6 +19,7 @@ export interface ExtractionObjects {
   campaigns?: boolean;
   forms?: boolean;
   form_submissions?: boolean;
+  lists?: boolean;
 }
 
 export interface SilverPropertyOverride {

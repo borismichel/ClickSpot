@@ -25,9 +25,11 @@ _ANON_TABLES = [
     "dim_owners",
     "dim_pipelines", "dim_pipeline_stages",
     "dim_lead_pipelines", "dim_lead_pipeline_stages",
+    "dim_lists",
     "fact_form_submissions", "fact_stage_history",
     "bridge_contact_company", "bridge_contact_deal", "bridge_deal_company",
     "bridge_lead_contact", "bridge_deal_lead", "bridge_lead_company",
+    "bridge_list_contact", "bridge_list_company", "bridge_list_deal", "bridge_list_lead",
 ]
 
 
@@ -183,6 +185,11 @@ anon_bridge_deal_company = _anon_assets["bridge_deal_company"]
 anon_bridge_lead_contact = _anon_assets["bridge_lead_contact"]
 anon_bridge_deal_lead = _anon_assets["bridge_deal_lead"]
 anon_bridge_lead_company = _anon_assets["bridge_lead_company"]
+anon_dim_lists = _anon_assets["dim_lists"]
+anon_bridge_list_contact = _anon_assets["bridge_list_contact"]
+anon_bridge_list_company = _anon_assets["bridge_list_company"]
+anon_bridge_list_deal = _anon_assets["bridge_list_deal"]
+anon_bridge_list_lead = _anon_assets["bridge_list_lead"]
 
 
 def _build_silver_anon_assets():

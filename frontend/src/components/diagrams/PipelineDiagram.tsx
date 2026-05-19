@@ -35,7 +35,7 @@ export function PipelineDiagram() {
         <text x="100" y="250" textAnchor="middle" fontSize="11" fill="#8c8c8c">5 Activity Types</text>
         <text x="100" y="268" textAnchor="middle" fontSize="11" fill="#8c8c8c">Owners, Pipelines</text>
         <line x1="40" y1="280" x2="160" y2="280" stroke="#ffd591" />
-        <text x="100" y="302" textAnchor="middle" fontSize="11" fill="#8c8c8c">20 Association</text>
+        <text x="100" y="302" textAnchor="middle" fontSize="11" fill="#8c8c8c">25 Association</text>
         <text x="100" y="318" textAnchor="middle" fontSize="11" fill="#8c8c8c">Types (N:M:N)</text>
         <text x="100" y="340" textAnchor="middle" fontSize="10" fill="#bbb">REST API v2026-03</text>
       </g>
@@ -70,7 +70,7 @@ export function PipelineDiagram() {
         <text x="480" y="78" textAnchor="middle" fontSize="11" fill="#fff" fontWeight="600">Bronze</text>
         <text x="660" y="78" textAnchor="middle" fontSize="11" fill="#8c8c8c">Raw extraction — safety net</text>
         <text x="660" y="102" textAnchor="middle" fontSize="11" fill="#595959">
-          14 object tables + 20 association tables
+          16 object tables + 25 association tables
         </text>
         <text x="660" y="120" textAnchor="middle" fontSize="10" fill="#8c8c8c">
           Map(String, String) properties + raw JSON | ReplacingMergeTree
@@ -90,15 +90,15 @@ export function PipelineDiagram() {
 
         {/* Silver sub-boxes */}
         <rect x="452" y="200" width="95" height="36" rx="4" fill="#fff" stroke="#91caff" strokeWidth="0.5" />
-        <text x="500" y="214" textAnchor="middle" fontSize="10" fill="#595959" fontWeight="500">9 Dimensions</text>
+        <text x="500" y="214" textAnchor="middle" fontSize="10" fill="#595959" fontWeight="500">11 Dimensions</text>
         <text x="500" y="228" textAnchor="middle" fontSize="9" fill="#8c8c8c">contacts, deals...</text>
 
         <rect x="555" y="200" width="82" height="36" rx="4" fill="#fff" stroke="#91caff" strokeWidth="0.5" />
-        <text x="596" y="214" textAnchor="middle" fontSize="10" fill="#595959" fontWeight="500">1 Fact Table</text>
-        <text x="596" y="228" textAnchor="middle" fontSize="9" fill="#8c8c8c">activities</text>
+        <text x="596" y="214" textAnchor="middle" fontSize="10" fill="#595959" fontWeight="500">3 Fact Tables</text>
+        <text x="596" y="228" textAnchor="middle" fontSize="9" fill="#8c8c8c">activities, stage…</text>
 
         <rect x="645" y="200" width="80" height="36" rx="4" fill="#fff" stroke="#91caff" strokeWidth="0.5" />
-        <text x="685" y="214" textAnchor="middle" fontSize="10" fill="#595959" fontWeight="500">9 Bridges</text>
+        <text x="685" y="214" textAnchor="middle" fontSize="10" fill="#595959" fontWeight="500">13 Bridges</text>
         <text x="685" y="228" textAnchor="middle" fontSize="9" fill="#8c8c8c">N:M joins</text>
 
         <rect x="733" y="200" width="115" height="36" rx="4" fill="#fff" stroke="#91caff" strokeWidth="0.5" />
@@ -116,14 +116,14 @@ export function PipelineDiagram() {
         <rect x="440" y="298" width="420" height="68" rx="8" fill="#f0f5ff" stroke="#85a5ff" strokeWidth="1" strokeDasharray="4 2" />
         <rect x="440" y="298" width="100" height="24" rx="6" fill="#597ef7" />
         <text x="490" y="314" textAnchor="middle" fontSize="11" fill="#fff" fontWeight="600">Dictionaries</text>
-        <text x="680" y="314" textAnchor="middle" fontSize="11" fill="#8c8c8c">In-memory hash lookups (6)</text>
+        <text x="680" y="314" textAnchor="middle" fontSize="11" fill="#8c8c8c">In-memory hash lookups (9)</text>
 
         <text x="500" y="344" textAnchor="middle" fontSize="10" fill="#595959">owners</text>
         <text x="565" y="344" textAnchor="middle" fontSize="10" fill="#595959">pipelines</text>
         <text x="638" y="344" textAnchor="middle" fontSize="10" fill="#595959">stages</text>
         <text x="708" y="344" textAnchor="middle" fontSize="10" fill="#595959">contacts</text>
         <text x="778" y="344" textAnchor="middle" fontSize="10" fill="#595959">companies</text>
-        <text x="840" y="344" textAnchor="middle" fontSize="10" fill="#595959">deals</text>
+        <text x="828" y="344" textAnchor="middle" fontSize="10" fill="#595959">deals · lists</text>
 
         <text x="660" y="360" textAnchor="middle" fontSize="9" fill="#bbb">
           dictGet() replaces JOINs for ID→name resolution

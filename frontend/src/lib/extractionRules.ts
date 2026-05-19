@@ -21,6 +21,7 @@ export interface ObjectsState {
   campaigns: boolean;
   forms: boolean;
   form_submissions: boolean;
+  lists: boolean;
 }
 
 export const DEFAULT_OBJECTS: ObjectsState = {
@@ -35,6 +36,7 @@ export const DEFAULT_OBJECTS: ObjectsState = {
   campaigns: true,
   forms: true,
   form_submissions: true,
+  lists: true,
 };
 
 export const DEPENDENCIES: Record<string, string[]> = {
@@ -81,7 +83,7 @@ export const OBJECT_GROUPS: ObjectGroup[] = [
     expandable: true,
     containerKey: "activities",
   },
-  { name: "Marketing", children: ["campaigns", "forms", "form_submissions"], expandable: false },
+  { name: "Marketing", children: ["campaigns", "forms", "form_submissions", "lists"], expandable: false },
   { name: "Other", children: ["owners", "deal_pipelines", "lead_pipelines"], expandable: false },
 ];
 

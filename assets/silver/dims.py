@@ -12,6 +12,7 @@ from silver_config import (
     DIM_CONTACTS, DIM_COMPANIES, DIM_DEALS, DIM_LEADS,
     DIM_OWNERS, DIM_PIPELINES, DIM_PIPELINE_STAGES,
     DIM_LEAD_PIPELINES, DIM_LEAD_PIPELINE_STAGES,
+    DIM_LISTS,
 )
 from .sql import _build_ddl, _build_insert, _cast_expr, _swap_table
 
@@ -81,6 +82,7 @@ dim_leads = _make_dim_asset("leads", DIM_LEADS)
 dim_owners = _make_dim_asset("owners", DIM_OWNERS)
 dim_pipelines = _make_dim_asset("pipelines", DIM_PIPELINES)
 dim_lead_pipelines = _make_dim_asset("lead_pipelines", DIM_LEAD_PIPELINES)
+dim_lists = _make_dim_asset("lists", DIM_LISTS)
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,11 @@ from dagster import Definitions
 
 from assets.crm import hs_contacts, hs_companies, hs_deals, hs_leads, hs_owners
 from assets.activities import hs_calls, hs_meetings, hs_engagement_emails, hs_notes, hs_tasks
-from assets.marketing import hs_campaigns, hs_forms, hs_pipelines, hs_lead_pipelines, hs_form_submissions
+from assets.marketing import (
+    hs_campaigns, hs_forms, hs_pipelines, hs_lead_pipelines, hs_form_submissions,
+    hs_lists, hs_assoc_list_contact, hs_assoc_list_company,
+    hs_assoc_list_deal, hs_assoc_list_lead,
+)
 from assets.associations import (
     # CRM ↔ CRM
     hs_assoc_contact_company, hs_assoc_contact_deal, hs_assoc_deal_company,
@@ -59,6 +63,7 @@ _BRONZE_OBJECT_ASSETS = {
     "hs_pipelines": hs_pipelines,
     "hs_lead_pipelines": hs_lead_pipelines,
     "hs_form_submissions": hs_form_submissions,
+    "hs_lists": hs_lists,
 }
 
 _BRONZE_ASSOC_ASSETS = {
@@ -83,6 +88,10 @@ _BRONZE_ASSOC_ASSETS = {
     "hs_assoc_email_deal": hs_assoc_email_deal,
     "hs_assoc_note_deal": hs_assoc_note_deal,
     "hs_assoc_task_deal": hs_assoc_task_deal,
+    "hs_assoc_list_contact": hs_assoc_list_contact,
+    "hs_assoc_list_company": hs_assoc_list_company,
+    "hs_assoc_list_deal":    hs_assoc_list_deal,
+    "hs_assoc_list_lead":    hs_assoc_list_lead,
 }
 
 

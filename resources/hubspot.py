@@ -219,6 +219,58 @@ class HubSpotResource(ConfigurableResource):
         return forms
 
     # ------------------------------------------------------------------
+    # Lists / segments (v3) — paginated catalog + per-list memberships
+    # ------------------------------------------------------------------
+
+    def fetch_lists(self, batch_size: int = 100) -> Iterator[list[dict]]:
+        """List the catalog via POST /crm/v3/lists/search.
+
+        HubSpot's v3 lists API doesn't expose a GET /crm/v3/lists collection
+        endpoint — the canonical way to enumerate all lists is the search
+        endpoint with an empty filter set. Offset-paged.
+        """
+        url = f"{BASE_URL}/crm/v3/lists/search"
+        offset = 0
+        while True:
+            body = {"count": batch_size, "offset": offset}
+            resp = _request_with_retry("POST", url, headers=self._headers(), json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("lists") or []
+            if results:
+                yield results
+            if not data.get("hasMore"):
+                break
+            offset = data.get("offset", offset + batch_size)
+            time.sleep(0.1)
+
+    def fetch_list_memberships(
+        self,
+        list_id: str,
+        batch_size: int = 250,
+    ) -> Iterator[list[dict]]:
+        """GET /crm/v3/lists/{listId}/memberships — paginated members of one list.
+
+        Each result is {recordId, membershipTimestamp}; the object type of
+        recordId is implied by the list's objectTypeId (caller routes
+        accordingly).
+        """
+        url = f"{BASE_URL}/crm/v3/lists/{list_id}/memberships"
+        params: dict = {"limit": batch_size}
+        while True:
+            resp = _request_with_retry("GET", url, headers=self._headers(), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("results") or []
+            if results:
+                yield results
+            next_after = (data.get("paging") or {}).get("next", {}).get("after")
+            if not next_after:
+                break
+            params["after"] = next_after
+            time.sleep(0.1)
+
+    # ------------------------------------------------------------------
     # Property metadata (for semantic layer)
     # ------------------------------------------------------------------
 

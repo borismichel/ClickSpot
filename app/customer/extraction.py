@@ -45,6 +45,7 @@ DEFAULT_OBJECTS: dict[str, Any] = {
     "campaigns": True,
     "forms": True,
     "form_submissions": True,
+    "lists": True,
 }
 
 
@@ -61,6 +62,7 @@ BRONZE_TABLES: dict[str, list[str]] = {
     "campaigns": ["hs_campaigns"],
     "forms": ["hs_forms"],
     "form_submissions": ["hs_form_submissions"],
+    "lists": ["hs_lists"],
     # activity sub-toggles
     "calls": ["hs_calls"],
     "meetings": ["hs_meetings"],
@@ -94,6 +96,10 @@ ASSOC_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "hs_assoc_email_deal":      ("emails", "deals"),
     "hs_assoc_note_deal":       ("notes", "deals"),
     "hs_assoc_task_deal":       ("tasks", "deals"),
+    "hs_assoc_list_contact":    ("lists", "contacts"),
+    "hs_assoc_list_company":    ("lists", "companies"),
+    "hs_assoc_list_deal":       ("lists", "deals"),
+    "hs_assoc_list_lead":       ("lists", "leads"),
 }
 
 
@@ -123,6 +129,11 @@ SILVER_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "bridge_activity_contact":    ("contacts",),
     "bridge_activity_company":    ("companies",),
     "bridge_activity_deal":       ("deals",),
+    "dim_lists":                  ("lists",),
+    "bridge_list_contact":        ("lists", "contacts"),
+    "bridge_list_company":        ("lists", "companies"),
+    "bridge_list_deal":           ("lists", "deals"),
+    "bridge_list_lead":           ("lists", "leads"),
 }
 
 

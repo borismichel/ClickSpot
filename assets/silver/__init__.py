@@ -20,6 +20,7 @@ from .dims import (
     dim_deals,
     dim_pipeline_stages,
     dim_lead_pipeline_stages,
+    dim_lists,
 )
 from .facts import fact_activities, fact_form_submissions, fact_stage_history
 from .bridges import (
@@ -29,6 +30,10 @@ from .bridges import (
     bridge_lead_contact,
     bridge_deal_lead,
     bridge_lead_company,
+    bridge_list_contact,
+    bridge_list_company,
+    bridge_list_deal,
+    bridge_list_lead,
     bridge_activity_contact,
     bridge_activity_company,
     bridge_activity_deal,
@@ -46,6 +51,7 @@ _ALL_SILVER_ASSET_MAP = {
     "dim_pipeline_stages": dim_pipeline_stages,
     "dim_lead_pipelines": dim_lead_pipelines,
     "dim_lead_pipeline_stages": dim_lead_pipeline_stages,
+    "dim_lists": dim_lists,
     "fact_activities": fact_activities,
     "fact_form_submissions": fact_form_submissions,
     "fact_stage_history": fact_stage_history,
@@ -55,6 +61,10 @@ _ALL_SILVER_ASSET_MAP = {
     "bridge_lead_contact": bridge_lead_contact,
     "bridge_deal_lead": bridge_deal_lead,
     "bridge_lead_company": bridge_lead_company,
+    "bridge_list_contact": bridge_list_contact,
+    "bridge_list_company": bridge_list_company,
+    "bridge_list_deal": bridge_list_deal,
+    "bridge_list_lead": bridge_list_lead,
     "bridge_activity_contact": bridge_activity_contact,
     "bridge_activity_company": bridge_activity_company,
     "bridge_activity_deal": bridge_activity_deal,
