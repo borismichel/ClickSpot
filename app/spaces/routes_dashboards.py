@@ -24,6 +24,74 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class CreateSpaceDashboardRequest(BaseModel):
+    title: str
+
+
+class UpdateSpaceDashboardRequest(BaseModel):
+    title: str | None = None
+    pinned_columns: list[str] | None = None
+    filters: list[dict] | None = None
+
+
+class AddSpaceDashItemRequest(BaseModel):
+    title: str
+    sql: str
+    viz: str
+    context_kpis: list[dict] = []
+
+
+class SpaceLayoutItem(BaseModel):
+    item_id: str
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+class UpdateSpaceLayoutsRequest(BaseModel):
+    layouts: list[SpaceLayoutItem]
+
+
+async def _get_space_dashboard(db, dash_id: str) -> dict | None:
+    cursor = await db.execute("SELECT * FROM space_dashboards WHERE id = ?", (dash_id,))
+    dash = await cursor.fetchone()
+    if not dash:
+        return None
+
+    cursor = await db.execute(
+        "SELECT * FROM space_dashboard_items WHERE dashboard_id = ? ORDER BY sort_order",
+        (dash_id,),
+    )
+    items = await cursor.fetchall()
+
+    return {
+        "id": dash["id"],
+        "space_id": dash["space_id"],
+        "title": dash["title"],
+        "pinned_columns": json.loads(dash["pinned_columns"]),
+        "filters": json.loads(dash["filters"]),
+        "items": [
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "sql": item["sql"],
+                "viz": item["viz"],
+                "contextKPIs": json.loads(item["context_kpis"]),
+                "layout": {
+                    "x": item["layout_x"],
+                    "y": item["layout_y"],
+                    "w": item["layout_w"],
+                    "h": item["layout_h"],
+                },
+            }
+            for item in items
+        ],
+        "created_at": dash["created_at"],
+        "updated_at": dash["updated_at"],
+    }
+
+
 @router.get("/{space_id}/dashboards")
 async def api_list_space_dashboards(space_id: str):
     from app.store import get_db
