@@ -30,39 +30,72 @@ def _silver_source(entity: str, filter_expr: str | None) -> str:
 
 
 def generate_view_sql(config: DataSpaceConfig) -> str:
-    """Generate the full CREATE OR REPLACE VIEW statement."""
+    """Generate the full CREATE OR REPLACE VIEW statement.
+
+    Alias collisions are resolved by "grain wins": the grain's denormalized
+    columns are kept verbatim, and any dimension/computed column that would
+    produce the same SELECT alias is silently dropped. The most common case
+    is a grain like dim_deals with denormalized pipeline_label/stage_label/
+    owner_name PLUS the user adding dim_pipelines / dim_pipeline_stages /
+    dim_owners as separate FK dimensions whose prefix+col aliases collide
+    with the grain's denormalized labels — without this the generated SQL
+    fails with MULTIPLE_EXPRESSIONS_FOR_ALIAS.
+    """
     select_parts: list[str] = []
+    seen_aliases: set[str] = set()
     grain_source = _silver_source(config.grain.entity, config.grain.filter)
     from_clause: str = f"{grain_source} AS grain"
     join_clauses: list[str] = []
 
+    # Grain PK (always included, first)
+    select_parts.append(f"    grain.{config.grain.key} AS {config.grain.key}")
+    seen_aliases.add(config.grain.key)
+
     # Grain columns — explicit AS alias so ClickHouse VIEW doesn't
     # preserve the "grain." prefix in the column name
     for col in config.grain.columns:
+        if col in seen_aliases:
+            continue
         select_parts.append(f"    grain.{col} AS {col}")
+        seen_aliases.add(col)
 
-    # Grain PK (always included, first)
-    select_parts.insert(0, f"    grain.{config.grain.key} AS {config.grain.key}")
-
-    # Dimensions
+    # Dimensions — drop columns whose final alias would collide with the grain
+    # (or with a previously processed dimension).
     for i, dim in enumerate(config.dimensions):
         if isinstance(dim, BridgeDimension):
             alias = f"dim{i}"
-            cols, join = _bridge_join(config.grain, dim, alias)
+            filtered = _filter_bridge_dim(dim, seen_aliases)
+            if filtered is None:
+                continue  # every column collided
+            cols, join = _bridge_join(config.grain, filtered, alias)
             select_parts.extend(cols)
             join_clauses.append(join)
+            seen_aliases.update(_bridge_dim_aliases(filtered))
         elif isinstance(dim, FKDimension):
             alias = f"fk{i}"
-            cols, join = _fk_join(dim, alias)
+            keep_cols = [c for c in dim.columns if f"{dim.prefix}{c}" not in seen_aliases]
+            if not keep_cols:
+                continue
+            filtered_dim = dim.model_copy(update={"columns": keep_cols})
+            cols, join = _fk_join(filtered_dim, alias)
             select_parts.extend(cols)
             join_clauses.append(join)
+            seen_aliases.update(f"{dim.prefix}{c}" for c in keep_cols)
         elif isinstance(dim, DictDimension):
-            cols = _dict_lookup(dim)
+            keep_cols = [c for c in dim.columns if f"{dim.prefix}{c}" not in seen_aliases]
+            if not keep_cols:
+                continue
+            filtered_dim = dim.model_copy(update={"columns": keep_cols})
+            cols = _dict_lookup(filtered_dim)
             select_parts.extend(cols)
+            seen_aliases.update(f"{dim.prefix}{c}" for c in keep_cols)
 
     # Computed columns
     for comp in config.computed:
+        if comp.alias in seen_aliases:
+            continue
         select_parts.append(f"    {comp.expr} AS {comp.alias}")
+        seen_aliases.add(comp.alias)
 
     # Assemble
     select_sql = ",\n".join(select_parts)
@@ -85,6 +118,31 @@ def generate_select_sql(config: DataSpaceConfig) -> str:
     if full.startswith(prefix):
         return full[len(prefix):]
     return full
+
+
+# ---------------------------------------------------------------------------
+# Alias-collision helpers
+# ---------------------------------------------------------------------------
+
+def _bridge_dim_aliases(dim: BridgeDimension) -> list[str]:
+    """The final SELECT aliases this bridge dim will contribute."""
+    if dim.strategy == BridgeStrategy.aggregate:
+        return [f"{dim.prefix}{a['alias']}" for a in (dim.agg_expressions or [])]
+    return [f"{dim.prefix}{c}" for c in dim.columns]
+
+
+def _filter_bridge_dim(dim: BridgeDimension, seen: set[str]) -> BridgeDimension | None:
+    """Return a copy of `dim` with collision-prone columns/agg_expressions
+    removed, or None if nothing's left to include."""
+    if dim.strategy == BridgeStrategy.aggregate:
+        kept = [a for a in (dim.agg_expressions or []) if f"{dim.prefix}{a['alias']}" not in seen]
+        if not kept:
+            return None
+        return dim.model_copy(update={"agg_expressions": kept})
+    kept_cols = [c for c in dim.columns if f"{dim.prefix}{c}" not in seen]
+    if not kept_cols:
+        return None
+    return dim.model_copy(update={"columns": kept_cols})
 
 
 # ---------------------------------------------------------------------------

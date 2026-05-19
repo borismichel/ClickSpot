@@ -411,3 +411,130 @@ class TestConfigValidation:
                 prefix="contact_",
                 # agg_expressions missing
             )
+
+
+# ---------------------------------------------------------------------------
+# Alias collision regression (the deal-space ClickHouse "MULTIPLE_EXPRESSIONS_
+# FOR_ALIAS" failure that surfaced when users added dim_pipelines as a dim to
+# a deals grain that already had a denormalized pipeline_label column).
+# ---------------------------------------------------------------------------
+
+class TestAliasCollisions:
+    def test_fk_dim_collision_with_grain_column_dropped(self):
+        """Grain has `pipeline_label`; adding dim_pipelines with prefix=`pipeline_`
+        and column=`label` would also produce `pipeline_label`. The grain wins;
+        the FK column is silently dropped so ClickHouse doesn't reject the SQL."""
+        config = DataSpaceConfig(
+            id="deals_with_pipelines",
+            name="Deals + Pipelines",
+            grain=GrainConfig(
+                entity="dim_deals",
+                key="deal_id",
+                columns=["dealname", "pipeline_label", "stage_label"],
+            ),
+            dimensions=[
+                FKDimension(
+                    entity="dim_pipelines",
+                    dim_key="pipeline_id",
+                    fk_from="pipeline",
+                    fk_to="pipeline_id",
+                    columns=["label", "display_order"],
+                    prefix="pipeline_",
+                ),
+            ],
+        )
+        sql = generate_view_sql(config)
+        # `pipeline_label` should appear exactly once (from the grain)
+        assert sql.count(" AS pipeline_label") == 1
+        assert "grain.pipeline_label AS pipeline_label" in sql
+        # The FK's other non-colliding column survives
+        assert "fk0.display_order AS pipeline_display_order" in sql
+        # And the FK join is still emitted (because at least one col remained)
+        assert "LEFT JOIN silver.dim_pipelines AS fk0" in sql
+
+    def test_fk_entirely_dropped_skips_join(self):
+        """If every column of an FK dim would collide, the join itself is omitted."""
+        config = DataSpaceConfig(
+            id="deals_owners_redundant",
+            name="Deals + Redundant Owners",
+            grain=GrainConfig(
+                entity="dim_deals",
+                key="deal_id",
+                columns=["dealname", "owner_first_name", "owner_last_name"],
+            ),
+            dimensions=[
+                FKDimension(
+                    entity="dim_owners",
+                    dim_key="owner_id",
+                    fk_from="hubspot_owner_id",
+                    fk_to="owner_id",
+                    columns=["first_name", "last_name"],
+                    prefix="owner_",
+                ),
+            ],
+        )
+        sql = generate_view_sql(config)
+        # Both grain aliases present, no fk0 join at all
+        assert "grain.owner_first_name AS owner_first_name" in sql
+        assert "grain.owner_last_name AS owner_last_name" in sql
+        assert "fk0" not in sql
+        assert "LEFT JOIN silver.dim_owners" not in sql
+
+    def test_dict_dim_collision_dropped(self):
+        """Dict-style dim columns are also subject to the same dedup."""
+        config = DataSpaceConfig(
+            id="deals_dict_pipelines",
+            name="Deals + Dict Pipelines",
+            grain=GrainConfig(
+                entity="dim_deals",
+                key="deal_id",
+                columns=["dealname", "pipeline_label"],
+            ),
+            dimensions=[
+                DictDimension(
+                    entity="dim_pipelines",
+                    dict_name="dict_pipelines",
+                    key_expr="grain.pipeline",
+                    columns=["label"],
+                    prefix="pipeline_",
+                ),
+            ],
+        )
+        sql = generate_view_sql(config)
+        # Only one pipeline_label alias — from the grain
+        assert sql.count(" AS pipeline_label") == 1
+        # The dictGet call for the colliding `label` is omitted entirely
+        assert "dictGet('silver.dict_pipelines', 'label'" not in sql
+
+    def test_bridge_aggregate_alias_collision_dropped(self):
+        """Aggregate-strategy bridges also dedupe on their per-expression alias."""
+        config = DataSpaceConfig(
+            id="deals_contact_agg",
+            name="Deals + Contact Agg",
+            grain=GrainConfig(
+                entity="dim_deals",
+                key="deal_id",
+                columns=["dealname", "contact_count"],
+            ),
+            dimensions=[
+                BridgeDimension(
+                    entity="dim_contacts",
+                    bridge="bridge_contact_deal",
+                    bridge_grain_key="deal_id",
+                    bridge_dim_key="contact_id",
+                    dim_key="contact_id",
+                    strategy=BridgeStrategy.aggregate,
+                    columns=[],
+                    prefix="contact_",
+                    agg_expressions=[
+                        {"alias": "count", "expr": "count()"},  # prefix+alias = "contact_count" — collision
+                        {"alias": "emails", "expr": "groupUniqArray(d.email)"},
+                    ],
+                ),
+            ],
+        )
+        sql = generate_view_sql(config)
+        assert sql.count(" AS contact_count") == 1
+        assert "grain.contact_count AS contact_count" in sql
+        # Non-colliding emails aggregation still present
+        assert "contact_emails" in sql
