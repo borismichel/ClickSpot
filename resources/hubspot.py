@@ -280,19 +280,29 @@ class HubSpotResource(ConfigurableResource):
     def fetch_list_memberships(
         self,
         list_id: str,
-        batch_size: int = 250,
+        batch_size: int = 100,
     ) -> Iterator[list[dict]]:
         """GET /crm/v3/lists/{listId}/memberships — paginated members of one list.
 
         Each result is {recordId, membershipTimestamp}; the object type of
         recordId is implied by the list's objectTypeId (caller routes
         accordingly).
+
+        HubSpot caps `limit` at 100 on this endpoint (despite 250 being allowed
+        elsewhere) — anything higher returns 400. On HTTP errors we attach the
+        response body to the exception so the caller can log it before deciding
+        whether to skip the list.
         """
         url = f"{BASE_URL}/crm/v3/lists/{list_id}/memberships"
         params: dict = {"limit": batch_size}
         while True:
             resp = _request_with_retry("GET", url, headers=self._headers(), params=params)
-            resp.raise_for_status()
+            if not resp.ok:
+                body = resp.text[:500] if resp.text else "<empty body>"
+                raise requests.HTTPError(
+                    f"{resp.status_code} for {resp.url}: {body}",
+                    response=resp,
+                )
             data = resp.json()
             results = data.get("results") or []
             if results:

@@ -103,10 +103,19 @@ def _fetch_list_memberships_for_object_type(
     object_type_id: str,
     bronze_table: str,
     run_start: datetime,
-) -> int:
+    log=None,
+) -> tuple[int, int]:
     """Iterate every list of the given objectTypeId, write memberships as
     (_from_id=list_id, _to_id=record_id, _association_type='MEMBER',
-    _extracted_at) tuples into the assoc-shaped bronze table."""
+    _extracted_at) tuples into the assoc-shaped bronze table.
+
+    Returns (rows_written, lists_skipped). Per-list 4xx errors are logged and
+    skipped — HubSpot occasionally returns 400 for archived/in-progress lists
+    even when /lists/search lists them, and one bad list shouldn't fail the
+    whole asset.
+    """
+    import requests as _requests
+
     res = ch.get_client().query(
         "SELECT _record_id FROM bronze.hs_lists FINAL "
         "WHERE JSONExtractString(_raw, 'objectTypeId') = %(otid)s",
@@ -114,15 +123,26 @@ def _fetch_list_memberships_for_object_type(
     )
     list_ids = [row[0] for row in res.result_rows]
     written = 0
+    skipped = 0
     for list_id in list_ids:
-        for batch in hubspot.fetch_list_memberships(list_id):
-            rows = [
-                (list_id, str(m["recordId"]), "MEMBER", run_start)
-                for m in batch
-                if m.get("recordId") is not None
-            ]
-            written += ch.insert_association_records(bronze_table, rows)
-    return written
+        try:
+            for batch in hubspot.fetch_list_memberships(list_id):
+                rows = [
+                    (list_id, str(m["recordId"]), "MEMBER", run_start)
+                    for m in batch
+                    if m.get("recordId") is not None
+                ]
+                written += ch.insert_association_records(bronze_table, rows)
+        except _requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "?"
+            if log is not None:
+                log.warning(
+                    f"Skipping list {list_id} for objectTypeId={object_type_id}: "
+                    f"HTTP {status} — {e}"
+                )
+            skipped += 1
+            continue
+    return written, skipped
 
 
 def _make_list_membership_asset(suffix: str):
@@ -136,16 +156,20 @@ def _make_list_membership_asset(suffix: str):
         ch: ClickHouseResource,
     ):
         run_start = datetime.utcnow()
-        n = _fetch_list_memberships_for_object_type(
+        written, skipped = _fetch_list_memberships_for_object_type(
             hubspot, ch,
             object_type_id=object_type_id,
             bronze_table=bronze_table,
             run_start=run_start,
+            log=context.log,
         )
-        context.log.info(f"{bronze_table}: {n} memberships written")
+        context.log.info(
+            f"{bronze_table}: {written} memberships written, {skipped} lists skipped"
+        )
         yield MaterializeResult(
             metadata={
-                "records_written": MetadataValue.int(n),
+                "records_written": MetadataValue.int(written),
+                "lists_skipped": MetadataValue.int(skipped),
                 "object_type_id": MetadataValue.text(object_type_id),
             }
         )

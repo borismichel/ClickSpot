@@ -145,6 +145,19 @@ class TestHubspotUrl:
 
 
 class TestHubspotAppHost:
+    """hubspot_app_host() resolves in this order: customer.json hubspot_region →
+    HUBSPOT_REGION env → token parse → NA1 default. These tests isolate the
+    token-parse leg by mocking out the first two so the developer's local
+    customer.json doesn't poison results."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_region_sources(self, monkeypatch):
+        from app.customer import config as customer_config
+
+        monkeypatch.setattr(customer_config, "load", lambda: {})
+        monkeypatch.delenv("HUBSPOT_REGION", raising=False)
+        monkeypatch.delenv("HUBSPOT_TOKEN", raising=False)
+
     def test_na1_token_uses_default_host(self):
         from app.mcp.pii import hubspot_app_host
         assert hubspot_app_host("pat-na1-abc-def") == "app.hubspot.com"
@@ -158,12 +171,25 @@ class TestHubspotAppHost:
     def test_missing_token_falls_back_to_default(self):
         from app.mcp.pii import hubspot_app_host
         assert hubspot_app_host("") == "app.hubspot.com"
-        assert hubspot_app_host(None) in ("app.hubspot.com", "app-eu1.hubspot.com")
-        # (None falls through to os.environ['HUBSPOT_TOKEN'] — either value is ok here)
+        assert hubspot_app_host(None) == "app.hubspot.com"
 
     def test_non_pat_token_falls_back_to_default(self):
         from app.mcp.pii import hubspot_app_host
         assert hubspot_app_host("bearer-xyz") == "app.hubspot.com"
+
+    def test_customer_json_region_wins_over_token(self, monkeypatch):
+        from app.customer import config as customer_config
+        from app.mcp.pii import hubspot_app_host
+
+        monkeypatch.setattr(customer_config, "load", lambda: {"hubspot_region": "na2"})
+        # Token says eu1, customer.json says na2 — customer.json wins
+        assert hubspot_app_host("pat-eu1-abc") == "app-na2.hubspot.com"
+
+    def test_env_var_wins_over_token(self, monkeypatch):
+        from app.mcp.pii import hubspot_app_host
+
+        monkeypatch.setenv("HUBSPOT_REGION", "na2")
+        assert hubspot_app_host("pat-eu1-abc") == "app-na2.hubspot.com"
 
 
 # ---------------------------------------------------------------------------
