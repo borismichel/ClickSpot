@@ -10,7 +10,7 @@ import { SaveToRepoButton } from "../viz/SaveToRepoButton";
 
 interface Props {
   message: ChatMsg;
-  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }) => boolean;
+  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }) => boolean | Promise<boolean>;
 }
 
 function formatMs(ms: number): string {

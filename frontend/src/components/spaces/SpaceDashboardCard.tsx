@@ -105,7 +105,7 @@ export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRem
             }
           }
 
-          return { label: kpi.label, value: value as string | number | null, sql: kpi.sql, previous_value, delta_percent };
+          return { label: kpi.label, value: value as string | number | null, sql: kpi.sql, previous_value, delta_percent } as ContextKPI;
         })
       );
       setKpis(

@@ -54,12 +54,12 @@ export function BarChart({ results, columns, title }: Props) {
         <RBarChart data={data} layout="vertical" margin={{ top: 4, right: 80, bottom: 4, left: 4 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="label" width={160} tick={{ fontSize: 12 }} />
-          <Tooltip formatter={(v: number) => fmt(v)} />
+          <Tooltip formatter={(v) => fmt(Number(v))} />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={22}>
             <LabelList
               dataKey="value"
               position="right"
-              formatter={(v: number) => fmt(v)}
+              formatter={(v) => fmt(Number(v))}
               style={{ fontSize: 11, fill: "#595959" }}
             />
             {data.map((_, i) => (

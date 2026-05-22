@@ -157,7 +157,7 @@ function SingleSeriesChart({ results, columns, title }: Props) {
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
           <XAxis dataKey="period" tick={{ fontSize: 12 }} />
           <YAxis tick={{ fontSize: 12 }} tickFormatter={fmt} />
-          <Tooltip formatter={(v: number) => fmt(v)} />
+          <Tooltip formatter={(v) => fmt(Number(v))} />
           {showLegend && <Legend />}
           {valueCols.map((col, i) => (
             <Area
@@ -205,7 +205,7 @@ function MultiSeriesChart({
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
           <XAxis dataKey="period" tick={{ fontSize: 12 }} />
           <YAxis tick={{ fontSize: 12 }} tickFormatter={fmt} />
-          <Tooltip formatter={(v: number) => fmt(v)} />
+          <Tooltip formatter={(v) => fmt(Number(v))} />
           <Legend />
           {seriesNames.map((name, i) => (
             <Area

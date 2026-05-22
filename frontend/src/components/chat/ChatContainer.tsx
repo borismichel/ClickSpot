@@ -10,7 +10,7 @@ interface Props {
   messages: ChatMsg[];
   isLoading: boolean;
   onSend: (text: string) => void;
-  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }) => boolean;
+  onSaveToRepo?: (obj: { title: string; sql: string; viz: VizType; contextKPIs: { label: string; sql: string; previous_sql?: string }[] }) => boolean | Promise<boolean>;
 }
 
 export function ChatContainer({ messages, isLoading, onSend, onSaveToRepo }: Props) {

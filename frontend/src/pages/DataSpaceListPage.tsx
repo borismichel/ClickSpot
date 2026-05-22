@@ -1,4 +1,4 @@
-import { Layout, Button, Card, Tag, Typography, Empty, Space, Popconfirm, Spin, Tooltip } from "antd";
+import { Layout, Button, Card, Tag, Typography, Empty, Space, Popconfirm, Spin } from "antd";
 import {
   ArrowLeftOutlined,
   PlusOutlined,
@@ -119,10 +119,10 @@ export default function DataSpaceListPage() {
                     {s.dimensions.map((d, i) => (
                       <Tag
                         key={i}
-                        color={STRATEGY_COLORS[d.join_type === "fk" ? "fk" : (d as Record<string, unknown>).strategy as string] ?? "default"}
+                        color={STRATEGY_COLORS[d.join_type === "fk" ? "fk" : (d as unknown as Record<string, unknown>).strategy as string] ?? "default"}
                       >
                         {d.entity}
-                        {d.join_type === "bridge" && ` (${(d as Record<string, unknown>).strategy})`}
+                        {d.join_type === "bridge" && ` (${(d as unknown as Record<string, unknown>).strategy})`}
                       </Tag>
                     ))}
                   </div>

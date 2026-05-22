@@ -65,16 +65,16 @@ export function MetricBar({
               tick={{ fontSize: 12 }}
             />
             <Tooltip
-              formatter={(value: number) =>
-                `${valuePrefix}${value.toLocaleString()}`
+              formatter={(value) =>
+                `${valuePrefix}${Number(value).toLocaleString()}`
               }
             />
             <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={22}>
               <LabelList
                 dataKey="value"
                 position="right"
-                formatter={(v: number) =>
-                  `${valuePrefix}${v.toLocaleString()}`
+                formatter={(v) =>
+                  `${valuePrefix}${Number(v).toLocaleString()}`
                 }
                 style={{ fontSize: 11, fill: "#595959" }}
               />
