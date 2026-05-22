@@ -65,6 +65,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_EMPTY_FILTERS: dict = {
+    "dateFrom": None,
+    "dateTo": None,
+    "ownerIds": [],
+    "ownerNames": [],
+    "pipelineIds": [],
+    "pipelineLabels": [],
+}
+
+
+def _filters_with_defaults(raw: str | None) -> dict:
+    stored = json.loads(raw) if raw else {}
+    return {**_EMPTY_FILTERS, **(stored if isinstance(stored, dict) else {})}
+
+
 async def _get_dashboard_with_items(db, dash_id: str) -> dict | None:
     cursor = await db.execute("SELECT * FROM dashboards WHERE id = ?", (dash_id,))
     dash = await cursor.fetchone()
@@ -85,7 +100,7 @@ async def _get_dashboard_with_items(db, dash_id: str) -> dict | None:
     return {
         "id": dash["id"],
         "title": dash["title"],
-        "filters": json.loads(dash["filters"]),
+        "filters": _filters_with_defaults(dash["filters"]),
         "items": [
             {
                 "objectId": item["object_id"],
