@@ -12,3 +12,7 @@ frontend/dist/
 
 # Per-portal silver extension (local to each install)
 silver_config_custom.py
+
+# Local README render scratch (visual-truth gate; not for the public repo)
+.readme-render/
+.render-*.cjs

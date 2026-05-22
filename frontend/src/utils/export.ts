@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import { Workbook } from "exceljs";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -44,7 +44,7 @@ export function exportCSV(
   downloadBlob(blob, `${sanitizeFilename(title)}.csv`);
 }
 
-export function exportXLSX(
+export async function exportXLSX(
   results: Record<string, unknown>[],
   columns: string[],
   title: string
@@ -52,21 +52,26 @@ export function exportXLSX(
   const headers = columns.map(prettyHeader);
   const rows = results.map((row) => columns.map((col) => row[col] ?? ""));
 
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const wb = new Workbook();
+  const ws = wb.addWorksheet("Results");
+  ws.addRow(headers);
+  rows.forEach((r) => ws.addRow(r));
 
   // Auto-size columns
-  ws["!cols"] = columns.map((col) => {
+  columns.forEach((col, i) => {
     const header = prettyHeader(col);
     const maxLen = Math.max(
       header.length,
       ...results.map((r) => String(r[col] ?? "").length)
     );
-    return { wch: Math.min(maxLen + 2, 40) };
+    ws.getColumn(i + 1).width = Math.min(maxLen + 2, 40);
   });
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Results");
-  XLSX.writeFile(wb, `${sanitizeFilename(title)}.xlsx`);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  downloadBlob(blob, `${sanitizeFilename(title)}.xlsx`);
 }
 
 export function exportPDF(

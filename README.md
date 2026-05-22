@@ -1,13 +1,70 @@
+<div align="center">
+
+<img src="docs/assets/clickspot-mark.png" alt="ClickSpot" width="116" />
+
 # ClickSpot
 
-HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture, and serves it through a chat interface where natural language questions are converted to ClickHouse SQL by an LLM.
+**Ask your HubSpot CRM questions in plain English — get back SQL, charts, and dashboards.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-e76636.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Node 20.19+](https://img.shields.io/badge/Node-20.19%2B-339933?logo=nodedotjs&logoColor=white)](frontend/package.json)
+[![ClickHouse 26.2](https://img.shields.io/badge/ClickHouse-26.2-FFCC01?logo=clickhouse&logoColor=black)](docker-compose.yml)
+
+[Quick start](#quick-start) · [What it does](#what-it-does) · [Architecture](#architecture) · [Configuration](#configuration) · [Docs](#documentation)
+
+</div>
+
+<p align="center">
+  <img src="docs/assets/screenshot-chat.png" alt="ClickSpot chat — the plain-English question 'show me activity trends by type' answered with the generated ClickHouse SQL shown and a 12-month multi-series trend chart" width="860" />
+</p>
+
+<p align="center"><sub>Real UI, synthetic demo data — no customer CRM or PII.</sub></p>
+
+<p align="center">
+  <a href="https://youtu.be/fJtDndTOIpA"><strong>▶&nbsp; Watch the demo</strong></a>
+</p>
+
+ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture in ClickHouse, and serves it through a chat interface where natural-language questions are converted to ClickHouse SQL by an LLM.
+
+**Who it's for:** RevOps, sales-ops, and data teams who live in HubSpot and want a queryable warehouse plus a natural-language layer over their CRM — without standing up the pipeline themselves.
+
+### Highlights
+
+- 💬 **NL → SQL chat** — ask in plain English; an LLM writes the ClickHouse SQL and returns a chart, table, or number. The LLM only sees schema, never your data.
+- 📊 **Dashboards** — pin chat results and apply global filters (date, owner, pipeline) via rule-based SQL rewriting — no AI at query time.
+- 🗂️ **Data Spaces** — scoped, configured views over the warehouse, each with its own chat, dashboards, and filters.
+- 🕸️ **Associative engine** — Qlik-style selection propagation: pick a value anywhere and connected tables filter automatically.
+- 🔌 **MCP server** — exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same guardrails as in-app chat.
+- 🏗️ **Medallion ELT** — bronze → silver → gold → anon, orchestrated by Dagster with atomic rebuilds.
+
+### See it in action
+
+|  |  |  |
+|:---:|:---:|:---:|
+| <a href="docs/assets/screenshots/dashboard-deals.png"><img src="docs/assets/screenshots/dashboard-deals.png" alt="Deals dashboard — deal count and amount by stage with year-to-date KPIs" width="270" /></a> | <a href="docs/assets/screenshots/explorer-associative.png"><img src="docs/assets/screenshots/explorer-associative.png" alt="Associative explorer — deals linked to contacts, companies, owners, and pipeline stages" width="270" /></a> | <a href="docs/assets/screenshots/explorer-schema.png"><img src="docs/assets/screenshots/explorer-schema.png" alt="Schema browser — bronze and silver tables with typed columns" width="270" /></a> |
+| **Dashboards** — pinned results, global filters | **Associative engine** — Qlik-style selection | **Medallion schema** — bronze → silver, typed |
 
 ---
 
-## What It Does
+## Contents
+
+- [What it does](#what-it-does)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Stack](#stack)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Stats](#stats)
+- [License](#license)
+
+---
+
+## What it does
 
 1. **Extracts** contacts, companies, deals, leads, activities, pipelines, and associations from HubSpot's CRM API
-2. **Loads** raw data into ClickHouse bronze tables (incremental, deduplicated)
+2. **Loads** raw data into ClickHouse bronze tables (full list-endpoint loads, deduplicated)
 3. **Transforms** into typed silver dimensions, facts, and bridge tables (config-driven)
 4. **Aggregates** into gold tables for rep performance, deal health, source attribution, and pipeline snapshots
 5. **Anonymizes** silver/gold into `silver_anon`/`gold_anon` databases for safe external sharing (MCP, demos)
@@ -18,12 +75,14 @@ HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, 
    - **Analytics API** — Associative graph engine (Qlik-like selection propagation)
    - **MCP server** — Exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same schema prompt and SQL guardrails as in-app chat
 
-## Quick Start
+---
+
+## Quick start
 
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+
+- Node.js 20.19+
 - Docker (for ClickHouse)
 - A HubSpot private app token with CRM read scopes
 
@@ -33,10 +92,17 @@ HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, 
 # Clone and enter
 cd ClickSpot
 
-# Python environment
+# Python environment (Python 3.10+)
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+# Reproducible install from the pinned lockfile (recommended — matches CI):
+pip install -r requirements.lock && pip install -e . --no-deps
+# Or, for an unpinned dev install resolving the latest compatible versions:
+# pip install -e ".[dev]"
+#
+# Regenerate the lockfile after editing pyproject.toml deps (needs `uv`):
+# uv pip compile pyproject.toml --all-extras --python-version 3.10 \
+#   --generate-hashes --output-file requirements.lock
 
 # Environment
 cp .env.example .env
@@ -52,6 +118,15 @@ cd frontend && npm install && cd ..
 python -m app.customer.onboarding
 ```
 
+This starts:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| ClickHouse | http://localhost:8124 | Data warehouse |
+| FastAPI | http://localhost:8192 | Backend API |
+| Dagster | http://localhost:8194 | Pipeline orchestration |
+| Frontend | http://localhost:8193 | Chat, dashboards, data explorer |
+
 ### First-time portal setup
 
 ClickSpot ships with no portal-specific assumptions. On first run, three things tune it to your HubSpot account:
@@ -62,16 +137,7 @@ ClickSpot ships with no portal-specific assumptions. On first run, three things 
 
 If neither file exists, the chat still works — it just produces generic SQL without portal-specific filters.
 
-This starts:
-
-| Service | URL | Purpose |
-|---------|-----|---------|
-| ClickHouse | http://localhost:8124 | Data warehouse |
-| FastAPI | http://localhost:8192 | Backend API |
-| Dagster | http://localhost:8194 | Pipeline orchestration |
-| Frontend | http://localhost:8193 | Chat, dashboards, data explorer |
-
-### First Run
+### First run
 
 1. Open Dagster at http://localhost:8194
 2. Materialize all assets (or wait for the hourly schedule)
@@ -81,31 +147,46 @@ This starts:
 
 ---
 
-## Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Data warehouse | ClickHouse (columnar OLAP) |
-| ETL orchestration | Dagster OSS |
-| Backend API | FastAPI (Python) |
-| Frontend | React 19 + TypeScript + Ant Design + Recharts + React Grid Layout |
-| SQL filter engine | sqlglot (AST-based SQL rewriting for dashboard filters) |
-| LLM providers | Claude (Anthropic API / OAuth / CLI), GPT-4o (OpenAI API) |
-
 ## Architecture
 
-```
-HubSpot CRM --> Dagster --> ClickHouse (bronze -> silver -> gold)
-                                  |
-                              FastAPI
-                            /         \
-                    Analytics API    Chat API
-                    (graph engine)   (LLM -> SQL)
-                           \         /
-                          React Frontend
+Three stages: pull HubSpot CRM into ClickHouse, then serve it through an AI analytics layer that answers questions in SQL — without ever showing raw data to the model.
+
+```mermaid
+flowchart LR
+    HS["<b>HubSpot CRM</b><br/>contacts · companies · deals<br/>leads · calls · notes · …"]
+    CH["<b>ClickHouse</b><br/>schema mapped — types + descriptions<br/>data real or anonymised"]
+    AI["<b>AI analytics</b><br/>chat · dashboards · MCP<br/>privacy enforced"]
+    HS -->|"hourly ELT"| CH
+    CH -->|"text → SQL · MCP"| AI
+
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class CH store;
+    class HS,AI edge;
 ```
 
-### Data Pipeline
+### Components
+
+How those stages are wired:
+
+```mermaid
+flowchart TD
+    HS["HubSpot CRM"] --> DG["Dagster<br/>hourly ELT"]
+    DG --> CH["ClickHouse<br/>bronze → silver → gold → anon"]
+    CH --> API["FastAPI"]
+    API --> AN["Analytics API<br/>graph engine"]
+    API --> CHAT["Chat API<br/>LLM → SQL"]
+    API --> MCP["MCP server<br/>anon warehouse"]
+    AN --> FE["React frontend"]
+    CHAT --> FE
+
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class CH store;
+    class HS,DG,API,AN,CHAT,MCP,FE edge;
+```
+
+### Data pipeline
 
 Three-layer medallion architecture:
 
@@ -116,7 +197,7 @@ Three-layer medallion architecture:
 | **Gold** | 7 aggregates | `ReplacingMergeTree` — partitioned where there's a natural date axis | Full rebuild |
 | **Anon** | Masked silver + gold mirrors in `silver_anon` / `gold_anon` | `ReplacingMergeTree` | Rebuilt after gold via sensor |
 
-### Chat Interface
+### Chat interface
 
 ```
 User question
@@ -142,15 +223,28 @@ Dashboard filter state
     -> Re-execute all card queries
 ```
 
-### Associative Engine
+### Associative engine
 
 Qlik-inspired selection propagation. Select a value in any table and all connected tables filter automatically through bridge table traversal.
 
 ---
 
+## Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Data warehouse | ClickHouse (columnar OLAP) |
+| ETL orchestration | Dagster OSS |
+| Backend API | FastAPI (Python) |
+| Frontend | React 19 + TypeScript + Ant Design + Recharts + React Grid Layout |
+| SQL filter engine | sqlglot (AST-based SQL rewriting for dashboard filters) |
+| LLM providers | Claude (Anthropic API / OAuth / CLI), GPT-4o (OpenAI API) |
+
+---
+
 ## Configuration
 
-### Environment Variables
+### Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -165,9 +259,14 @@ Qlik-inspired selection propagation. Select a value in any table and all connect
 | `ANTHROPIC_API_KEY` | Optional | Anthropic API key for Claude |
 | `OPENAI_API_KEY` | Optional | OpenAI API key for GPT-4o |
 
-### HubSpot Token Scopes
+### HubSpot token scopes
 
 ClickSpot reads from HubSpot via a **private app token** (recommended) or a legacy "HubSpot API key" app. Create the token in *Settings → Integrations → Private Apps → Create private app* and grant the read scopes below. All scopes are read-only — the pipeline never writes back to HubSpot.
+
+<details>
+<summary><strong>Required read scopes, per endpoint group</strong></summary>
+
+<br/>
 
 | Endpoint group | Used by | Required scope |
 |---|---|---|
@@ -183,9 +282,11 @@ ClickSpot reads from HubSpot via a **private app token** (recommended) or a lega
 | Forms + form submissions (`/marketing/v3/forms`, `/form-integrations/v1/submissions`) | `hs_forms`, `hs_form_submissions` bronze | `forms` |
 | Lists / segments (`/crm/v3/lists/search`, `/crm/v3/lists/{id}/memberships`) | `hs_lists`, `hs_assoc_list_{contact,company,deal,lead}` bronze | `crm.lists.read` |
 
+</details>
+
 After creating the app, copy the access token into `HUBSPOT_TOKEN` in `.env` and grab the portal ID from the app page URL for `HUBSPOT_HUB_ID`. If you skip the marketing scopes (`marketing.campaigns.read`, `forms`), the corresponding bronze assets will fail to materialize but the CRM pipeline will still run.
 
-### LLM Providers
+### LLM providers
 
 Configure in the Settings drawer or `~/.clickspot/config.json`:
 
@@ -196,7 +297,7 @@ Configure in the Settings drawer or `~/.clickspot/config.json`:
 | Claude OAuth | Paste token in Settings | For Claude Pro/Max subscribers. Auto-refreshes. |
 | Claude CLI | Install `claude` CLI | Zero-config for developers. |
 
-### Adding Data
+### Adding data
 
 **New HubSpot property:**
 ```python
@@ -229,7 +330,10 @@ dagster dev -p 8194                                  # Dagster
 cd frontend && npm run dev                           # Frontend
 ```
 
-### Project Structure
+<details>
+<summary><strong>Project structure</strong></summary>
+
+<br/>
 
 ```
 ClickSpot/
@@ -254,6 +358,8 @@ ClickSpot/
 |-- clickhouse/           # ClickHouse server config + users profile mounted into the container
 |-- start.sh              # Start all services
 ```
+
+</details>
 
 ---
 
@@ -287,3 +393,9 @@ ClickSpot/
 | LLM providers | 4 |
 | Viz types | 6 (number, table, bar, line, funnel, comparison) |
 | Frontend pages | 9 (chat, dashboard, library, data explorer, architecture, spaces list/new/edit/overview/dashboard) |
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Boris Michel.

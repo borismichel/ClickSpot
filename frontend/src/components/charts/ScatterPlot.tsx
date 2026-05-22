@@ -61,7 +61,7 @@ export function ScatterPlot({
             />
             <ZAxis range={[40, 40]} />
             <Tooltip
-              formatter={(value: number) => value.toLocaleString()}
+              formatter={(value) => Number(value).toLocaleString()}
             />
             <Scatter data={data} fill={color} />
           </ScatterChart>

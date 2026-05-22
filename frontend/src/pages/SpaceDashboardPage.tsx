@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin, Tooltip } from "antd";
+import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin } from "antd";
 import {
   ArrowLeftOutlined,
   PlusOutlined,
@@ -8,7 +8,6 @@ import {
   EditOutlined,
   CheckOutlined,
   MessageOutlined,
-  CloseOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
@@ -21,7 +20,7 @@ import { useSpaceChat } from "../hooks/useSpaceChat";
 import { SpaceFilterBar } from "../components/spaces/SpaceFilterBar";
 import { SpaceChatDrawer } from "../components/spaces/SpaceChatDrawer";
 import { SpaceDashboardCard } from "../components/spaces/SpaceDashboardCard";
-import type { SpaceColumnMeta, SpaceFilter, SpaceDashboardItem } from "../types/dashboard";
+import type { SpaceColumnMeta, SpaceFilter } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
 import type { DataSpaceConfig } from "../hooks/useDataSpaces";
 

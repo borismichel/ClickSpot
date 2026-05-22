@@ -149,10 +149,10 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                   <strong>{dim.entity}</strong>
                   <Typography.Text type="secondary">prefix: {dim.prefix}</Typography.Text>
                   {dim.join_type === "bridge" && (
-                    <Tag>{(dim as Record<string, unknown>).strategy as string}</Tag>
+                    <Tag>{(dim as unknown as Record<string, unknown>).strategy as string}</Tag>
                   )}
                   {dim.join_type === "dict" && (
-                    <Tag color="green">{(dim as Record<string, unknown>).dict_name as string}</Tag>
+                    <Tag color="green">{(dim as unknown as Record<string, unknown>).dict_name as string}</Tag>
                   )}
                 </Space>
               ),
@@ -188,7 +188,7 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                       {dim.join_type === "dict" && (
                         <div style={{ marginTop: 8 }}>
                           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                            Using dictionary: <Typography.Text code>{(dim as Record<string, unknown>).dict_name as string}</Typography.Text>
+                            Using dictionary: <Typography.Text code>{(dim as unknown as Record<string, unknown>).dict_name as string}</Typography.Text>
                             {" · "}Available columns: {dim.columns.join(", ")}
                           </Typography.Text>
                         </div>
@@ -209,7 +209,7 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                     <div style={{ marginBottom: 12 }}>
                       <Typography.Text strong>Dictionary:</Typography.Text>
                       <Select
-                        value={(dim as Record<string, unknown>).dict_name as string}
+                        value={(dim as unknown as Record<string, unknown>).dict_name as string}
                         style={{ width: "100%", marginTop: 4 }}
                         options={allDicts.map((d) => ({
                           value: d.dict_name,
@@ -236,7 +236,7 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                       <div style={{ marginTop: 8 }}>
                         <Typography.Text strong>Key expression:</Typography.Text>
                         <Input
-                          value={(dim as Record<string, unknown>).key_expr as string}
+                          value={(dim as unknown as Record<string, unknown>).key_expr as string}
                           onChange={(e) => updateDimension(idx, { key_expr: e.target.value } as Partial<DimensionJoin>)}
                           placeholder="grain.hubspot_owner_id"
                           style={{ marginTop: 4, fontFamily: "monospace", fontSize: 12 }}
@@ -245,7 +245,7 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                       <div style={{ marginTop: 8 }}>
                         <Typography.Text strong>Columns:</Typography.Text>
                         <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {(allDicts.find((d) => d.dict_name === (dim as Record<string, unknown>).dict_name) ?? { columns: [] }).columns.map((col) => (
+                          {(allDicts.find((d) => d.dict_name === (dim as unknown as Record<string, unknown>).dict_name) ?? { columns: [] }).columns.map((col) => (
                             <Checkbox
                               key={col}
                               checked={dim.columns.includes(col)}
@@ -268,7 +268,7 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                     <div style={{ marginBottom: 12 }}>
                       <Typography.Text strong>Join Strategy:</Typography.Text>
                       <Select
-                        value={(dim as Record<string, unknown>).strategy as string}
+                        value={(dim as unknown as Record<string, unknown>).strategy as string}
                         onChange={(val) => updateDimension(idx, { strategy: val } as Partial<DimensionJoin>)}
                         style={{ width: "100%", marginTop: 4 }}
                         options={STRATEGY_OPTIONS.map((o) => ({
@@ -276,11 +276,11 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                           label: <span>{o.label} <Typography.Text type="secondary" style={{ fontSize: 11 }}>{o.description}</Typography.Text></span>,
                         }))}
                       />
-                      {(dim as Record<string, unknown>).strategy === "latest" && (
+                      {(dim as unknown as Record<string, unknown>).strategy === "latest" && (
                         <div style={{ marginTop: 8 }}>
                           <Typography.Text>Timestamp column:</Typography.Text>
                           <Input
-                            value={(dim as Record<string, unknown>).timestamp_col as string ?? ""}
+                            value={(dim as unknown as Record<string, unknown>).timestamp_col as string ?? ""}
                             onChange={(e) => updateDimension(idx, { timestamp_col: e.target.value } as Partial<DimensionJoin>)}
                             placeholder="e.g. createdate"
                             style={{ marginTop: 4 }}

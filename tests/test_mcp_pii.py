@@ -164,7 +164,7 @@ class TestHubspotAppHost:
 
     def test_eu1_token_uses_regional_host(self):
         from app.mcp.pii import hubspot_app_host
-        assert hubspot_app_host("pat-eu1-931e928a-b875-4910-9030-f05c4bc7fea3") == (
+        assert hubspot_app_host("pat-eu1-00000000-0000-0000-0000-000000000000") == (
             "app-eu1.hubspot.com"
         )
 

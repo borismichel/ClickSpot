@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Button, Select, Input, DatePicker, Space, Tag, Typography, Popover, InputNumber } from "antd";
-import { FilterOutlined, ClearOutlined, PlusOutlined, CloseOutlined, PushpinOutlined } from "@ant-design/icons";
+import { Button, Select, DatePicker, Space, Tag, Typography, Popover, InputNumber } from "antd";
+import { FilterOutlined, ClearOutlined, PlusOutlined, PushpinOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { SpaceColumnMeta, SpaceFilter } from "../../types/dashboard";
 

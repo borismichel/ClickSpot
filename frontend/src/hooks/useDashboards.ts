@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Dashboard, DashboardFilters } from "../types/dashboard";
-import { EMPTY_FILTERS } from "../types/dashboard";
 
 const LS_KEY = "hs2ch_dashboards";
 

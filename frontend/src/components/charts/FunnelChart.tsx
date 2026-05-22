@@ -74,13 +74,15 @@ export function FunnelChart({
               width={140}
               tick={
                 secondaryValues
-                  ? (props: { x: number; y: number; payload: { value: string } }) => {
-                      const { x, y, payload } = props;
-                      const secondary = secondaryValues[payload.value];
+                  ? (props: { x?: number | string; y?: number | string; payload?: { value?: unknown } }) => {
+                      const x = Number(props.x);
+                      const y = Number(props.y);
+                      const label = String(props.payload?.value ?? "");
+                      const secondary = secondaryValues[label];
                       return (
                         <g>
                           <text x={x} y={y} dy={secondary != null ? -4 : 4} textAnchor="end" fontSize={13} fill="#262626">
-                            {payload.value}
+                            {label}
                           </text>
                           {secondary != null && (
                             <text x={x} y={y} dy={12} textAnchor="end" fontSize={11} fill="#8c8c8c">
@@ -94,13 +96,13 @@ export function FunnelChart({
               }
             />
             <Tooltip
-              formatter={(value: number) => value.toLocaleString()}
+              formatter={(value) => Number(value).toLocaleString()}
             />
             <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
               <LabelList
                 dataKey="value"
                 position="right"
-                formatter={(v: number) => v.toLocaleString()}
+                formatter={(v) => Number(v).toLocaleString()}
                 style={{ fontSize: 12, fill: "#595959" }}
               />
               {sortedData.map((entry, i) => (

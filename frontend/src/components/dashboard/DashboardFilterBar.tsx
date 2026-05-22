@@ -1,4 +1,4 @@
-import { DatePicker, Select, Button, Space } from "antd";
+import { DatePicker, Select, Button } from "antd";
 import { FilterOutlined, ClearOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { DashboardFilters } from "../../types/dashboard";

@@ -31,7 +31,6 @@ import type {
   SpaceDashboard,
   SpaceFilter,
   SpaceColumnMeta,
-  UnifiedDashboard,
 } from "../types/dashboard";
 import { EMPTY_FILTERS } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
@@ -279,7 +278,7 @@ export default function DashboardPage() {
 
   // Library layout
   const handleLibLayoutChange = useCallback(
-    (layout: RGLLayout[], _layouts: ResponsiveLayouts) => {
+    (layout: RGLLayout, _layouts: ResponsiveLayouts) => {
       if (active?.kind !== "library") return;
       updateLibLayouts(
         active.id,
@@ -329,7 +328,7 @@ export default function DashboardPage() {
 
   // Space layout
   const handleSpaceLayoutChange = useCallback(
-    (_layout: RGLLayout[], _layouts: ResponsiveLayouts) => {
+    (_layout: RGLLayout, _layouts: ResponsiveLayouts) => {
       if (!activeSpaceDash) return;
       const spaceId = activeSpaceDash.space_id;
       const layouts = _layout.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));

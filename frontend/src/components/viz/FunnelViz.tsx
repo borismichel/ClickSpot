@@ -41,12 +41,12 @@ export function FunnelViz({ results, columns, title }: Props) {
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 60, bottom: 4, left: 4 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="label" width={160} tick={{ fontSize: 13 }} />
-          <Tooltip formatter={(v: number) => v.toLocaleString()} />
+          <Tooltip formatter={(v) => Number(v).toLocaleString()} />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={28}>
             <LabelList
               dataKey="value"
               position="right"
-              formatter={(v: number) => v.toLocaleString()}
+              formatter={(v) => Number(v).toLocaleString()}
               style={{ fontSize: 12, fill: "#595959" }}
             />
             {data.map((_, i) => (

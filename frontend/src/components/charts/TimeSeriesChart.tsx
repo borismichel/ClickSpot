@@ -51,8 +51,8 @@ export function TimeSeriesChart({
               }
             />
             <Tooltip
-              formatter={(value: number) =>
-                `${valuePrefix}${value.toLocaleString()}`
+              formatter={(value) =>
+                `${valuePrefix}${Number(value).toLocaleString()}`
               }
             />
             <Area

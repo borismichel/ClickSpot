@@ -71,10 +71,10 @@ export function WaterfallChart({
               tick={{ fontSize: 13 }}
             />
             <Tooltip
-              formatter={(value: number, name: string) => {
+              formatter={(value, name) => {
                 if (name === "base") return [null, null];
                 return [
-                  `${valuePrefix}${value.toLocaleString()}`,
+                  `${valuePrefix}${Number(value).toLocaleString()}`,
                   "Value",
                 ];
               }}
@@ -86,8 +86,8 @@ export function WaterfallChart({
               <LabelList
                 dataKey="value"
                 position="right"
-                formatter={(v: number) =>
-                  `${valuePrefix}${v.toLocaleString()}`
+                formatter={(v) =>
+                  `${valuePrefix}${Number(v).toLocaleString()}`
                 }
                 style={{ fontSize: 12, fill: "#595959" }}
               />
