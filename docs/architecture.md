@@ -107,7 +107,7 @@ flowchart TD
 | Frontend render | <50ms |
 | **Total** | **~1-2 seconds** |
 
-### 3. Associative Query (Programmatic)
+### 3. Linked-Selection Query (Programmatic)
 
 ```mermaid
 flowchart TD
@@ -179,9 +179,9 @@ A traditional dashboard with fixed views can't anticipate these questions. An LL
 - Auto-injected LIMIT prevents accidental full-table scans
 - Prompt caching keeps latency under 2 seconds
 
-### Why Associative Model?
+### Why Linked Selections?
 
-The associative model (inspired by Qlik Sense) provides a fundamentally different UX than traditional filtering:
+Linked selections provide a fundamentally different UX than traditional filtering:
 
 - **One selection, all tables filter** — Select "Proposal" stage and instantly see which contacts, companies, and activities are connected to those deals
 - **Three-state field values** — Values are "possible" (reachable given current selections), "excluded" (not reachable), or "selected" (active filter)

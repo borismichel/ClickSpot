@@ -34,7 +34,7 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 - 💬 **NL → SQL chat** — ask in plain English; an LLM writes the ClickHouse SQL and returns a chart, table, or number. The LLM only sees schema, never your data.
 - 📊 **Dashboards** — pin chat results and apply global filters (date, owner, pipeline) via rule-based SQL rewriting — no AI at query time.
 - 🗂️ **Data Spaces** — scoped, configured views over the warehouse, each with its own chat, dashboards, and filters.
-- 🕸️ **Associative engine** — Qlik-style selection propagation: pick a value anywhere and connected tables filter automatically.
+- 🕸️ **Linked selections** — pick a value anywhere and connected tables filter automatically through the relationship graph.
 - 🔌 **MCP server** — exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same guardrails as in-app chat.
 - 🏗️ **Medallion ELT** — bronze → silver → gold → anon, orchestrated by Dagster with atomic rebuilds.
 
@@ -42,8 +42,8 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 
 |  |  |  |
 |:---:|:---:|:---:|
-| <a href="docs/assets/screenshots/dashboard-deals.png"><img src="docs/assets/screenshots/dashboard-deals.png" alt="Deals dashboard — deal count and amount by stage with year-to-date KPIs" width="270" /></a> | <a href="docs/assets/screenshots/explorer-associative.png"><img src="docs/assets/screenshots/explorer-associative.png" alt="Associative explorer — deals linked to contacts, companies, owners, and pipeline stages" width="270" /></a> | <a href="docs/assets/screenshots/explorer-schema.png"><img src="docs/assets/screenshots/explorer-schema.png" alt="Schema browser — bronze and silver tables with typed columns" width="270" /></a> |
-| **Dashboards** — pinned results, global filters | **Associative engine** — Qlik-style selection | **Medallion schema** — bronze → silver, typed |
+| <a href="docs/assets/screenshots/dashboard-deals.png"><img src="docs/assets/screenshots/dashboard-deals.png" alt="Deals dashboard — deal count and amount by stage with year-to-date KPIs" width="270" /></a> | <a href="docs/assets/screenshots/explorer-associative.png"><img src="docs/assets/screenshots/explorer-associative.png" alt="Data explorer — deals linked to contacts, companies, owners, and pipeline stages" width="270" /></a> | <a href="docs/assets/screenshots/explorer-schema.png"><img src="docs/assets/screenshots/explorer-schema.png" alt="Schema browser — bronze and silver tables with typed columns" width="270" /></a> |
+| **Dashboards** — pinned results, global filters | **Linked selections** — pick one, connected tables filter | **Medallion schema** — bronze → silver, typed |
 
 ---
 
@@ -72,7 +72,7 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
    - **Chat** — Ask questions in natural language, get SQL + visualizations
    - **Dashboards** — Pin chat results to persistent dashboards with global filters (date, owner, pipeline)
    - **Data Spaces** — Scoped, configured views over the warehouse with per-space chat, dashboards, and filters
-   - **Analytics API** — Associative graph engine (Qlik-like selection propagation)
+   - **Analytics API** — Relationship-graph query engine with cross-table selection propagation
    - **MCP server** — Exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same schema prompt and SQL guardrails as in-app chat
 
 ---
@@ -223,9 +223,9 @@ Dashboard filter state
     -> Re-execute all card queries
 ```
 
-### Associative engine
+### Linked selections
 
-Qlik-inspired selection propagation. Select a value in any table and all connected tables filter automatically through bridge table traversal.
+Select a value in any table and all connected tables filter automatically through bridge-table traversal of the relationship graph.
 
 ---
 

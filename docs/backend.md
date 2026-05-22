@@ -4,7 +4,7 @@
 
 The backend serves several distinct surfaces:
 
-1. **Analytics Engine** — Associative graph-based query builder (Qlik-inspired selection propagation)
+1. **Analytics Engine** — Relationship-graph query builder with cross-table selection propagation
 2. **Chat API** — LLM-powered natural language to ClickHouse SQL
 3. **Data API** — Direct SQL execution with dashboard filter injection
 4. **Object / Dashboard / Conversation APIs** — Server-side persistence for saved query objects, dashboards, and chat history (backed by SQLite in `app/store.py`)
@@ -42,9 +42,9 @@ API docs: http://localhost:8192/docs
 
 ## Analytics Engine
 
-### Associative Model
+### Linked Selections
 
-The analytics engine implements a **Qlik-like associative model**. When a user selects a value in one table (e.g., `dim_deals.stage_label = 'Proposal'`), the engine automatically propagates that selection through the relationship graph to compute reachable record sets in all connected tables.
+The analytics engine implements a **linked-selection model**. When a user selects a value in one table (e.g., `dim_deals.stage_label = 'Proposal'`), the engine automatically propagates that selection through the relationship graph to compute reachable record sets in all connected tables.
 
 ```mermaid
 flowchart TD
@@ -509,7 +509,7 @@ Standalone process (`app/mcp/`, run via `python -m app.mcp.server`) that wraps t
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Health check |
-| POST | `/api/v1/query` | Associative analytics query |
+| POST | `/api/v1/query` | Linked-selection analytics query |
 | GET | `/api/v1/schema` | Table and graph metadata |
 | GET | `/api/v1/metrics-catalog` | Computed metrics registry |
 | GET | `/api/v1/metadata` | Data load status |
