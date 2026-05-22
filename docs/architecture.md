@@ -70,7 +70,7 @@ flowchart TD
     B["bronze.hs_contacts, bronze.hs_deals, bronze.hs_companies, …"]
     C["silver.dim_contacts, silver.dim_deals, silver.bridge_contact_deal, …"]
     D["gold.agg_rep_performance, gold.agg_deal_health, …"]
-    A -->|"HubSpotResource: paginated fetch, 429 retry, HWM tracking"| B
+    A -->|"HubSpotResource: paginated fetch, 429 retry, full loads each run"| B
     B -->|"config-driven transform: silver_config.py → DDL + INSERT"| C
     C -->|"multi-table JOINs + aggregations"| D
 
@@ -206,7 +206,7 @@ Auto-detection means the system works out of the box for developers (CLI) and is
 
 ## Relationship Graph
 
-The core data model is a graph of queryable tables connected by 9 bridge tables. ID-to-label resolution uses 8 ClickHouse dictionaries (via `dictGet()`) instead of JOINs.
+The core data model is a graph of queryable tables connected by 9 bridge tables. ID-to-label resolution uses 9 ClickHouse dictionaries (via `dictGet()`) instead of JOINs.
 
 ### Entities
 
@@ -256,7 +256,7 @@ Solid edges are the 9 N:M bridge tables (below); dotted edges are `owner_id` ref
 
 ### Dictionaries (ID-to-Label Resolution)
 
-Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution. 8 dictionaries backed by silver dimension tables:
+Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution. 9 dictionaries backed by silver dimension tables:
 
 | Dictionary | Key(s) | Resolves |
 |-----------|--------|----------|
@@ -268,6 +268,7 @@ Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution.
 | `dict_contacts` | `contact_id` | Contact full name, email |
 | `dict_companies` | `company_id` | Company name, domain, industry |
 | `dict_deals` | `deal_id` | Deal name, amount, owner_name |
+| `dict_lists` | `list_id` | List/segment name, type, member object type |
 
 ---
 
@@ -327,9 +328,9 @@ ClickSpot/
 |-- assets/                       # Dagster assets (ETL)
 |   |-- crm.py                    # CRM object extraction (4 factory + hs_owners = 5 assets)
 |   |-- activities.py             # Activity extraction (5 assets)
-|   |-- marketing.py              # Marketing extraction (4 factory + hs_form_submissions = 5 assets)
+|   |-- marketing.py              # Marketing + lists (4 factory + hs_lists + hs_form_submissions + 4 list-membership = 10 assets)
 |   |-- associations.py           # Association bridges (21 assets)
-|   |-- silver.py                 # Silver transform (10 dim + 3 fact + 9 bridge + DQ)
+|   |-- silver.py                 # Silver transform (10 dim + 3 fact + 13 bridge + DQ)
 |   |-- gold.py                   # Gold aggregates (7 assets)
 |   |-- silver_anon.py            # PII-masked silver mirrors in silver_anon db
 |   |-- gold_anon.py              # PII-masked gold mirrors in gold_anon db

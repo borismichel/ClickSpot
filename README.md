@@ -193,7 +193,7 @@ Three-layer medallion architecture:
 | Layer | Tables | Engine | Strategy |
 |-------|--------|--------|----------|
 | **Bronze** | 16 objects + 25 associations | `ReplacingMergeTree` (`_raw` ZSTD(3)) | Full list-endpoint loads, deduped on `_record_id` |
-| **Silver** | 11 dimensions + 3 facts + 13 bridges + 9 dicts | `ReplacingMergeTree` — partitioned + bloom-filter skip indexes on hot lookups | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
+| **Silver** | 10 dimensions + 3 facts + 13 bridges + 9 dicts | `ReplacingMergeTree` — partitioned + bloom-filter skip indexes on hot lookups | Full rebuild via `EXCHANGE TABLES` (atomic swap) |
 | **Gold** | 7 aggregates | `ReplacingMergeTree` — partitioned where there's a natural date axis | Full rebuild |
 | **Anon** | Masked silver + gold mirrors in `silver_anon` / `gold_anon` | `ReplacingMergeTree` | Rebuilt after gold via sensor |
 
@@ -382,7 +382,7 @@ ClickSpot/
 | | Count |
 |---|---|
 | Bronze tables | 41 (16 objects + 25 associations) |
-| Silver assets | 28 (11 dims + 3 facts + 13 bridges + DQ) |
+| Silver assets | 27 (10 dims + 3 facts + 13 bridges + DQ) |
 | Gold tables | 7 |
 | Anon mirrors | silver_anon + gold_anon (masked copies for external sharing) |
 | Dictionaries | 9 (in-memory lookups from silver dims) |
