@@ -33,10 +33,17 @@ HubSpot to ClickHouse analytics platform. Extracts CRM data hourly via Dagster, 
 # Clone and enter
 cd ClickSpot
 
-# Python environment
+# Python environment (Python 3.10+)
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+# Reproducible install from the pinned lockfile (recommended — matches CI):
+pip install -r requirements.lock && pip install -e . --no-deps
+# Or, for an unpinned dev install resolving the latest compatible versions:
+# pip install -e ".[dev]"
+#
+# Regenerate the lockfile after editing pyproject.toml deps (needs `uv`):
+# uv pip compile pyproject.toml --all-extras --python-version 3.10 \
+#   --generate-hashes --output-file requirements.lock
 
 # Environment
 cp .env.example .env
