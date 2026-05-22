@@ -142,6 +142,26 @@ If neither file exists, the chat still works — it just produces generic SQL wi
 
 ## Architecture
 
+Three stages: pull HubSpot CRM into ClickHouse, then serve it through an AI analytics layer that answers questions in SQL — without ever showing raw data to the model.
+
+```mermaid
+flowchart LR
+    HS["<b>HubSpot CRM</b><br/>contacts · companies · deals<br/>leads · calls · notes · …"]
+    CH["<b>ClickHouse</b><br/>schema mapped — types + descriptions<br/>data real or anonymised"]
+    AI["<b>AI analytics</b><br/>chat · dashboards · MCP<br/>privacy enforced"]
+    HS -->|"incremental ELT"| CH
+    CH -->|"text → SQL · MCP"| AI
+
+    classDef store fill:#722ed1,stroke:#531dab,color:#fff;
+    classDef edge fill:#f6f0ff,stroke:#722ed1,color:#1f1f1f;
+    class CH store;
+    class HS,AI edge;
+```
+
+### Components
+
+How those stages are wired:
+
 ```mermaid
 flowchart TD
     HS["HubSpot CRM"] --> DG["Dagster<br/>hourly ELT"]
