@@ -1,8 +1,29 @@
 # ClickHouse Architecture Evaluation
 
+> A review of the ClickHouse warehouse against best practices, with an eye toward 100×–1000× scale — what shipped, what's still open, and why.
+
 **Context:** HubSpot CRM ELT pipeline (bronze/silver/gold medallion) with ~200K contacts, ~10K deals, ~1.5K leads, hourly full loads. Evaluated against ClickHouse best practices with an eye toward 100x-1000x scale.
 
 **Last full review:** 2026-04-06. Several recommendations have shipped since — see the **Status** column below and the per-section notes. Items still open are flagged ⏳; shipped items are ✅.
+
+---
+
+## Contents
+
+- [Current State Summary](#current-state-summary)
+- [1. ORDER BY Key Design](#1-order-by-key-design)
+- [2. Data Types](#2-data-types)
+- [3. Partitioning](#3-partitioning)
+- [4. Refresh Strategy — DROP+CREATE vs. Atomic Swap](#4-refresh-strategy--dropcreate-vs-atomic-swap)
+- [5. Bronze Layer — Map + Raw JSON Duplication](#5-bronze-layer--map--raw-json-duplication)
+- [6. Projections — Replacing Gold Aggregates](#6-projections--replacing-gold-aggregates)
+- [7. Skip Indexes](#7-skip-indexes)
+- [8. Compression](#8-compression)
+- [9. Dictionary Layout](#9-dictionary-layout)
+- [10. Container & Server Configuration](#10-container--server-configuration)
+- [11. Connection Management](#11-connection-management)
+- [12. Materialized Views for Real-Time Gold](#12-materialized-views-for-real-time-gold)
+- [Priority Ranking](#priority-ranking)
 
 ---
 
@@ -36,7 +57,7 @@
 
 **Recommendations:**
 
-```
+```text
 dim_deals:       ORDER BY (pipeline, archived, toDate(closedate), deal_id)
 dim_contacts:    ORDER BY (archived, lifecyclestage, toDate(createdate), contact_id)
 dim_companies:   ORDER BY (archived, toDate(createdate), company_id)
@@ -408,3 +429,7 @@ Every INSERT into dim_deals automatically updates the materialized view. No refr
 | 12 | Drop _raw or use JSON type | ⏳ | High | Moderate (storage) | Critical (storage) | Before 1000x |
 | 13 | Materialized views for gold | ⏳ | High | Low (hourly is fine) | High (real-time) | At 1000x |
 | 14 | Pin Docker image version | ✅ | Trivial | Safety | Safety | Done — pinned to `26.2.5.45` |
+
+---
+
+<sub>[← README](../README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · [Frontend](frontend.md) · **ClickHouse Evaluation**</sub>

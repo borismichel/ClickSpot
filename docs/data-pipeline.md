@@ -1,21 +1,32 @@
 # Data Pipeline
 
-ClickSpot runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
+> ClickSpot runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
+
+---
+
+## Contents
+
+- [Medallion Architecture](#medallion-architecture)
+- [Bronze Layer](#bronze-layer)
+- [Silver Layer](#silver-layer)
+- [Gold Layer](#gold-layer)
+- [Anon Layer](#anon-layer)
+- [Orchestration](#orchestration)
+- [Adding New Data](#adding-new-data)
 
 ---
 
 ## Medallion Architecture
 
-```
-HubSpot CRM API
-      |
-      v
-  +---------+     +---------+     +---------+     +-----------+
-  | BRONZE  | --> | SILVER  | --> |  GOLD   | --> |   ANON    |
-  |  (raw)  |    | (typed) |    |  (agg)  |    | (masked)  |
-  +---------+     +---------+     +---------+     +-----------+
-   36 tables       23 assets       7 tables    silver_anon +
-                                               gold_anon dbs
+```mermaid
+flowchart LR
+    HS["HubSpot CRM API"] --> BR
+    BR["BRONZE<br/>(raw)<br/>36 tables"] --> SV["SILVER<br/>(typed)<br/>23 assets"] --> GD["GOLD<br/>(agg)<br/>7 tables"] --> AN["ANON<br/>(masked)<br/>silver_anon + gold_anon dbs"]
+
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class BR,SV,GD,AN store;
+    class HS edge;
 ```
 
 | Layer | Purpose | Engine | Refresh Strategy |
@@ -218,15 +229,13 @@ Metrics are stored in `silver.dq_metrics` (append-only, 90-day TTL).
 
 Silver uses a full-rebuild approach with atomic swap — no downtime window:
 
-```
-1. DROP DICTIONARY (if dependent)
-2. DROP TABLE IF EXISTS silver.<table>_tmp
-3. CREATE TABLE silver.<table>_tmp (with ORDER BY, PARTITION BY, INDEX)
-4. INSERT INTO silver.<table>_tmp SELECT FROM bronze.<table> FINAL
-5. EXCHANGE TABLES silver.<table> AND silver.<table>_tmp
-6. DROP TABLE silver.<table>_tmp
-7. CREATE DICTIONARY (if applicable)
-```
+1. `DROP DICTIONARY` (if dependent)
+2. `DROP TABLE IF EXISTS silver.<table>_tmp`
+3. `CREATE TABLE silver.<table>_tmp` (with `ORDER BY`, `PARTITION BY`, `INDEX`)
+4. `INSERT INTO silver.<table>_tmp SELECT FROM bronze.<table> FINAL`
+5. `EXCHANGE TABLES silver.<table> AND silver.<table>_tmp`
+6. `DROP TABLE silver.<table>_tmp`
+7. `CREATE DICTIONARY` (if applicable)
 
 This avoids migration complexity. ClickHouse's columnar storage makes full rebuilds fast (typically under 10 seconds for datasets up to 100K records per table).
 
@@ -440,3 +449,7 @@ COMPUTED_METRICS["new_metric"] = {
     "sql": "countIf(condition) / nullIf(count(), 0)",
 }
 ```
+
+---
+
+<sub>[← README](../README.md) · [Architecture](architecture.md) · **Data Pipeline** · [Backend](backend.md) · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>

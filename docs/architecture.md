@@ -1,44 +1,59 @@
 # Architecture
 
-This document describes the overall system architecture, how components connect, and the design decisions behind them.
+> The overall system architecture: how the components connect, how data flows between them, and the design decisions behind them.
+
+---
+
+## Contents
+
+- [System Overview](#system-overview)
+- [Data Flow](#data-flow)
+- [Design Decisions](#design-decisions)
+- [Relationship Graph](#relationship-graph)
+- [File Structure](#file-structure)
+- [Deployment Topology](#deployment-topology)
+- [Security Considerations](#security-considerations)
 
 ---
 
 ## System Overview
 
-```
-+----------------+      +----------------+      +-----------------------------+
-|   HubSpot CRM  | API  |    Dagster     | SQL  |        ClickHouse           |
-|   (source)     | ---> | (orchestrator) | ---> |        (warehouse)          |
-+----------------+      +----------------+      +-----------------------------+
-                                                  | bronze.*       (raw)      |
-                                                  | silver.*       (dim/fact) |
-                                                  | gold.*         (agg)      |
-                                                  | silver_anon.*  (masked)   |
-                                                  | gold_anon.*    (masked)   |
-                                                  +--------+----------+-------+
-                                                           |          |
-                                                           |          | MCP
-        +--------------------+              +--------------+----+   server
-        |  FastAPI (backend) | <------------+   SQL queries     |     |
-        +--+---+---+---+----++              +-------------------+     v
-           |   |   |   |    |                            +----------------+
-           v   v   v   v    v                            | Claude Desktop |
-   Analytics  Chat Data Objects/  Spaces                 |   (MCP client) |
-     API     API  API  Dashboards  API                   +----------------+
-   (graph)  (LLM (SQL  (SQLite       |
-            -> + per-  store via     v
-            SQL) filter app/store)  app/spaces/*
-                  )                 (scoped views,
-                                    chat, dashboards)
-                       |
-                       v
-        +----------------------------+
-        |     React Frontend         |
-        | chat + dashboard +         |
-        | data explorer + spaces +   |
-        | architecture pages         |
-        +----------------------------+
+```mermaid
+flowchart TD
+    HS["HubSpot CRM<br/>(source)"] -->|API| DG["Dagster<br/>(orchestrator)"]
+    DG -->|SQL| CH
+
+    subgraph CH["ClickHouse (warehouse)"]
+        direction TB
+        BR["bronze.* — raw"]
+        SV["silver.* — dim / fact"]
+        GD["gold.* — agg"]
+        SA["silver_anon.* — masked"]
+        GA["gold_anon.* — masked"]
+    end
+
+    CH -->|"SQL queries"| API["FastAPI (backend)"]
+    CH -->|MCP| MCP["MCP server"]
+    MCP --> CD["Claude Desktop<br/>(MCP client)"]
+
+    API --> AN["Analytics API<br/>(graph)"]
+    API --> CHAT["Chat API<br/>(LLM → SQL)"]
+    API --> DATA["Data API<br/>(SQL + filter)"]
+    API --> OBJ["Objects / Dashboards<br/>(SQLite via app/store)"]
+    API --> SP["Spaces API"]
+    SP --> SPMOD["app/spaces/*<br/>(scoped views, chat, dashboards)"]
+
+    AN --> FE["React Frontend<br/>chat · dashboard · data explorer · spaces · architecture pages"]
+    CHAT --> FE
+    DATA --> FE
+    OBJ --> FE
+    SP --> FE
+
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class BR,SV,GD,SA,GA store;
+    class HS,DG,API,MCP,CD,AN,CHAT,DATA,OBJ,SP,SPMOD,FE edge;
+    style CH fill:#fbe9e2,stroke:#e76636,color:#0e1015;
 ```
 
 The MCP server (`app/mcp/`) is a separate process — not part of the FastAPI app — but it reuses the same schema-prompt builder, SQL validator, and table catalog so external Claude clients see the same grounded context as in-app chat.
@@ -49,46 +64,37 @@ The MCP server (`app/mcp/`) is a separate process — not part of the FastAPI ap
 
 ### 1. Ingestion (Hourly)
 
-```
-HubSpot CRM API
-    |
-    |  HubSpotResource: paginated fetch, 429 retry, HWM tracking
-    v
-bronze.hs_contacts, bronze.hs_deals, bronze.hs_companies, ...
-    |
-    |  Config-driven transform: silver_config.py -> DDL + INSERT
-    v
-silver.dim_contacts, silver.dim_deals, silver.bridge_contact_deal, ...
-    |
-    |  Multi-table JOINs + aggregations
-    v
-gold.agg_rep_performance, gold.agg_deal_health, ...
+```mermaid
+flowchart TD
+    A["HubSpot CRM API"]
+    B["bronze.hs_contacts, bronze.hs_deals, bronze.hs_companies, …"]
+    C["silver.dim_contacts, silver.dim_deals, silver.bridge_contact_deal, …"]
+    D["gold.agg_rep_performance, gold.agg_deal_health, …"]
+    A -->|"HubSpotResource: paginated fetch, 429 retry, HWM tracking"| B
+    B -->|"config-driven transform: silver_config.py → DDL + INSERT"| C
+    C -->|"multi-table JOINs + aggregations"| D
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D step;
 ```
 
 Each layer is a separate ClickHouse database (`bronze`, `silver`, `gold`). Tables use `ReplacingMergeTree` for deduplication.
 
 ### 2. Chat Query (Interactive)
 
-```
-User: "What's our win rate by rep?"
-    |
-    v
-Frontend: POST /api/v1/chat {message, history}
-    |
-    v
-Backend: Build schema prompt (tables + semantics + examples)
-    |
-    v
-LLM: Generate {sql, viz, title, explanation, context (with optional previous_sql)}
-    |
-    v
-Validator: Whitelist tables, reject mutations, inject LIMIT
-    |
-    v
-ClickHouse: Execute SQL + context KPI queries + previous period queries
-    |
-    v
-Frontend: Render explanation + SQL preview + chart/table + context bar (with deltas)
+```mermaid
+flowchart TD
+    A["User: “What's our win rate by rep?”"]
+    B["Frontend: POST /api/v1/chat {message, history}"]
+    C["Backend: build schema prompt (tables + semantics + examples)"]
+    D["LLM: generate {sql, viz, title, explanation, context (with optional previous_sql)}"]
+    E["Validator: whitelist tables, reject mutations, inject LIMIT"]
+    F["ClickHouse: execute SQL + context KPI queries + previous-period queries"]
+    G["Frontend: render explanation + SQL preview + chart/table + context bar (with deltas)"]
+    A --> B --> C --> D --> E --> F --> G
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D,E,F,G step;
 ```
 
 **Latency budget:**
@@ -103,50 +109,36 @@ Frontend: Render explanation + SQL preview + chart/table + context bar (with del
 
 ### 3. Associative Query (Programmatic)
 
-```
-Selection: dim_deals.stage_label = ['Proposal']
-    |
-    v
-SelectionState.parse() -> {dim_deals: {stage_label: ['Proposal']}}
-    |
-    v
-AssociativeGraph.bfs_paths() -> shortest paths to all tables
-    |
-    v
-Propagator.propagate() -> {table: SQL_subquery} for reachable IDs
-    |
-    v
-SQL Builder -> COUNT, FIELD_VALUES, MEASURE, TIME_SERIES queries
-    |
-    v
-ClickHouse -> results for each requested computation
+```mermaid
+flowchart TD
+    A["Selection: dim_deals.stage_label = ['Proposal']"]
+    B["SelectionState.parse() → {dim_deals: {stage_label: ['Proposal']}}"]
+    C["AssociativeGraph.bfs_paths() → shortest paths to all tables"]
+    D["Propagator.propagate() → {table: SQL_subquery} for reachable IDs"]
+    E["SQL Builder → COUNT, FIELD_VALUES, MEASURE, TIME_SERIES queries"]
+    F["ClickHouse → results for each requested computation"]
+    A --> B --> C --> D --> E --> F
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D,E,F step;
 ```
 
 ### 4. Dashboard Query (Interactive)
 
-```
-User adjusts dashboard filter (date range, owner, pipeline)
-    |
-    v
-Frontend: POST /api/v1/sql {sql, filters} for each card
-    |
-    v
-Backend: apply_filters(sql, filters)
-    |
-    v
-sqlglot: Parse SQL -> find Table nodes -> lookup FILTER_COLUMNS registry
-    |
-    v
-Build WHERE conditions (silver uses IDs, gold uses names)
-    |
-    v
-Inject into enclosing SELECT -> regenerate SQL
-    |
-    v
-ClickHouse: Execute rewritten SQL
-    |
-    v
-Frontend: Update all dashboard cards simultaneously
+```mermaid
+flowchart TD
+    A["User adjusts dashboard filter (date range, owner, pipeline)"]
+    B["Frontend: POST /api/v1/sql {sql, filters} for each card"]
+    C["Backend: apply_filters(sql, filters)"]
+    D["sqlglot: parse SQL → find Table nodes → lookup FILTER_COLUMNS registry"]
+    E["Build WHERE conditions (silver uses IDs, gold uses names)"]
+    F["Inject into enclosing SELECT → regenerate SQL"]
+    G["ClickHouse: execute rewritten SQL"]
+    H["Frontend: update all dashboard cards simultaneously"]
+    A --> B --> C --> D --> E --> F --> G --> H
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D,E,F,G,H step;
 ```
 
 **No AI involved** — purely AST-based SQL rewriting via sqlglot. Tables not in the registry are silently skipped. If parsing fails, the original SQL is returned unchanged.
@@ -218,21 +210,35 @@ The core data model is a graph of queryable tables connected by 9 bridge tables.
 
 ### Entities
 
+```mermaid
+graph LR
+    OWN["dim_owners"]
+    LEAD["dim_leads"]
+    DEAL["dim_deals"]
+    COMP["dim_companies"]
+    CONT["dim_contacts"]
+    ACT["fact_activities"]
+
+    OWN -. owner .- LEAD
+    OWN -. owner .- DEAL
+    OWN -. owner .- COMP
+    OWN -. owner .- CONT
+
+    CONT --- COMP
+    CONT --- DEAL
+    DEAL --- COMP
+    LEAD --- CONT
+    DEAL --- LEAD
+    LEAD --- COMP
+    ACT --- CONT
+    ACT --- COMP
+    ACT --- DEAL
+
+    classDef node fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class OWN,LEAD,DEAL,COMP,CONT,ACT node;
 ```
-                        dim_owners
-                       /    |     \
-                      /     |      \
-              dim_leads  dim_deals  dim_companies
-                |    \   / |    \   /    |
-                |     \ /  |     \ /     |
-                |    bridge|    bridge    |
-                |      s   |      s      |
-                |          |             |
-              dim_contacts----bridge----dim_companies
-                      |
-                      |
-                fact_activities
-```
+
+Solid edges are the 9 N:M bridge tables (below); dotted edges are `owner_id` reference lookups resolved via dictionaries.
 
 ### Bridge Tables (N:M Relationships)
 
@@ -267,7 +273,12 @@ Instead of JOINs, the LLM generates `dictGet()` calls for ID-to-name resolution.
 
 ## File Structure
 
-```
+<details>
+<summary><strong>Full backend + frontend tree</strong></summary>
+
+<br/>
+
+```text
 ClickSpot/
 |-- app/                          # FastAPI backend
 |   |-- main.py                   # App entry, CORS, router mounting, SQLite init, space load
@@ -368,6 +379,8 @@ ClickSpot/
 |-- .env.example                  # Template for .env
 ```
 
+</details>
+
 ---
 
 ## Deployment Topology
@@ -406,3 +419,7 @@ See `SECURITY_AUDIT.md` for the full audit. Key points:
 - **API keys** — Stored in `~/.clickspot/config.json` with `0600` permissions. Returned masked via API.
 - **LLM data isolation** — The LLM never sees query results or business data. Only schema metadata and user questions.
 - **ClickHouse credentials** — Default `hs2ch`/`hs2ch` in development. Should use a read-only user in production.
+
+---
+
+<sub>[← README](../README.md) · **Architecture** · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>
