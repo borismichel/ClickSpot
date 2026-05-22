@@ -6,7 +6,7 @@
 
 **Ask your HubSpot CRM questions in plain English — get back SQL, charts, and dashboards.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-722ed1.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-e76636.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Node 20.19+](https://img.shields.io/badge/Node-20.19%2B-339933?logo=nodedotjs&logoColor=white)](frontend/package.json)
 [![ClickHouse 26.2](https://img.shields.io/badge/ClickHouse-26.2-FFCC01?logo=clickhouse&logoColor=black)](docker-compose.yml)
@@ -37,6 +37,13 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 - 🕸️ **Associative engine** — Qlik-style selection propagation: pick a value anywhere and connected tables filter automatically.
 - 🔌 **MCP server** — exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same guardrails as in-app chat.
 - 🏗️ **Medallion ELT** — bronze → silver → gold → anon, orchestrated by Dagster with atomic rebuilds.
+
+### See it in action
+
+|  |  |  |
+|:---:|:---:|:---:|
+| <a href="docs/assets/screenshots/dashboard-deals.png"><img src="docs/assets/screenshots/dashboard-deals.png" alt="Deals dashboard — deal count and amount by stage with year-to-date KPIs" width="270" /></a> | <a href="docs/assets/screenshots/explorer-associative.png"><img src="docs/assets/screenshots/explorer-associative.png" alt="Associative explorer — deals linked to contacts, companies, owners, and pipeline stages" width="270" /></a> | <a href="docs/assets/screenshots/explorer-schema.png"><img src="docs/assets/screenshots/explorer-schema.png" alt="Schema browser — bronze and silver tables with typed columns" width="270" /></a> |
+| **Dashboards** — pinned results, global filters | **Associative engine** — Qlik-style selection | **Medallion schema** — bronze → silver, typed |
 
 ---
 
@@ -152,8 +159,8 @@ flowchart LR
     HS -->|"hourly ELT"| CH
     CH -->|"text → SQL · MCP"| AI
 
-    classDef store fill:#722ed1,stroke:#531dab,color:#fff;
-    classDef edge fill:#f6f0ff,stroke:#722ed1,color:#1f1f1f;
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
     class CH store;
     class HS,AI edge;
 ```
@@ -173,8 +180,8 @@ flowchart TD
     AN --> FE["React frontend"]
     CHAT --> FE
 
-    classDef store fill:#722ed1,stroke:#531dab,color:#fff;
-    classDef edge fill:#f6f0ff,stroke:#722ed1,color:#1f1f1f;
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
     class CH store;
     class HS,DG,API,AN,CHAT,MCP,FE edge;
 ```
