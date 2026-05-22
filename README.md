@@ -16,7 +16,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/assets/screenshot-chat.png" alt="ClickSpot chat — a plain-English question about rep performance, answered with generated ClickHouse SQL and a bar chart" width="860" />
+  <img src="docs/assets/screenshot-chat.png" alt="ClickSpot chat — the plain-English question 'show me activity trends by type' answered with the generated ClickHouse SQL shown and a 12-month multi-series trend chart" width="860" />
 </p>
 
 <p align="center"><sub>Real UI, synthetic demo data — no customer CRM or PII.</sub></p>
@@ -44,6 +44,8 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 |:---:|:---:|:---:|
 | <a href="docs/assets/screenshots/dashboard-deals.png"><img src="docs/assets/screenshots/dashboard-deals.png" alt="Deals dashboard — deal count and amount by stage with year-to-date KPIs" width="270" /></a> | <a href="docs/assets/screenshots/explorer-associative.png"><img src="docs/assets/screenshots/explorer-associative.png" alt="Associative explorer — deals linked to contacts, companies, owners, and pipeline stages" width="270" /></a> | <a href="docs/assets/screenshots/explorer-schema.png"><img src="docs/assets/screenshots/explorer-schema.png" alt="Schema browser — bronze and silver tables with typed columns" width="270" /></a> |
 | **Dashboards** — pinned results, global filters | **Associative engine** — Qlik-style selection | **Medallion schema** — bronze → silver, typed |
+| <a href="docs/assets/screenshots/chat-home.png"><img src="docs/assets/screenshots/chat-home.png" alt="Chat home — example prompt cards and a question box for plain-English questions" width="270" /></a> | <a href="docs/assets/screenshots/chat-activity-trends.png"><img src="docs/assets/screenshots/chat-activity-trends.png" alt="Chat answer — an activity-trends area chart and year-to-date KPI tiles generated from a plain-English question" width="270" /></a> | <a href="docs/assets/screenshots/settings-properties.png"><img src="docs/assets/screenshots/settings-properties.png" alt="Property selection — choosing which HubSpot deal properties load into the silver layer" width="270" /></a> |
+| **Plain-English chat** — example prompts to start | **Answers as charts** — question → SQL → visual | **Property config** — choose what lands in silver |
 
 ---
 
