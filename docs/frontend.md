@@ -1,6 +1,20 @@
 # Frontend
 
-A **React 19** single-page application for querying HubSpot analytics data using natural language, with persistent dashboards and a data explorer.
+> A **React 19** single-page application for querying HubSpot analytics data in natural language, with persistent dashboards and a data explorer.
+
+---
+
+## Contents
+
+- [Running](#running)
+- [Stack](#stack)
+- [Routing](#routing)
+- [Layout](#layout)
+- [Components](#components)
+- [Hooks](#hooks)
+- [Types](#types)
+- [Build Configuration](#build-configuration)
+- [Formatting Conventions](#formatting-conventions)
 
 ---
 
@@ -35,18 +49,18 @@ Runs on http://localhost:8193. Proxies `/api` requests to the backend at http://
 
 ## Routing
 
-```
-/                          → App (main chat interface)
-/dashboard                 → DashboardPage (persistent dashboards with global filters)
-/library                   → ObjectLibraryPage (saved query/viz objects)
-/data                      → DataExplorerPage (interactive table/query browser)
-/architecture              → ArchitecturePage (system diagrams)
-/spaces                    → DataSpaceListPage (browse all spaces)
-/spaces/new                → DataSpaceDesignerPage (create a new space)
-/spaces/:id/edit           → DataSpaceDesignerPage (edit an existing space)
-/spaces/:id                → SpaceOverviewPage (live preview + filters for a space)
-/spaces/:spaceId/dashboard → SpaceDashboardPage (dashboards scoped to a space)
-```
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/` | `App` | Main chat interface |
+| `/dashboard` | `DashboardPage` | Persistent dashboards with global filters |
+| `/library` | `ObjectLibraryPage` | Saved query/viz objects |
+| `/data` | `DataExplorerPage` | Interactive table/query browser |
+| `/architecture` | `ArchitecturePage` | System diagrams |
+| `/spaces` | `DataSpaceListPage` | Browse all spaces |
+| `/spaces/new` | `DataSpaceDesignerPage` | Create a new space |
+| `/spaces/:id/edit` | `DataSpaceDesignerPage` | Edit an existing space |
+| `/spaces/:id` | `SpaceOverviewPage` | Live preview + filters for a space |
+| `/spaces/:spaceId/dashboard` | `SpaceDashboardPage` | Dashboards scoped to a space |
 
 Set up in `main.tsx` with `BrowserRouter` from React Router.
 
@@ -58,7 +72,7 @@ Each page sets `document.title` to `"ClickSpot | {page}"` via the `usePageTitle(
 
 ### Main Chat Interface (`/`)
 
-```
+```text
 +----------------------------------------------------------------------+
 | ClickSpot [Library] [Dashboard] [Spaces] [Data] [Arch] [Settings]|
 +----------+------------------------------------------+
@@ -79,7 +93,7 @@ Each page sets `document.title` to `"ClickSpot | {page}"` via the `usePageTitle(
 
 ### After a Chat Exchange
 
-```
+```text
 |  User:    What's our win rate by rep this quarter?    |
 |                                                        |
 |  Assistant:                                            |
@@ -471,3 +485,7 @@ The frontend auto-detects value formatting from column names:
 | Everything else | Locale string | `1,234.56` |
 
 This heuristic-based approach means the LLM doesn't need to specify formatting — column names carry enough semantic information.
+
+---
+
+<sub>[← README](../README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · **Frontend** · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>

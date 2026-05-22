@@ -1,21 +1,32 @@
 # Data Pipeline
 
-ClickSpot runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
+> ClickSpot runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
+
+---
+
+## Contents
+
+- [Medallion Architecture](#medallion-architecture)
+- [Bronze Layer](#bronze-layer)
+- [Silver Layer](#silver-layer)
+- [Gold Layer](#gold-layer)
+- [Anon Layer](#anon-layer)
+- [Orchestration](#orchestration)
+- [Adding New Data](#adding-new-data)
 
 ---
 
 ## Medallion Architecture
 
-```
-HubSpot CRM API
-      |
-      v
-  +---------+     +---------+     +---------+     +-----------+
-  | BRONZE  | --> | SILVER  | --> |  GOLD   | --> |   ANON    |
-  |  (raw)  |    | (typed) |    |  (agg)  |    | (masked)  |
-  +---------+     +---------+     +---------+     +-----------+
-   36 tables       23 assets       7 tables    silver_anon +
-                                               gold_anon dbs
+```mermaid
+flowchart LR
+    HS["HubSpot CRM API"] --> BR
+    BR["BRONZE<br/>(raw)<br/>41 tables"] --> SV["SILVER<br/>(typed)<br/>27 assets"] --> GD["GOLD<br/>(agg)<br/>7 tables"] --> AN["ANON<br/>(masked)<br/>silver_anon + gold_anon dbs"]
+
+    classDef store fill:#e76636,stroke:#0e1015,color:#ffffff;
+    classDef edge fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class BR,SV,GD,AN store;
+    class HS edge;
 ```
 
 | Layer | Purpose | Engine | Refresh Strategy |
@@ -75,7 +86,7 @@ Built with `_make_crm_asset()` factory in `assets/crm.py` (`hs_owners` is a besp
 
 Built with the same `_make_crm_asset()` factory in `assets/activities.py`.
 
-#### Marketing & Pipelines (5 assets)
+#### Marketing, Lists & Pipelines (6 assets)
 
 | Asset | HubSpot API | Notes |
 |-------|-------------|-------|
@@ -83,11 +94,12 @@ Built with the same `_make_crm_asset()` factory in `assets/activities.py`.
 | `hs_lead_pipelines` | `/crm/v3/pipelines/leads` | Contains nested `stages` array |
 | `hs_campaigns` | `/marketing/v3/campaigns` | Full load |
 | `hs_forms` | `/marketing/v3/forms` | Full load |
+| `hs_lists` | `/crm/v3/lists/search` (POST) | List/segment catalog. v3 lists has no GET collection, so it's enumerated via search. Bespoke `@asset`; feeds the list-membership bridges below. |
 | `hs_form_submissions` | `/form-integrations/v1/submissions/forms/{formId}` | Legacy v1 endpoint. Bespoke `@asset` (not factory-based) — first lists forms via `fetch_all_form_ids()`, then iterates submissions per form. |
 
-The first four are built with `_make_marketing_asset()` factory in `assets/marketing.py`; `hs_form_submissions` is a bespoke `@asset` in the same file.
+The first four are built with `_make_marketing_asset()` factory in `assets/marketing.py`; `hs_lists` and `hs_form_submissions` are bespoke `@asset`s in the same file.
 
-#### Associations (21 bridge assets)
+#### Associations (25 bridge assets)
 
 HubSpot associations are **N:M:N** — a contact can be associated with many deals, and a deal with many contacts, each with a typed association label.
 
@@ -101,7 +113,11 @@ HubSpot associations are **N:M:N** — a contact can be associated with many dea
 
 Each association record contains `(_from_id, _to_id, _association_type)`.
 
-Built with `_make_association_asset()` factory in `assets/associations.py`.
+**Lists-to-CRM (4):**
+- `hs_assoc_list_contact`, `hs_assoc_list_company`, `hs_assoc_list_deal`, `hs_assoc_list_lead`
+- List memberships per object type, paginated from `/crm/v3/lists/{listId}/memberships` (depends on `hs_lists`).
+
+The CRM-to-CRM and Activity-to-CRM bridges use the `_make_association_asset()` factory in `assets/associations.py`; the four list-membership bridges use `_make_list_membership_asset()` in `assets/marketing.py`.
 
 ### Property Discovery & Pagination
 
@@ -158,6 +174,7 @@ DIM_DEALS = {
 | `dim_pipeline_stages` | `hs_pipelines` (ARRAY JOIN) | `stage_id` | — | `label`, `pipeline_id`, `is_closed`, `display_order` |
 | `dim_lead_pipelines` | `hs_lead_pipelines` | `pipeline_id` | — | `label` |
 | `dim_lead_pipeline_stages` | `hs_lead_pipelines` (ARRAY JOIN) | — | — | `label`, `pipeline_id`, `is_closed` |
+| `dim_lists` | `hs_lists` | `list_id` | — | `name`, `list_type` (static/dynamic), `object_type_id` (member object type) |
 
 **~197 total columns** across the 5 main dimension tables, including comprehensive date/timestamp and activity type fields from HubSpot at lead, contact, and company levels.
 
@@ -173,7 +190,7 @@ DIM_DEALS = {
 | `fact_stage_history` | bronze leads/deals/contacts | composite | Stage enter/exit tracking. Dynamically discovers stage IDs from bronze property keys (`hs_v2_date_entered_*`, `hs_date_entered_*`). Columns: `entity_type`, `stage_id`, `stage_label`, `entered_at`, `exited_at`, `duration_ms` |
 | `fact_form_submissions` | `hs_form_submissions` | `submission_id` | One row per form submission with `form_id`, `submitted_at`, `page_url`, and the submitted values flattened from the v1 endpoint's `values[]` array |
 
-### Bridge Tables (9)
+### Bridge Tables (13)
 
 | Table | From Key | To Key | Source |
 |-------|----------|--------|--------|
@@ -186,8 +203,12 @@ DIM_DEALS = {
 | `bridge_activity_contact` | `activity_id` | `contact_id` | 5 activity-contact assoc tables |
 | `bridge_activity_company` | `activity_id` | `company_id` | 5 activity-company assoc tables |
 | `bridge_activity_deal` | `activity_id` | `deal_id` | 5 activity-deal assoc tables |
+| `bridge_list_contact` | `list_id` | `contact_id` | `hs_assoc_list_contact` |
+| `bridge_list_company` | `list_id` | `company_id` | `hs_assoc_list_company` |
+| `bridge_list_deal` | `list_id` | `deal_id` | `hs_assoc_list_deal` |
+| `bridge_list_lead` | `list_id` | `lead_id` | `hs_assoc_list_lead` |
 
-### ClickHouse Dictionaries (8)
+### ClickHouse Dictionaries (9)
 
 Silver tables that serve as lookup references have in-memory dictionaries for fast `dictGet()` lookups, replacing JOINs:
 
@@ -201,6 +222,7 @@ Silver tables that serve as lookup references have in-memory dictionaries for fa
 | `dict_contacts` | `dim_contacts` | `contact_id` | HASHED | `full_name`, `email` |
 | `dict_companies` | `dim_companies` | `company_id` | HASHED | `name`, `domain`, `industry` |
 | `dict_deals` | `dim_deals` | `deal_id` | HASHED | `dealname`, `amount`, `owner_name` |
+| `dict_lists` | `dim_lists` | `list_id` | HASHED | `name`, `list_type`, `object_type_id` |
 
 Dictionary config is defined in `DICT_CONFIGS` in `silver_config.py`, which serves dual purpose: DDL generation (`_build_dict_ddl()`) and LLM prompt generation (auto-generates `dictGet()` examples per table). During silver refresh, dependent dictionaries are dropped before the table and recreated after via `EXCHANGE TABLES`.
 
@@ -218,15 +240,13 @@ Metrics are stored in `silver.dq_metrics` (append-only, 90-day TTL).
 
 Silver uses a full-rebuild approach with atomic swap — no downtime window:
 
-```
-1. DROP DICTIONARY (if dependent)
-2. DROP TABLE IF EXISTS silver.<table>_tmp
-3. CREATE TABLE silver.<table>_tmp (with ORDER BY, PARTITION BY, INDEX)
-4. INSERT INTO silver.<table>_tmp SELECT FROM bronze.<table> FINAL
-5. EXCHANGE TABLES silver.<table> AND silver.<table>_tmp
-6. DROP TABLE silver.<table>_tmp
-7. CREATE DICTIONARY (if applicable)
-```
+1. `DROP DICTIONARY` (if dependent)
+2. `DROP TABLE IF EXISTS silver.<table>_tmp`
+3. `CREATE TABLE silver.<table>_tmp` (with `ORDER BY`, `PARTITION BY`, `INDEX`)
+4. `INSERT INTO silver.<table>_tmp SELECT FROM bronze.<table> FINAL`
+5. `EXCHANGE TABLES silver.<table> AND silver.<table>_tmp`
+6. `DROP TABLE silver.<table>_tmp`
+7. `CREATE DICTIONARY` (if applicable)
 
 This avoids migration complexity. ClickHouse's columnar storage makes full rebuilds fast (typically under 10 seconds for datasets up to 100K records per table).
 
@@ -440,3 +460,7 @@ COMPUTED_METRICS["new_metric"] = {
     "sql": "countIf(condition) / nullIf(count(), 0)",
 }
 ```
+
+---
+
+<sub>[← README](../README.md) · [Architecture](architecture.md) · **Data Pipeline** · [Backend](backend.md) · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>

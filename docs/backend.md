@@ -1,6 +1,8 @@
 # Backend
 
-The backend is a **FastAPI** application that serves several distinct surfaces:
+> A **FastAPI** application that serves the analytics engine, the LLM chat API, dashboard SQL execution, server-side persistence, Data Spaces, and the MCP server.
+
+The backend serves several distinct surfaces:
 
 1. **Analytics Engine** — Associative graph-based query builder (Qlik-inspired selection propagation)
 2. **Chat API** — LLM-powered natural language to ClickHouse SQL
@@ -11,6 +13,19 @@ The backend is a **FastAPI** application that serves several distinct surfaces:
 7. **MCP server** (separate process, `python -m app.mcp.server`) — Exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same schema prompt and SQL validator as in-app chat
 
 All share the same ClickHouse connection and table configuration. The in-process app also initializes a SQLite store and loads saved data spaces on startup (`lifespan` in `app/main.py`).
+
+---
+
+## Contents
+
+- [Running](#running)
+- [Analytics Engine](#analytics-engine)
+- [Chat API](#chat-api)
+- [SQL Filter Engine](#sql-filter-engine)
+- [Configuration](#configuration)
+- [Data Spaces](#data-spaces)
+- [MCP Server](#mcp-server)
+- [Endpoint Summary](#endpoint-summary)
 
 ---
 
@@ -31,17 +46,17 @@ API docs: http://localhost:8192/docs
 
 The analytics engine implements a **Qlik-like associative model**. When a user selects a value in one table (e.g., `dim_deals.stage_label = 'Proposal'`), the engine automatically propagates that selection through the relationship graph to compute reachable record sets in all connected tables.
 
-```
-User selects: dim_deals.stage_label = 'Proposal'
-                    |
-                    v
-          AssociativeGraph.bfs_paths()
-                    |
-        +-----------+-----------+
-        |           |           |
-        v           v           v
-   dim_contacts  dim_companies  fact_activities
-   (via bridge)  (via bridge)   (via bridge)
+```mermaid
+flowchart TD
+    A["User selects: dim_deals.stage_label = 'Proposal'"]
+    B["AssociativeGraph.bfs_paths()"]
+    A --> B
+    B --> C["dim_contacts<br/>(via bridge)"]
+    B --> D["dim_companies<br/>(via bridge)"]
+    B --> E["fact_activities<br/>(via bridge)"]
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D,E step;
 ```
 
 ### Components
@@ -193,28 +208,19 @@ Returns row counts and last-loaded timestamps for all tables.
 
 Users type natural language questions. The LLM generates ClickHouse SQL, which is validated and executed.
 
-```
-"What's our win rate by rep?"
-         |
-         v
-  Schema Prompt (tables + semantics + examples)
-  + Conversation History (questions + SQL, no results)
-  + User Question
-         |
-         v
-    LLM Provider (Claude / GPT-4o)
-         |
-         v
-  Structured Response: {sql, viz, title, explanation}
-         |
-         v
-    SQL Validator (whitelist tables, reject mutations)
-         |
-         v
-    ClickHouse Execution
-         |
-         v
-  Results + Timing Metadata
+```mermaid
+flowchart TD
+    A["“What's our win rate by rep?”"]
+    B["Schema prompt (tables + semantics + examples)<br/>+ conversation history (questions + SQL, no results)<br/>+ user question"]
+    C["LLM provider (Claude / GPT-4o)"]
+    D["Structured response: {sql, viz, title, explanation}"]
+    E["SQL validator (whitelist tables, reject mutations)"]
+    F["ClickHouse execution"]
+    G["Results + timing metadata"]
+    A --> B --> C --> D --> E --> F --> G
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D,E,F,G step;
 ```
 
 ### Providers (`app/llm/providers.py`)
@@ -352,29 +358,24 @@ Returns `{owners: [{id, name}], pipelines: [{id, label}]}` from `dim_owners` and
 
 ---
 
-## SQL Filter Engine (`app/engine/sql_filter.py`)
+## SQL Filter Engine
 
-Rule-based SQL rewriting for dashboard global filters. No AI involved — purely AST-based manipulation using **sqlglot** with the ClickHouse dialect.
+Rule-based SQL rewriting for dashboard global filters (`app/engine/sql_filter.py`). No AI involved — purely AST-based manipulation using **sqlglot** with the ClickHouse dialect.
 
 ### How It Works
 
-```
-Dashboard filter state (date, owner, pipeline)
-    |
-    v
-sqlglot.parse(sql, dialect="clickhouse")
-    |
-    v
-Walk AST → find Table nodes → lookup in FILTER_COLUMNS registry
-    |
-    v
-Build AST conditions (safe — values are never parsed as SQL)
-    |
-    v
-Inject into enclosing Select WHERE clause
-    |
-    v
-sqlglot.generate(tree, dialect="clickhouse")
+```mermaid
+flowchart TD
+    A["Dashboard filter state (date, owner, pipeline)"]
+    B["sqlglot.parse(sql, dialect='clickhouse')"]
+    C["Walk AST → find Table nodes → lookup in FILTER_COLUMNS registry"]
+    D["Build AST conditions (safe — values are never parsed as SQL)"]
+    E["Inject into enclosing Select WHERE clause"]
+    F["sqlglot.generate(tree, dialect='clickhouse')"]
+    A --> B --> C --> D --> E --> F
+
+    classDef step fill:#edebe9,stroke:#e76636,color:#0e1015;
+    class A,B,C,D,E,F step;
 ```
 
 ### Filter Column Registry
@@ -470,9 +471,9 @@ A SQLite database (initialized on FastAPI startup via `lifespan`) backs `object_
 
 ---
 
-## Data Spaces (`app/spaces/`)
+## Data Spaces
 
-A Data Space is a user-defined slice of the warehouse: a *grain entity* (e.g. `dim_deals`), a set of dimensions discovered from that entity, optional fixed filters, and its own scoped chat + dashboards.
+A Data Space (`app/spaces/`) is a user-defined slice of the warehouse: a *grain entity* (e.g. `dim_deals`), a set of dimensions discovered from that entity, optional fixed filters, and its own scoped chat + dashboards.
 
 | Module | Purpose |
 |--------|---------|
@@ -488,9 +489,9 @@ Spaces are persisted via `app/store.py` and re-loaded into memory at FastAPI sta
 
 ---
 
-## MCP Server (`app/mcp/`)
+## MCP Server
 
-Standalone process (`python -m app.mcp.server`) that wraps the `silver_anon` and `gold_anon` databases for external Claude clients (Claude Desktop, etc.) using `FastMCP`.
+Standalone process (`app/mcp/`, run via `python -m app.mcp.server`) that wraps the `silver_anon` and `gold_anon` databases for external Claude clients (Claude Desktop, etc.) using `FastMCP`.
 
 - Reuses `app.llm.schema_prompt.build_schema_prompt` so MCP clients see the same dict hints, ILIKE guidance, and table whitelist as in-app chat.
 - Reuses `app.llm.sql_validator.ensure_limit` for the same LIMIT auto-injection behavior.
@@ -569,3 +570,7 @@ Standalone process (`python -m app.mcp.server`) that wraps the `silver_anon` and
 | POST | `/api/v1/spaces/{space_id}/dashboards/{dash_id}/items` | Add item |
 | DELETE | `/api/v1/spaces/{space_id}/dashboards/{dash_id}/items/{item_id}` | Remove item |
 | PUT | `/api/v1/spaces/{space_id}/dashboards/{dash_id}/layouts` | Persist layout |
+
+---
+
+<sub>[← README](../README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · **Backend** · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>
