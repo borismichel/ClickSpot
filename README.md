@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-722ed1.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
-[![Node 18+](https://img.shields.io/badge/Node-18%2B-339933?logo=nodedotjs&logoColor=white)](frontend/package.json)
+[![Node 20.19+](https://img.shields.io/badge/Node-20.19%2B-339933?logo=nodedotjs&logoColor=white)](frontend/package.json)
 [![ClickHouse 26.2](https://img.shields.io/badge/ClickHouse-26.2-FFCC01?logo=clickhouse&logoColor=black)](docker-compose.yml)
 
 [Quick start](#quick-start) · [What it does](#what-it-does) · [Architecture](#architecture) · [Configuration](#configuration) · [Docs](#documentation)
@@ -20,6 +20,10 @@
 </p>
 
 <p align="center"><sub>Real UI, synthetic demo data — no customer CRM or PII.</sub></p>
+
+<p align="center">
+  <a href="https://youtu.be/fJtDndTOIpA"><strong>▶&nbsp; Watch the demo</strong></a>
+</p>
 
 ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture in ClickHouse, and serves it through a chat interface where natural-language questions are converted to ClickHouse SQL by an LLM.
 
@@ -71,7 +75,7 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+
+- Node.js 20.19+
 - Docker (for ClickHouse)
 - A HubSpot private app token with CRM read scopes
 
