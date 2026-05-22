@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.spaces.config import DataSpaceConfig
 from app.spaces.discovery import discover_dimensions, get_available_dicts, get_grain_entities
+from app.spaces.routes_dashboards import _get_space_dashboard
 from app.spaces.registry import (
     create_space,
     delete_space,
