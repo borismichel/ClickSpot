@@ -15,15 +15,11 @@
 
 </div>
 
-<!--
-  CTO: drop the above-the-fold product shot here once captured from a running instance.
-  Recommended: a single chat → SQL → chart still (or a short GIF of the same flow).
-  Place at docs/assets/screenshot-chat.png and uncomment:
+<p align="center">
+  <img src="docs/assets/screenshot-chat.png" alt="ClickSpot chat — a plain-English question about rep performance, answered with generated ClickHouse SQL and a bar chart" width="860" />
+</p>
 
-  <p align="center">
-    <img src="docs/assets/screenshot-chat.png" alt="ClickSpot chat: a natural-language question rendered as a chart" width="860" />
-  </p>
--->
+<p align="center"><sub>Real UI, synthetic demo data — no customer CRM or PII.</sub></p>
 
 ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture in ClickHouse, and serves it through a chat interface where natural-language questions are converted to ClickHouse SQL by an LLM.
 
@@ -57,7 +53,7 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 ## What it does
 
 1. **Extracts** contacts, companies, deals, leads, activities, pipelines, and associations from HubSpot's CRM API
-2. **Loads** raw data into ClickHouse bronze tables (incremental, deduplicated)
+2. **Loads** raw data into ClickHouse bronze tables (full list-endpoint loads, deduplicated)
 3. **Transforms** into typed silver dimensions, facts, and bridge tables (config-driven)
 4. **Aggregates** into gold tables for rep performance, deal health, source attribution, and pipeline snapshots
 5. **Anonymizes** silver/gold into `silver_anon`/`gold_anon` databases for safe external sharing (MCP, demos)
@@ -149,7 +145,7 @@ flowchart LR
     HS["<b>HubSpot CRM</b><br/>contacts · companies · deals<br/>leads · calls · notes · …"]
     CH["<b>ClickHouse</b><br/>schema mapped — types + descriptions<br/>data real or anonymised"]
     AI["<b>AI analytics</b><br/>chat · dashboards · MCP<br/>privacy enforced"]
-    HS -->|"incremental ELT"| CH
+    HS -->|"hourly ELT"| CH
     CH -->|"text → SQL · MCP"| AI
 
     classDef store fill:#722ed1,stroke:#531dab,color:#fff;
