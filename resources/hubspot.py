@@ -56,9 +56,19 @@ def _persist_region_from_token(token: str) -> None:
 
 
 class HubSpotResource(ConfigurableResource):
-    access_token: str
+    # Optional: empty when running offline against seeded demo data. Every API
+    # method routes through _headers(), which fails loudly with a pointer to the
+    # seed loader rather than firing an unauthenticated request at HubSpot.
+    access_token: str = ""
 
     def _headers(self) -> dict:
+        if not self.access_token:
+            raise RuntimeError(
+                "HUBSPOT_TOKEN is not set, so bronze API extraction is disabled. "
+                "Load the offline demo warehouse with `python scripts/seed.py` "
+                "(or `make seed`), or set HUBSPOT_TOKEN in .env to extract from a "
+                "live HubSpot portal."
+            )
         _persist_region_from_token(self.access_token)
         return {"Authorization": f"Bearer {self.access_token}"}
 

@@ -121,8 +121,12 @@ defs = Definitions(
         trigger_anon_after_gold,
     ],
     resources={
+        # HUBSPOT_TOKEN is optional: without it, bronze API extraction is
+        # disabled (HubSpotResource raises an actionable error if invoked) and
+        # the warehouse is expected to be loaded offline via `python scripts/seed.py`.
+        # Silver/gold/anon and the FastAPI app start cleanly either way.
         "hubspot": HubSpotResource(
-            access_token=os.environ["HUBSPOT_TOKEN"],
+            access_token=os.environ.get("HUBSPOT_TOKEN", ""),
         ),
         "ch": ClickHouseResource(
             host=os.environ["CLICKHOUSE_HOST"],
