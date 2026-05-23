@@ -114,9 +114,11 @@ Got a HubSpot portal? Add `HUBSPOT_TOKEN=...` to load your own data instead of t
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| Frontend | http://localhost:8193 | Chat, dashboards, data explorer (the one URL you open) |
+| Frontend | http://localhost:8193 | Chat, dashboards, data explorer (the one URL you open — loopback only) |
 | Dagster | http://localhost:8194 | Pipeline orchestration (loopback only) |
 | ClickHouse | http://localhost:8124 | Data warehouse (loopback only) |
+
+All ports bind to `127.0.0.1` only — ClickSpot has no auth, and the frontend is the entry point to chat-driven SQL over your CRM data, so it stays on the local host by default. To reach it from another machine (LAN, VPN), make that opt-in yourself: change the frontend's port in `docker-compose.yml` from `"127.0.0.1:8193:80"` to `"0.0.0.0:8193:80"` (or a specific host IP), and put it behind your own auth/reverse proxy.
 
 ### Run from source
 

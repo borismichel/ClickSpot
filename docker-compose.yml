@@ -120,8 +120,13 @@ services:
     environment:
       BACKEND_ORIGIN: http://backend:8192
     ports:
-      # The one URL a user opens.
-      - "8193:80"
+      # The one URL a user opens. Bound to loopback by default: the frontend is
+      # the no-auth entry to chat -> arbitrary ClickHouse SQL (and real CRM data
+      # once HUBSPOT_TOKEN is set), so it must not be reachable from outside the
+      # host — the same loopback stance as clickhouse/dagster above. LAN access
+      # is opt-in: change this to "0.0.0.0:8193:80" (or a specific host IP)
+      # yourself (see the README). Localhost browsing is unaffected.
+      - "127.0.0.1:8193:80"
     depends_on:
       - backend
     restart: unless-stopped

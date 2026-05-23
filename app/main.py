@@ -127,7 +127,11 @@ if _static_dir and _os.path.isdir(_static_dir):
         # file when it exists (guarding against path traversal); otherwise fall
         # back to index.html so deep links resolve in the SPA.
         candidate = _os.path.normpath(_os.path.join(_static_root, full_path))
-        if full_path and candidate.startswith(_static_root) and _os.path.isfile(candidate):
+        # Guard against path traversal: require candidate to be the static root
+        # itself or a path *inside* it. A bare startswith() has no separator
+        # boundary, so a sibling like "<root>-evil" would slip through.
+        within_root = candidate == _static_root or candidate.startswith(_static_root + _os.sep)
+        if full_path and within_root and _os.path.isfile(candidate):
             return FileResponse(candidate)
         return FileResponse(_index_file)
 
