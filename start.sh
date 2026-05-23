@@ -25,35 +25,59 @@ err()  { echo -e "${RED}[start]${NC} $1"; }
 
 # Track background PIDs for cleanup
 PIDS=()
+LOCAL_CLICKHOUSE_STARTED=0
 cleanup() {
   echo
   log "Shutting down..."
   for pid in "${PIDS[@]}"; do
     kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null || true
   done
+  if [ "$LOCAL_CLICKHOUSE_STARTED" = "1" ]; then
+    "$ROOT/scripts/clickhouse-local.sh" stop || true
+  fi
   log "Done."
 }
 trap cleanup EXIT INT TERM
 
-# ---------- 1. ClickHouse (Docker) ----------
-log "Starting ClickHouse..."
-if docker compose ps --status running 2>/dev/null | grep -q clickhouse; then
-  log "ClickHouse already running"
-else
-  docker compose up -d
-  # Wait for ClickHouse to accept connections
-  log "Waiting for ClickHouse..."
-  for i in $(seq 1 30); do
-    if curl -sf "http://localhost:${CLICKHOUSE_PORT:-8124}/ping" >/dev/null 2>&1; then
-      break
+# ---------- 1. ClickHouse ----------
+CLICKHOUSE_MODE="${CLICKSPOT_CLICKHOUSE_MODE:-local}"
+log "Starting ClickHouse (${CLICKHOUSE_MODE})..."
+case "$CLICKHOUSE_MODE" in
+  local)
+    if ! curl -sf "http://${CLICKHOUSE_HOST:-localhost}:${CLICKHOUSE_PORT:-8124}/ping" >/dev/null 2>&1; then
+      LOCAL_CLICKHOUSE_STARTED=1
     fi
-    sleep 1
-  done
-  if ! curl -sf "http://localhost:${CLICKHOUSE_PORT:-8124}/ping" >/dev/null 2>&1; then
-    err "ClickHouse failed to start"; exit 1
+    "$ROOT/scripts/clickhouse-local.sh" start
+    ;;
+  docker)
+    if docker compose ps --status running 2>/dev/null | grep -q clickhouse; then
+      log "ClickHouse already running"
+    else
+      docker compose up -d
+    fi
+    ;;
+  external)
+    log "Using external ClickHouse at ${CLICKHOUSE_HOST:-localhost}:${CLICKHOUSE_PORT:-8124}"
+    ;;
+  *)
+    err "Unknown CLICKSPOT_CLICKHOUSE_MODE=$CLICKHOUSE_MODE (expected local, docker, or external)"
+    exit 1
+    ;;
+esac
+
+# Wait for ClickHouse to accept connections in every mode.
+log "Waiting for ClickHouse..."
+for i in $(seq 1 60); do
+  if curl -sf "http://${CLICKHOUSE_HOST:-localhost}:${CLICKHOUSE_PORT:-8124}/ping" >/dev/null 2>&1; then
+    break
   fi
-  log "ClickHouse ready on port ${CLICKHOUSE_PORT:-8124}"
+  sleep 1
+done
+if ! curl -sf "http://${CLICKHOUSE_HOST:-localhost}:${CLICKHOUSE_PORT:-8124}/ping" >/dev/null 2>&1; then
+  err "ClickHouse is not reachable at ${CLICKHOUSE_HOST:-localhost}:${CLICKHOUSE_PORT:-8124}"
+  exit 1
 fi
+log "ClickHouse ready on port ${CLICKHOUSE_PORT:-8124}"
 
 # ---------- 2. Init schemas (idempotent) ----------
 log "Ensuring ClickHouse schemas..."

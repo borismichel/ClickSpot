@@ -126,8 +126,8 @@ Prefer running without containers? You'll need:
 
 - Python 3.10+
 - Node.js 20.19+
-- Docker (for ClickHouse)
-- A HubSpot private app token with CRM read scopes
+- `curl` and `tar` for the Docker-free ClickHouse bootstrap
+- Optional: a HubSpot private app token with CRM read scopes for live extraction
 
 #### Setup
 
@@ -135,27 +135,14 @@ Prefer running without containers? You'll need:
 # Clone and enter
 cd ClickSpot
 
-# Python environment (Python 3.10+)
-python -m venv .venv
-source .venv/bin/activate
-# Reproducible install from the pinned lockfile (recommended — matches CI):
-pip install -r requirements.lock && pip install -e . --no-deps
-# Or, for an unpinned dev install resolving the latest compatible versions:
-# pip install -e ".[dev]"
-#
-# Regenerate the lockfile after editing pyproject.toml deps (needs `uv`):
-# uv pip compile pyproject.toml --all-extras --python-version 3.10 \
-#   --generate-hashes --output-file requirements.lock
+# One-command bootstrap: Python deps, frontend deps, local ClickHouse binary/config
+./bootstrap.sh
 
-# Environment
-cp .env.example .env
-# Edit .env: set HUBSPOT_TOKEN, optionally ANTHROPIC_API_KEY or OPENAI_API_KEY
-
-# Frontend
-cd frontend && npm install && cd ..
-
-# Start everything
+# Start everything (Docker is not required)
 ./start.sh
+
+# Optional: bootstrap, load the offline demo warehouse, then start
+./bootstrap.sh --seed --start
 
 # (Optional, recommended on first run) walk through portal-specific config:
 python -m app.customer.onboarding
@@ -165,10 +152,23 @@ This starts:
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| ClickHouse | http://localhost:8124 | Data warehouse |
+| ClickHouse | http://localhost:8124 | Data warehouse (`.clickhouse/` local runtime by default) |
 | FastAPI | http://localhost:8192 | Backend API |
 | Dagster | http://localhost:8194 | Pipeline orchestration |
 | Frontend | http://localhost:8193 | Chat, dashboards, data explorer |
+
+Docker remains available for teams that prefer it: set `CLICKSPOT_CLICKHOUSE_MODE=docker`
+in `.env` and `./start.sh` will use `docker-compose.yml`. Set
+`CLICKSPOT_CLICKHOUSE_MODE=external` when ClickHouse is already managed outside
+the repo.
+
+To regenerate the Python lockfile after editing `pyproject.toml` dependencies
+(requires `uv`):
+
+```bash
+uv pip compile pyproject.toml --all-extras --python-version 3.10 \
+  --generate-hashes --output-file requirements.lock
+```
 
 ### First-time portal setup
 
@@ -364,8 +364,15 @@ COMPUTED_METRICS["new_metric"] = {
 ```bash
 source .venv/bin/activate
 
+# Bootstrap or update local dependencies
+./bootstrap.sh
+
 # Run tests
 pytest -v
+
+# Local ClickHouse helpers
+scripts/clickhouse-local.sh start
+scripts/clickhouse-local.sh stop
 
 # Start individual services
 uvicorn app.main:app --port 8192 --reload          # Backend
