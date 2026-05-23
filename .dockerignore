@@ -1,0 +1,32 @@
+# Keep the build context small and reproducible. Note: demo-data/ is NOT
+# ignored — scripts/seed.py needs clickspot-demo-data.csv to load the warehouse.
+.git
+.gitignore
+.github
+
+# Local Python state
+.venv/
+**/__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.dagster/
+.dagster_home/
+
+# Frontend build/runtime — the frontend image builds its own dist from source
+frontend/node_modules/
+frontend/dist/
+
+# Local runtime / secrets — never bake these into an image
+.env
+.clickspot/
+.clickhouse/
+
+# Docs assets are large and unused at runtime
+docs/
+*.md
+!README.md
+
+# README render scratch (visual-truth gate; not for images)
+.readme-render/
+.render-*.cjs

@@ -25,6 +25,22 @@
   <a href="https://youtu.be/fJtDndTOIpA"><strong>▶&nbsp; Watch the demo</strong></a>
 </p>
 
+## Try it in 60 seconds
+
+Preloaded demo image with a synthetic CRM baked in. No token, no setup.
+
+```bash
+docker run --rm -p 8080:8080 ghcr.io/borismichel/clickspot:demo
+```
+
+Open <http://localhost:8080> and start clicking. Chat turns on the moment you add an Anthropic or OpenAI key:
+
+```bash
+docker run --rm -p 8080:8080 -e ANTHROPIC_API_KEY=sk-... ghcr.io/borismichel/clickspot:demo
+```
+
+---
+
 ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a bronze/silver/gold medallion architecture in ClickHouse, and serves it through a chat interface where natural-language questions are converted to ClickHouse SQL by an LLM.
 
 **Who it's for:** RevOps, sales-ops, and data teams who live in HubSpot and want a queryable warehouse plus a natural-language layer over their CRM — without standing up the pipeline themselves.
@@ -49,6 +65,7 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 
 ## Contents
 
+- [Try it in 60 seconds](#try-it-in-60-seconds)
 - [What it does](#what-it-does)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -79,14 +96,40 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 
 ## Quick start
 
-### Prerequisites
+### Run with Docker (recommended)
+
+Brings up the whole stack (ClickHouse, backend, Dagster, frontend) and loads the demo warehouse on first boot:
+
+```bash
+docker compose up
+```
+
+Open <http://localhost:8193>. Clicking works right away. For chat, set a key first:
+
+```bash
+ANTHROPIC_API_KEY=sk-... docker compose up   # or OPENAI_API_KEY=sk-...
+```
+
+Got a HubSpot portal? Add `HUBSPOT_TOKEN=...` to load your own data instead of the demo set. Released images pull from GHCR (public, no login) with `docker compose pull`.
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Frontend | http://localhost:8193 | Chat, dashboards, data explorer (the one URL you open — loopback only) |
+| Dagster | http://localhost:8194 | Pipeline orchestration (loopback only) |
+| ClickHouse | http://localhost:8124 | Data warehouse (loopback only) |
+
+All ports bind to `127.0.0.1` only — ClickSpot has no auth, and the frontend is the entry point to chat-driven SQL over your CRM data, so it stays on the local host by default. To reach it from another machine (LAN, VPN), make that opt-in yourself: change the frontend's port in `docker-compose.yml` from `"127.0.0.1:8193:80"` to `"0.0.0.0:8193:80"` (or a specific host IP), and put it behind your own auth/reverse proxy.
+
+### Run from source
+
+Prefer running without containers? You'll need:
 
 - Python 3.10+
 - Node.js 20.19+
 - Docker (for ClickHouse)
 - A HubSpot private app token with CRM read scopes
 
-### Setup
+#### Setup
 
 ```bash
 # Clone and enter

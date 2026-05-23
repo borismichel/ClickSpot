@@ -1,27 +1,47 @@
+# ClickSpot — full local stack. `docker compose up` from a fresh clone brings up
+# ClickHouse, the FastAPI backend, Dagster, and the frontend on localhost, then
+# loads the bundled synthetic warehouse once via the offline seed loader.
+#
+# Zero required knobs: every value below has a working default. Optional:
+#   ANTHROPIC_API_KEY / OPENAI_API_KEY  -> enables chat (clicking works without)
+#   HUBSPOT_TOKEN                       -> live extraction instead of demo data
+# Released images can be pulled instead of built: `docker compose pull`.
+
+x-app-env: &app-env
+  CLICKHOUSE_HOST: clickhouse
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_USER: hs2ch
+  CLICKHOUSE_PASSWORD: hs2ch
+  # Optional — passed through from the host environment if set, blank otherwise.
+  HUBSPOT_TOKEN: ${HUBSPOT_TOKEN:-}
+  HUBSPOT_HUB_ID: ${HUBSPOT_HUB_ID:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:26.2.5.45
-    container_name: hs2ch-clickhouse
-    ports:
-      # Bound to 127.0.0.1 — ClickSpot is self-hosted; ClickHouse must not be
-      # reachable from outside the host. Override only if you intentionally
-      # expose it on a private network.
-      - "127.0.0.1:8124:8123"   # HTTP — offset from Langfuse's 8123
-      - "127.0.0.1:9001:9000"   # Native — offset from Langfuse's 9000
+    container_name: clickspot-clickhouse
     environment:
       CLICKHOUSE_USER: hs2ch
       CLICKHOUSE_PASSWORD: hs2ch
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
       CLICKHOUSE_DB: bronze
+    ports:
+      # Loopback only — ClickHouse is internal to the compose network. The host
+      # bind is for debugging from the host; the app talks to it as
+      # `clickhouse:8123` over the compose network regardless.
+      - "127.0.0.1:8124:8123"   # HTTP
+      - "127.0.0.1:9001:9000"   # Native
+    volumes:
+      - clickspot_ch_data:/var/lib/clickhouse
+      - clickspot_ch_logs:/var/log/clickhouse-server
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/hs2ch.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/hs2ch-profile.xml:ro
     deploy:
       resources:
         limits:
           memory: 6g
-    volumes:
-      - hs2ch_ch_data:/var/lib/clickhouse
-      - hs2ch_ch_logs:/var/log/clickhouse-server
-      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/hs2ch.xml:ro
-      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/hs2ch-profile.xml:ro
     ulimits:
       nofile:
         soft: 262144
@@ -35,6 +55,84 @@ services:
     stop_grace_period: 60s
     restart: unless-stopped
 
+  # One-shot: loads the demo warehouse (bronze -> silver -> gold -> anon) from
+  # demo-data/clickspot-demo-data.csv, then exits. Idempotent (ReplacingMergeTree
+  # keyed on record id), so re-running `up` is safe.
+  seed:
+    image: ghcr.io/borismichel/clickspot-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      <<: *app-env
+    command: ["python", "scripts/seed.py"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    image: ghcr.io/borismichel/clickspot-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clickspot-backend
+    environment:
+      <<: *app-env
+    volumes:
+      # Persist LLM key config, the SQLite app store, and discovered customer.json.
+      - clickspot_config:/home/app/.clickspot
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8192/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  dagster:
+    image: ghcr.io/borismichel/clickspot-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clickspot-dagster
+    environment:
+      <<: *app-env
+    command: ["dagster", "dev", "-h", "0.0.0.0", "-p", "8194"]
+    volumes:
+      - clickspot_dagster_home:/home/app/dagster_home
+    ports:
+      - "127.0.0.1:8194:8194"   # Dagster UI (optional, loopback only)
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/borismichel/clickspot-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: clickspot-frontend
+    environment:
+      BACKEND_ORIGIN: http://backend:8192
+    ports:
+      # The one URL a user opens. Bound to loopback by default: the frontend is
+      # the no-auth entry to chat -> arbitrary ClickHouse SQL (and real CRM data
+      # once HUBSPOT_TOKEN is set), so it must not be reachable from outside the
+      # host — the same loopback stance as clickhouse/dagster above. LAN access
+      # is opt-in: change this to "0.0.0.0:8193:80" (or a specific host IP)
+      # yourself (see the README). Localhost browsing is unaffected.
+      - "127.0.0.1:8193:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
-  hs2ch_ch_data:
-  hs2ch_ch_logs:
+  clickspot_ch_data:
+  clickspot_ch_logs:
+  clickspot_config:
+  clickspot_dagster_home:

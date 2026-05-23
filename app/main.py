@@ -104,3 +104,35 @@ app.include_router(spaces_router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Optional: serve the built frontend from FastAPI itself.
+# When CLICKSPOT_STATIC_DIR points at a Vite `dist/`, the SPA is served on the
+# same origin as the API. This is what the all-in-one preloaded demo image uses
+# (it has no nginx). The compose stack leaves it unset — nginx serves the
+# frontend there — so /docs and the OpenAPI routes keep their normal behaviour.
+# ---------------------------------------------------------------------------
+_static_dir = _os.environ.get("CLICKSPOT_STATIC_DIR")
+if _static_dir and _os.path.isdir(_static_dir):
+    from fastapi.responses import FileResponse
+
+    _static_root = _os.path.abspath(_static_dir)
+    _index_file = _os.path.join(_static_root, "index.html")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        # The API routers and /health are registered above and match first, so
+        # this only sees asset requests and client-side routes. Serve the real
+        # file when it exists (guarding against path traversal); otherwise fall
+        # back to index.html so deep links resolve in the SPA.
+        candidate = _os.path.normpath(_os.path.join(_static_root, full_path))
+        # Guard against path traversal: require candidate to be the static root
+        # itself or a path *inside* it. A bare startswith() has no separator
+        # boundary, so a sibling like "<root>-evil" would slip through.
+        within_root = candidate == _static_root or candidate.startswith(_static_root + _os.sep)
+        if full_path and within_root and _os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(_index_file)
+
+    log.info("Serving static frontend from %s", _static_root)

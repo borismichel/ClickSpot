@@ -1,0 +1,76 @@
+# ClickSpot preloaded demo image (ghcr.io/borismichel/clickspot:demo).
+#
+# One container, one command, instant data: `docker run -p 8080:8080 …:demo`,
+# open http://localhost:8080, and click around immediately — the synthetic
+# warehouse is baked in (no token, no seeding at runtime). Chat turns on the
+# moment an ANTHROPIC_API_KEY / OPENAI_API_KEY is provided; clicking never needs
+# one.
+#
+# Built on the official ClickHouse image so the ClickHouse binary, its runtime
+# libraries, and an apt Python 3.10 (Ubuntu 22.04 -> matches requirements.lock)
+# are all native — no cross-distro glibc or wheel-ABI surprises.
+
+# ---- build the SPA ----------------------------------------------------------
+FROM node:20-alpine AS frontend
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# ---- assemble: ClickHouse + Python backend + baked warehouse ----------------
+FROM clickhouse/clickhouse-server:26.2.5.45
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip build-essential curl tini \
+    && rm -rf /var/lib/apt/lists/* \
+    # requirements.lock is pinned for Python 3.10; fail loudly if the base image
+    # ever ships a different interpreter rather than producing a broken image.
+    && python3 -c "import sys; assert sys.version_info[:2] == (3, 10), 'expected Python 3.10, got %s' % sys.version"
+
+# Python deps into an isolated venv (same hashed lockfile as the app image).
+RUN python3 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+WORKDIR /app
+COPY requirements.lock ./
+RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.lock
+
+# Application code + built frontend.
+COPY . /app
+COPY --from=frontend /fe/dist /app/frontend/dist
+
+# ClickHouse config: reuse the repo's tuning + profile, relocate the data path
+# off the VOLUME, and define the hs2ch user.
+COPY clickhouse/config.xml          /etc/clickhouse-server/config.d/hs2ch.xml
+COPY clickhouse/users.xml           /etc/clickhouse-server/users.d/hs2ch-profile.xml
+COPY docker/demo/clickspot-path.xml /etc/clickhouse-server/config.d/clickspot-path.xml
+COPY docker/demo/users-demo.xml     /etc/clickhouse-server/users.d/hs2ch-user.xml
+COPY docker/demo/build-seed.sh      /usr/local/bin/clickspot-build-seed.sh
+COPY docker/demo/entrypoint.sh      /usr/local/bin/clickspot-entrypoint.sh
+RUN chmod +x /usr/local/bin/clickspot-build-seed.sh /usr/local/bin/clickspot-entrypoint.sh
+
+ENV HOME=/app \
+    DAGSTER_HOME=/app/dagster_home \
+    CLICKHOUSE_HOST=localhost \
+    CLICKHOUSE_PORT=8123 \
+    CLICKHOUSE_USER=hs2ch \
+    CLICKHOUSE_PASSWORD=hs2ch \
+    HUBSPOT_TOKEN="" \
+    CLICKSPOT_STATIC_DIR=/app/frontend/dist \
+    PORT=8080
+RUN mkdir -p /app/.clickspot /app/dagster_home
+
+# Bake the materialised warehouse into the image.
+RUN bash /usr/local/bin/clickspot-build-seed.sh
+
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=5 \
+    CMD curl -fsS http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["tini", "--", "/usr/local/bin/clickspot-entrypoint.sh"]
