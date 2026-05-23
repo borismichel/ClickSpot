@@ -392,7 +392,7 @@ All services run locally via `start.sh`:
 
 | Service | Port | Process |
 |---------|------|---------|
-| ClickHouse | 8124 (HTTP), 9001 (native) | Docker container |
+| ClickHouse | 8124 (HTTP), 9001 (native) | Local `.clickhouse/` runtime by default; Docker optional |
 | FastAPI | 8192 | Uvicorn (Python) |
 | Dagster | 8194 | Dagster webserver + daemon |
 | Frontend | 8193 | Vite dev server (Node.js) |
@@ -400,7 +400,7 @@ All services run locally via `start.sh`:
 ### Production (Single Server)
 
 ```bash
-# ClickHouse: Docker or native install
+# ClickHouse: local managed runtime, Docker, or native install
 # Backend: gunicorn + uvicorn workers
 # Frontend: vite build -> serve static from FastAPI
 # Dagster: dagster-daemon + dagster-webserver (systemd)

@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .dagster/
 .dagster_home/
+.clickhouse/
 *.egg-info/
 .DS_Store
 .tmp_dagster_home_*/
