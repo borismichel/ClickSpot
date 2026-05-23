@@ -287,7 +287,7 @@ SVG diagram (900x440 viewBox) showing the query flow:
 | `KPICards.tsx` | KPI tiles row used in space overview and dashboards |
 | `PeriodSelector.tsx` | Date period picker (today, week, month, quarter, custom) |
 | `PipelineSelector.tsx` | Pipeline picker |
-| `SelectionBreadcrumbs.tsx` | Breadcrumb-style display of the current associative selection |
+| `SelectionBreadcrumbs.tsx` | Breadcrumb-style display of the current selection |
 | `ConversationSidebar.tsx` | Sidebar with chat history (used in `App.tsx`) |
 
 ---
@@ -352,10 +352,10 @@ const {
 Each conversation stores `{id, title, messages, createdAt, updatedAt}`. Messages include full response data (SQL, results, viz type, context KPIs) so conversations are fully restorable.
 
 ### `useAnalyticsQuery()`
-Wraps `POST /api/v1/query` (the associative analytics endpoint) with TanStack Query for caching, deduplication, and loading state. Used wherever the frontend needs reachable counts, field values, measures, or grouped measures.
+Wraps `POST /api/v1/query` (the analytics query endpoint) with TanStack Query for caching, deduplication, and loading state. Used wherever the frontend needs reachable counts, field values, measures, or grouped measures.
 
 ### `useSelectionState()`
-Holds the current `{table.column: [values]}` selection state for the associative engine, with helpers to add/remove/clear selections and serialize them for `useAnalyticsQuery`.
+Holds the current `{table.column: [values]}` selection state for the analytics query engine, with helpers to add/remove/clear selections and serialize them for `useAnalyticsQuery`.
 
 ### `useDataSpaces()`
 CRUD over `/api/v1/spaces` plus discovery helpers (`/entities`, `/dimensions/{grain}`, `/dicts`, `/test-filter`, `/preview`). Returns the saved spaces list and mutators used by the designer and list pages.
@@ -437,7 +437,7 @@ interface Dashboard {
 
 ### API Types (`types/api.ts`)
 
-Types for the associative analytics engine: `QueryRequest`, `QueryResponse`, `SchemaResponse`, `FieldValueItem`, `MeasureRequest`, `GroupedMeasureRow`, `TimeSeriesPoint`, etc.
+Types for the analytics query engine: `QueryRequest`, `QueryResponse`, `SchemaResponse`, `FieldValueItem`, `MeasureRequest`, `GroupedMeasureRow`, `TimeSeriesPoint`, etc.
 
 ---
 
