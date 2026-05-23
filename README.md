@@ -96,6 +96,12 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 
 ## Quick start
 
+Three ways in, all live. Docker is the primary path; running from source needs no containers at all.
+
+1. **[Preloaded demo](#try-it-in-60-seconds)** — `ghcr.io/borismichel/clickspot:demo`, a synthetic warehouse baked in. Zero setup, no token, instant click (add an LLM key to chat).
+2. **[Self-host with Docker](#run-with-docker-recommended)** — `docker compose up` brings up the full stack and seeds the demo warehouse on first boot; add `HUBSPOT_TOKEN` to load your own data.
+3. **[Run from source](#run-from-source)** — Docker-free `./bootstrap.sh` with a pinned single-binary ClickHouse.
+
 ### Run with Docker (recommended)
 
 Brings up the whole stack (ClickHouse, backend, Dagster, frontend) and loads the demo warehouse on first boot:
@@ -138,13 +144,17 @@ cd ClickSpot
 # One-command bootstrap: Python deps, frontend deps, local ClickHouse binary/config
 ./bootstrap.sh
 
+# Load the offline demo warehouse — no HubSpot token, no portal needed
+# (CSV → bronze → silver → gold → anon). Needs ClickHouse running; start.sh handles that.
+make seed
+
 # Start everything (Docker is not required)
 ./start.sh
 
-# Optional: bootstrap, load the offline demo warehouse, then start
+# Shortcut for the three steps above: bootstrap, seed the demo warehouse, then start
 ./bootstrap.sh --seed --start
 
-# (Optional, recommended on first run) walk through portal-specific config:
+# (Optional, only when loading your own portal) walk through portal-specific config:
 python -m app.customer.onboarding
 ```
 
@@ -172,9 +182,11 @@ uv pip compile pyproject.toml --all-extras --python-version 3.10 \
 
 ### First-time portal setup
 
-ClickSpot ships with no portal-specific assumptions. On first run, three things tune it to your HubSpot account:
+This section applies only when you're loading your **own** HubSpot data. Running on the bundled demo seed (`make seed`, or the preloaded `:demo` image)? Skip it — there's no portal to connect.
 
-1. **`HUBSPOT_TOKEN` + `HUBSPOT_HUB_ID`** in `.env` — required for bronze extraction and HubSpot record URLs.
+ClickSpot ships with no portal-specific assumptions. To point it at a live HubSpot account, three things tune it to your portal:
+
+1. **`HUBSPOT_TOKEN` + `HUBSPOT_HUB_ID`** in `.env` — required only for live HubSpot extraction; they also build the canonical record URLs the frontend and MCP link back to.
 2. **`~/.clickspot/customer.json`** — your portal's pipeline names, stages, currency, company name. Auto-discovered from silver tables on the first successful run, then editable. Override via the onboarding wizard (`python -m app.customer.onboarding`) or by hand.
 3. **`silver_config_custom.py`** (optional, gitignored) — for non-standard HubSpot properties on your portal (e.g. ARR-specific deal amounts, custom dropdowns). Copy `silver_config_custom.py.example` and add tuples for the properties you want in silver. The onboarding wizard can also auto-suggest these by scanning `/crm/v3/properties/{deals,contacts}`.
 
@@ -291,8 +303,8 @@ Select a value in any table and all connected tables filter automatically throug
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `HUBSPOT_TOKEN` | Yes | HubSpot private app token |
-| `HUBSPOT_HUB_ID` | Yes | HubSpot portal/hub ID — used to build canonical record URLs for the frontend and MCP responses |
+| `HUBSPOT_TOKEN` | No | HubSpot private app token. Optional — required only for live HubSpot extraction. Omit to use the offline demo seed (`make seed`). |
+| `HUBSPOT_HUB_ID` | No | HubSpot portal/hub ID — builds canonical record URLs for the frontend and MCP responses. Only needed alongside `HUBSPOT_TOKEN` for live extraction. |
 | `HUBSPOT_REGION` | No | Region code (`na1`, `eu1`, `na2`, …) for click-through URL subdomain. Auto-detected from `HUBSPOT_TOKEN` on first bronze call and cached in `~/.clickspot/customer.json`; only set explicitly when running MCP without the token. |
 | `CLICKHOUSE_HOST` | Yes | ClickHouse hostname (default: `localhost`) |
 | `CLICKHOUSE_PORT` | Yes | ClickHouse HTTP port (default: `8124`) |
