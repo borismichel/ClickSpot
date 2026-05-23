@@ -347,7 +347,7 @@ Configure in the Settings drawer or `~/.clickspot/config.json`:
 | Anthropic API | Set `ANTHROPIC_API_KEY` | Best quality. Prompt caching for fast responses. |
 | OpenAI API | Set `OPENAI_API_KEY` | Good fallback. |
 | Claude OAuth | Paste token in Settings | For Claude Pro/Max subscribers. Auto-refreshes. |
-| Claude CLI | Install `claude` CLI | Zero-config for developers. |
+| Claude CLI | Install `claude` CLI | Zero-config for developers running from source. Not available inside the Docker images — use an API key or Claude OAuth there. |
 
 ### Adding data
 

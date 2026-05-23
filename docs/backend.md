@@ -232,7 +232,7 @@ Four LLM providers with automatic fallback:
 | **Anthropic API** | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` or config file | Primary. Prompt caching via `cache_control`. |
 | **OpenAI API** | `gpt-4o` | `OPENAI_API_KEY` or config file | Fallback. JSON schema response format. |
 | **Claude OAuth** | Claude (via OAuth) | `~/.clickspot/claude-oauth.json` | For Claude Pro/Max subscribers. Auto-refresh. |
-| **Claude CLI** | Claude (via CLI) | `claude` binary in PATH | Zero-config local development. |
+| **Claude CLI** | Claude (via CLI) | `claude` binary in PATH | Zero-config local development. Source/native-only — not bundled in the Docker images; containers use an API key or Claude OAuth. |
 
 **Auto-detection order:** Anthropic API > OpenAI > Claude OAuth > Claude CLI. Uses the first available provider.
 
