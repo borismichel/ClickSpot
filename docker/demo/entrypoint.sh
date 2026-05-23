@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Runtime entrypoint for the all-in-one preloaded demo image. Starts ClickHouse
+# (reading the baked warehouse) and the FastAPI backend (serving the built
+# frontend) on a single published port. No seeding happens here — the data is
+# already in the image.
+set -euo pipefail
+
+DATA=/var/lib/clickspot-ch
+PORT="${PORT:-8080}"
+
+# The data layer is baked read/written by uid 101; keep ownership sane in case
+# the image runs under a remapped user.
+chown -R clickhouse:clickhouse "$DATA" /var/log/clickhouse-server 2>/dev/null || true
+
+setpriv --reuid=clickhouse --regid=clickhouse --init-groups \
+    clickhouse-server --config-file=/etc/clickhouse-server/config.xml &
+CH_PID=$!
+
+shutdown() { kill -TERM "$CH_PID" "${APP_PID:-}" 2>/dev/null || true; }
+trap shutdown TERM INT
+
+echo "[clickspot] waiting for ClickHouse..."
+for _ in $(seq 1 60); do
+    if curl -sf http://localhost:8123/ping >/dev/null 2>&1; then break; fi
+    sleep 1
+done
+
+cd /app
+echo "[clickspot] starting ClickSpot on http://localhost:${PORT}"
+echo "[clickspot] clicking works with no key; set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable chat."
+/opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" &
+APP_PID=$!
+
+# Exit (and tear everything down) as soon as either process dies.
+wait -n
+shutdown
+wait 2>/dev/null || true
