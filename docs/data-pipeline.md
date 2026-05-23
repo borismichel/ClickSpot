@@ -1,11 +1,12 @@
 # Data Pipeline
 
-> ClickSpot runs an hourly ELT pipeline orchestrated by **Dagster**, extracting data from HubSpot's CRM APIs and loading it through a three-layer medallion architecture in ClickHouse.
+> ClickSpot loads a three-layer medallion warehouse in ClickHouse. Bronze is populated from **either** of two sources: the hourly ELT pipeline orchestrated by **Dagster** that extracts live HubSpot CRM data, or the **offline seed loader** (`make seed`) that loads a bundled synthetic warehouse with no HubSpot portal and no token. Silver, gold, and anon are built the same way regardless of source.
 
 ---
 
 ## Contents
 
+- [Ingestion Sources](#ingestion-sources)
 - [Medallion Architecture](#medallion-architecture)
 - [Bronze Layer](#bronze-layer)
 - [Silver Layer](#silver-layer)
@@ -35,6 +36,19 @@ flowchart LR
 | **Silver** | Clean, typed dimensions, facts, and bridges. No business logic. | `ReplacingMergeTree(_silver_loaded_at)` | Atomic swap via `EXCHANGE TABLES` (build into staging, swap in place) |
 | **Gold** | Pre-computed aggregates for analytics. | `ReplacingMergeTree(_gold_loaded_at)` | Full rebuild |
 | **Anon** | PII-masked mirror of silver + gold for safe external sharing (MCP, demos). | `ReplacingMergeTree` | Rebuilt after gold via the `trigger_anon_after_gold` sensor |
+
+---
+
+## Ingestion Sources
+
+Bronze is the only layer with an external input, and there are two ways to populate it. Everything downstream — silver, gold, anon — is identical regardless of which one you use.
+
+| Source | How | Needs HubSpot? | When to use |
+|--------|-----|----------------|-------------|
+| **Live HubSpot extraction** | The Dagster `bronze_job` calls HubSpot's CRM APIs (see [Bronze Layer](#bronze-layer)). | Yes — `HUBSPOT_TOKEN` + `HUBSPOT_HUB_ID`. | Loading a real portal's data, refreshed hourly. |
+| **Offline seed loader** | `make seed` (or `python scripts/seed.py`) maps the bundled `demo-data/clickspot-demo-data.csv` into bronze, then runs silver → gold → anon. | No — no token, no portal. | Demos, screenshots, local testing, and CI. The default for the preloaded `:demo` image and `docker compose up`. |
+
+The seed loader writes the same bronze shape the live extractor produces (`properties Map(String, String)` + `_raw` JSON) and mints deterministic synthetic owner/pipeline/stage/object IDs so `dictGet()` label resolution works end-to-end. It's idempotent — re-running replaces rather than duplicates, because bronze tables are `ReplacingMergeTree` keyed on `_record_id`. Use `make seed-bronze` (or `--bronze-only`) to load just the bronze layer. See [`demo-data/README.md`](../demo-data/README.md) for the dataset shape.
 
 ---
 

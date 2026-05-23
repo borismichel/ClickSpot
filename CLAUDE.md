@@ -21,13 +21,15 @@ Start backend: `uvicorn app.main:app --port 8192 --reload` → http://localhost:
 
 Start frontend: `cd frontend && npm run dev` → http://localhost:8193
 
-ClickHouse init (run once): `python scripts/init_clickhouse.py`
+Docker-free local setup (default): `./bootstrap.sh` (Python + frontend deps + a pinned single-binary ClickHouse under `.clickhouse/`), then `./start.sh`. `start.sh` defaults to `CLICKSPOT_CLICKHOUSE_MODE=local` and manages the local ClickHouse via `scripts/clickhouse-local.sh`.
 
-ClickHouse local dev: `docker compose up -d` (port 8124, pinned to `clickhouse/clickhouse-server:26.2.5.45`). Server config + user profile mount into the container from `clickhouse/config.xml` (`index_granularity=4096`) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`).
+ClickHouse init (run once): `python scripts/init_clickhouse.py` (both `bootstrap.sh --seed` and `start.sh` run this for you).
+
+ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`): `local` (default — Docker-free single binary on port 8124), `docker` (`docker compose up -d`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
 
 ## Env Vars
 
-Copy `.env.example` → `.env`. Required: `HUBSPOT_TOKEN`, `HUBSPOT_HUB_ID` (used to build canonical HubSpot record URLs in result tables and MCP responses), `CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`. Optional: `CLICKHOUSE_PORT` (project default 8124; `app/db.py` falls back to 8123 if unset). Optional: `HUBSPOT_REGION` (region code like `eu1`, `na2` — auto-detected from `HUBSPOT_TOKEN` on the first bronze API call and cached in `~/.clickspot/customer.json::hubspot_region`; only set explicitly when running MCP without the token).
+Copy `.env.example` → `.env`; every value ships with a working default. **`HUBSPOT_TOKEN` and `HUBSPOT_HUB_ID` are optional** — needed only for live HubSpot extraction (and the canonical HubSpot record URLs in result tables and MCP responses). Omit them and load the bundled synthetic warehouse with the offline seed loader: `make seed` (or `python scripts/seed.py`), which populates bronze→silver→gold→anon from `demo-data/clickspot-demo-data.csv` with no portal and no token. The ClickHouse connection vars (`CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`) come pre-filled in `.env.example`; `CLICKHOUSE_PORT` defaults to 8124 (`app/db.py` falls back to 8123 if unset). `HUBSPOT_REGION` (region code like `eu1`, `na2`) auto-detects from `HUBSPOT_TOKEN` on the first bronze API call and caches in `~/.clickspot/customer.json::hubspot_region`; only set it explicitly when running MCP without the token.
 
 ## Architecture
 

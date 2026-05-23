@@ -80,6 +80,8 @@ flowchart TD
 
 Each layer is a separate ClickHouse database (`bronze`, `silver`, `gold`). Tables use `ReplacingMergeTree` for deduplication.
 
+Bronze has two interchangeable sources: this live HubSpot extraction, or the **offline seed loader** (`make seed`) that loads the bundled synthetic warehouse from CSV with no portal and no token — the default for the preloaded `:demo` image and `docker compose up`. Silver, gold, and anon build identically either way. See [Data Pipeline → Ingestion Sources](data-pipeline.md#ingestion-sources).
+
 ### 2. Chat Query (Interactive)
 
 ```mermaid

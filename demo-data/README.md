@@ -17,10 +17,15 @@ Synthetic CRM data for demos, screenshots, and local testing. **No real people, 
 `scripts/seed.py` loads this CSV **directly into ClickHouse** with no HubSpot portal and no token. It maps the flat columns into bronze (`properties` Map + `_raw` JSON, just like the live extractor), mints coherent synthetic owner/pipeline/stage/object IDs so `dictGet` label resolution works, then materializes silver → gold → anon:
 
 ```bash
+# Easiest, no Docker — bootstrap, start local ClickHouse, init schemas, seed:
+./bootstrap.sh --seed
+
+# Or, when ClickHouse is already running (local binary or Docker):
 source .venv/bin/activate
-docker compose up -d            # ClickHouse on :8124 (one-time)
-make seed                       # or: python scripts/seed.py
+make seed                       # = python scripts/seed.py
 ```
+
+With Docker, `docker compose up` runs this loader automatically as a one-shot `seed` service on first boot — no command needed.
 
 The loader is idempotent (synthetic IDs are deterministic; bronze tables are `ReplacingMergeTree`), so re-running replaces rather than duplicates. Use `make seed-bronze` (or `--bronze-only`) to load just the bronze layer.
 
