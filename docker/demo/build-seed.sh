@@ -23,6 +23,14 @@ for _ in $(seq 1 60); do
 done
 curl -sf http://localhost:8123/ping >/dev/null
 
+# The compose stack gets the `bronze` database for free from the ClickHouse
+# container's CLICKHOUSE_DB env. Here we start clickhouse-server directly, so
+# create it ourselves before seeding — seed.py opens its client against the
+# bronze database before run_init() would create it.
+echo "[build-seed] ensuring 'bronze' database exists..."
+curl -sf "http://localhost:8123/?user=${CLICKHOUSE_USER:-hs2ch}&password=${CLICKHOUSE_PASSWORD:-hs2ch}" \
+    --data-binary 'CREATE DATABASE IF NOT EXISTS bronze' >/dev/null
+
 echo "[build-seed] loading demo warehouse (this runs the CLI-6 seed pipeline)..."
 cd /app
 /opt/venv/bin/python scripts/seed.py
