@@ -141,18 +141,15 @@ Prefer running without containers? You'll need:
 # Clone and enter
 cd ClickSpot
 
-# One-command bootstrap: Python deps, frontend deps, local ClickHouse binary/config
-./bootstrap.sh
-
-# Load the offline demo warehouse — no HubSpot token, no portal needed
-# (CSV → bronze → silver → gold → anon). Needs ClickHouse running; start.sh handles that.
-make seed
-
-# Start everything (Docker is not required)
-./start.sh
-
-# Shortcut for the three steps above: bootstrap, seed the demo warehouse, then start
+# Fastest path — one command: bootstrap deps, start ClickHouse, init schemas,
+# load the offline demo warehouse (CSV → bronze → silver → gold → anon), then start the app.
 ./bootstrap.sh --seed --start
+
+# Prefer it step by step? Run these in order — `make seed` needs ClickHouse already running:
+./bootstrap.sh      # install Python + frontend deps and the local ClickHouse binary (does not start it)
+make clickhouse     # start the Docker-free local ClickHouse runtime
+make seed           # load the offline demo warehouse — no token, no portal (self-inits the schema)
+./start.sh          # bring up the app; reuses the already-running ClickHouse
 
 # (Optional, only when loading your own portal) walk through portal-specific config:
 python -m app.customer.onboarding
