@@ -83,7 +83,7 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 
 ### Chat Interface
 
-- **LLM providers** (`app/llm/`): Anthropic API, OpenAI API, Claude OAuth, Claude CLI (auto-detection)
+- **LLM providers** (`app/llm/`): Anthropic API, OpenAI API, Claude OAuth, Claude CLI (auto-detection). Claude CLI is source/native-only — the Docker images don't bundle the `claude` binary, so containers use an API key or Claude OAuth.
 - **Schema prompt** (`app/llm/schema_prompt.py`): Generated from `app/config.py` + `silver_config.py` DICT_CONFIGS + semantic layer. Enforces relative date expressions (`today()`, `toStartOfMonth()`) so saved queries stay current.
 - **SQL validator** (`app/llm/sql_validator.py`): Whitelist tables, block mutations, inject LIMIT
 - **Semantic layer** (`app/semantic/layer.py`): HubSpot property labels/descriptions cached to `~/.clickspot/schema_cache.json`
