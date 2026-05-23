@@ -1,0 +1,8 @@
+<clickhouse>
+    <!-- Move ClickHouse's data + metadata store off /var/lib/clickhouse, which
+         the base image declares as a VOLUME. Anything written to a VOLUME during
+         `docker build` is discarded from the final image, so the preloaded demo
+         warehouse must live on a normal (non-volume) path to survive into the
+         image layer. -->
+    <path>/var/lib/clickspot-ch/</path>
+</clickhouse>

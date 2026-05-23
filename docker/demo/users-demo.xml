@@ -1,0 +1,17 @@
+<clickhouse>
+    <!-- The demo image talks to ClickHouse only over loopback inside the
+         container (the native/HTTP ports are never published), so a plaintext
+         password is acceptable here. This mirrors the hs2ch/hs2ch credentials
+         the compose stack creates from CLICKHOUSE_USER/CLICKHOUSE_PASSWORD. -->
+    <users>
+        <hs2ch>
+            <password>hs2ch</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </hs2ch>
+    </users>
+</clickhouse>
