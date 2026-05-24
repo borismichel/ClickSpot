@@ -24,8 +24,10 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { useDashboards } from "../hooks/useDashboards";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import { useSpaceChat } from "../hooks/useSpaceChat";
+import { useOnboardingSeen } from "../hooks/useOnboardingSeen";
 import { DashboardCard } from "../components/dashboard/DashboardCard";
 import { AddObjectDrawer } from "../components/dashboard/AddObjectDrawer";
+import { OnboardingChecklistPanel } from "../components/dashboard/OnboardingChecklistPanel";
 import { UnifiedFilterBar } from "../components/filters/UnifiedFilterBar";
 import type { FilterValueOption, UnifiedFilterColumn } from "../components/filters/UnifiedFilterBar";
 import { SpaceDashboardCard } from "../components/spaces/SpaceDashboardCard";
@@ -135,6 +137,9 @@ export default function DashboardPage() {
     pipeline: {},
   });
   const appliedUrlFilters = useRef<string | null>(null);
+
+  // First-run onboarding: surface the checklist once until dismissed (CLI-59).
+  const { seen: onboardingSeen, dismiss: dismissOnboarding } = useOnboardingSeen();
 
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
 
@@ -756,6 +761,9 @@ export default function DashboardPage() {
       />
 
       <Content style={{ padding: 16, background: token.colorBgLayout, overflowX: "hidden" }}>
+        {/* First-run onboarding checklist (CLI-59) — shown once, dismiss persists */}
+        {!onboardingSeen && <OnboardingChecklistPanel onDismiss={dismissOnboarding} />}
+
         {/* Filter bars */}
         {!isSpace && activeLibDash && activeLibDash.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
