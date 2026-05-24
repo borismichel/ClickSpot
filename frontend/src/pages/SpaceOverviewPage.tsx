@@ -8,6 +8,7 @@ import {
   Spin,
   Empty,
   Alert,
+  theme,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -32,6 +33,7 @@ const { Header, Content } = Layout;
 
 
 export default function SpaceOverviewPage() {
+  const { token } = theme.useToken();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -156,7 +158,7 @@ export default function SpaceOverviewPage() {
       >
         <Space>
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/spaces")} />
-          <DatabaseOutlined style={{ color: "#1677ff" }} />
+          <DatabaseOutlined style={{ color: token.colorPrimary }} />
           <Typography.Title level={5} style={{ margin: 0 }}>
             {stats.name}
           </Typography.Title>

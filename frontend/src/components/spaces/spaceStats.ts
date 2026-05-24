@@ -4,6 +4,7 @@
  * the React Flow nodes, the preview bar, and the node detail panel can all
  * import from one place.
  */
+import { chartPalette } from "../../theme/chartPalette";
 
 export interface StatsColumn {
   name: string;
@@ -62,7 +63,7 @@ export type DimNodeData = {
 };
 
 export const STRATEGY_COLORS: Record<string, string> = {
-  one_to_one: "#1677ff",
+  one_to_one: chartPalette[0],
   any: "#13c2c2",
   latest: "#722ed1",
   aggregate: "#fa8c16",

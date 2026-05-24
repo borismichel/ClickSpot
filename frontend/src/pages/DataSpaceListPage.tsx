@@ -10,18 +10,9 @@ import {
 import { useNavigate } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useDataSpaces } from "../hooks/useDataSpaces";
+import { STRATEGY_TAG_COLORS } from "../theme/tagColors";
 
 const { Header, Content } = Layout;
-
-const STRATEGY_COLORS: Record<string, string> = {
-  one_to_one: "blue",
-  any: "cyan",
-  latest: "purple",
-  aggregate: "orange",
-  fan_out: "red",
-  fk: "default",
-  dict: "green",
-};
 
 export default function DataSpaceListPage() {
   usePageTitle("Data Spaces");
@@ -119,7 +110,7 @@ export default function DataSpaceListPage() {
                     {s.dimensions.map((d, i) => (
                       <Tag
                         key={i}
-                        color={STRATEGY_COLORS[d.join_type === "fk" ? "fk" : (d as unknown as Record<string, unknown>).strategy as string] ?? "default"}
+                        color={STRATEGY_TAG_COLORS[d.join_type === "fk" ? "fk" : (d as unknown as Record<string, unknown>).strategy as string] ?? "default"}
                       >
                         {d.entity}
                         {d.join_type === "bridge" && ` (${(d as unknown as Record<string, unknown>).strategy})`}

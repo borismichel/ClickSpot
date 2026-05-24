@@ -1,4 +1,4 @@
-import { Typography, Alert, Tag, Space } from "antd";
+import { Typography, Alert, Tag, Space, theme } from "antd";
 import { UserOutlined, RobotOutlined, ClockCircleOutlined, DatabaseOutlined, TableOutlined } from "@ant-design/icons";
 import type { ChatMessage as ChatMsg } from "../../types/chat";
 import type { VizType } from "../../types/dashboard";
@@ -20,6 +20,7 @@ function formatMs(ms: number): string {
 
 export function ChatMessage({ message, onSaveToRepo }: Props) {
   const isUser = message.role === "user";
+  const { token } = theme.useToken();
 
   return (
     <div
@@ -35,12 +36,12 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
           width: 32,
           height: 32,
           borderRadius: 16,
-          background: isUser ? "#e6f4ff" : "#f6ffed",
+          background: isUser ? token.colorPrimaryBg : token.colorSuccessBg,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           flexShrink: 0,
-          color: isUser ? "#1677ff" : "#52c41a",
+          color: isUser ? token.colorPrimary : token.colorSuccess,
         }}
       >
         {isUser ? <UserOutlined /> : <RobotOutlined />}

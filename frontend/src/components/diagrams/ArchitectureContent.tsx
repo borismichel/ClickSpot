@@ -1,4 +1,4 @@
-import { Typography, Tag, Divider } from "antd";
+import { Typography, Tag, Divider, theme } from "antd";
 import {
   CloudOutlined,
   DatabaseOutlined,
@@ -49,6 +49,7 @@ const statBox: CSSProperties = {
 };
 
 export function ArchitectureContent() {
+  const { token } = theme.useToken();
   return (
     <>
         <Paragraph type="secondary" style={{ marginBottom: 24 }}>
@@ -148,7 +149,7 @@ export function ArchitectureContent() {
         >
           <div style={{ padding: "12px 16px 4px", borderBottom: "1px solid #f0f0f0" }}>
             <Title level={5} style={{ margin: 0 }}>
-              <DatabaseOutlined style={{ color: "#1677ff", marginRight: 8 }} />
+              <DatabaseOutlined style={{ color: token.colorPrimary, marginRight: 8 }} />
               ClickHouse — Medallion Architecture
             </Title>
           </div>
@@ -377,7 +378,7 @@ export function ArchitectureContent() {
           </Paragraph>
           <div style={statGrid}>
             <div style={statBox}>
-              <FunctionOutlined style={{ color: "#1677ff", fontSize: 16 }} />
+              <FunctionOutlined style={{ color: token.colorPrimary, fontSize: 16 }} />
               <div style={{ fontSize: 11, fontWeight: 500, marginTop: 4 }}>
                 app/config.py
               </div>

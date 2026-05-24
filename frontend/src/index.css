@@ -1,4 +1,8 @@
+/* Base neutrals mirror the antd tokens in src/theme/tokens.ts
+   (pageBg #edebe9, ink #0e1015). antd Layout surfaces sit on top of this. */
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #edebe9;
+  color: #0e1015;
 }

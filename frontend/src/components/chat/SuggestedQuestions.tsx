@@ -1,4 +1,4 @@
-import { Card, Typography } from "antd";
+import { Card, Typography, theme } from "antd";
 import {
   FundOutlined,
   TeamOutlined,
@@ -22,6 +22,7 @@ interface Props {
 }
 
 export function SuggestedQuestions({ onSelect }: Props) {
+  const { token } = theme.useToken();
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 16px" }}>
       <Typography.Title level={3} style={{ textAlign: "center", marginBottom: 4 }}>
@@ -40,7 +41,7 @@ export function SuggestedQuestions({ onSelect }: Props) {
             style={{ cursor: "pointer" }}
           >
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-              <span style={{ color: "#1677ff", fontSize: 16, marginTop: 2 }}>{s.icon}</span>
+              <span style={{ color: token.colorPrimary, fontSize: 16, marginTop: 2 }}>{s.icon}</span>
               <Typography.Text style={{ fontSize: 13 }}>{s.text}</Typography.Text>
             </div>
           </Card>

@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
+import { chartPalette } from "../../theme/chartPalette";
 
 interface TimeSeriesDatum {
   period: string;
@@ -26,7 +27,7 @@ export function TimeSeriesChart({
   data,
   title,
   loading = false,
-  color = "#1677ff",
+  color = chartPalette[0],
   valuePrefix = "",
 }: TimeSeriesChartProps) {
   return (

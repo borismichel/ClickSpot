@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   ZAxis,
 } from "recharts";
+import { chartPalette } from "../../theme/chartPalette";
 
 interface ScatterDatum {
   x: number;
@@ -31,7 +32,7 @@ export function ScatterPlot({
   loading = false,
   xLabel = "X",
   yLabel = "Y",
-  color = "#1677ff",
+  color = chartPalette[0],
 }: ScatterPlotProps) {
   return (
     <Card title={title} size="small">

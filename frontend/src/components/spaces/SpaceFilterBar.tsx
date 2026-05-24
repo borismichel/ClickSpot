@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Button, Select, DatePicker, Space, Tag, Typography, Popover, InputNumber } from "antd";
+import { Button, Select, DatePicker, Space, Tag, Typography, Popover, InputNumber, theme } from "antd";
 import { FilterOutlined, ClearOutlined, PlusOutlined, PushpinOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { SpaceColumnMeta, SpaceFilter } from "../../types/dashboard";
@@ -122,6 +122,7 @@ function FilterEditor({
 }
 
 export function SpaceFilterBar({ spaceId, columns, filters, pinnedColumns, onChange, onPinnedChange }: Props) {
+  const { token } = theme.useToken();
   const [addingFilter, setAddingFilter] = useState(false);
 
   const hasFilters = filters.some((f) => f.values.length > 0);
@@ -221,7 +222,7 @@ export function SpaceFilterBar({ spaceId, columns, filters, pinnedColumns, onCha
                   <Button
                     type="text"
                     size="small"
-                    icon={<PushpinOutlined style={{ color: pinnedColumns.includes(c.name) ? "#1890ff" : "#ccc" }} />}
+                    icon={<PushpinOutlined style={{ color: pinnedColumns.includes(c.name) ? token.colorPrimary : "#ccc" }} />}
                     onClick={(e) => { e.stopPropagation(); togglePin(c.name); }}
                   />
                 </div>

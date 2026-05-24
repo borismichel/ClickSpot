@@ -9,17 +9,7 @@ import {
   LabelList,
   ResponsiveContainer,
 } from "recharts";
-
-const DEFAULT_COLORS = [
-  "#1677ff",
-  "#36cfc9",
-  "#597ef7",
-  "#73d13d",
-  "#ffc53d",
-  "#ff7a45",
-  "#f759ab",
-  "#9254de",
-];
+import { chartPalette as DEFAULT_COLORS } from "../../theme/chartPalette";
 
 interface MetricBarDatum {
   label: string;

@@ -3,13 +3,14 @@
  * Shows columns + join metadata for the selected grain/dimension node.
  */
 
-import { Typography, Tag, Table, Descriptions, Card, Space } from "antd";
+import { Typography, Tag, Table, Descriptions, Card, Space, theme } from "antd";
 import { formatCount, STRATEGY_COLORS, type StatsNode } from "./spaceStats";
 
 
 function NodeDetail({ node }: { node: StatsNode }) {
+  const { token } = theme.useToken();
   const isGrain = node.kind === "grain";
-  const color = isGrain ? "#1677ff" : STRATEGY_COLORS[node.strategy ?? ""] ?? "#595959";
+  const color = isGrain ? token.colorPrimary : STRATEGY_COLORS[node.strategy ?? ""] ?? "#595959";
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>

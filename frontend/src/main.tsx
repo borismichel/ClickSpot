@@ -1,6 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ConfigProvider } from "antd";
+import { theme } from "./theme/tokens";
 import App from "./App";
 import ArchitecturePage from "./pages/ArchitecturePage";
 import DataExplorerPage from "./pages/DataExplorerPage";
@@ -14,8 +16,9 @@ import SettingsPage from "./pages/SettingsPage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <Routes>
+    <ConfigProvider theme={theme}>
+      <BrowserRouter>
+        <Routes>
         <Route path="/" element={<App />} />
         <Route path="/architecture" element={<ArchitecturePage />} />
         <Route path="/data" element={<DataExplorerPage />} />
@@ -27,7 +30,8 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/spaces/:id/edit" element={<DataSpaceDesignerPage />} />
         <Route path="/spaces/:id" element={<SpaceOverviewPage />} />
         <Route path="/settings" element={<SettingsPage />} />
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </ConfigProvider>
   </StrictMode>
 );

@@ -6,16 +6,9 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import type { SavedObject } from "../types/dashboard";
 import { VizRouter } from "../components/viz/VizRouter";
+import { VIZ_TAG_COLORS } from "../theme/tagColors";
 
 const { Header, Content } = Layout;
-
-const VIZ_COLORS: Record<string, string> = {
-  number: "blue",
-  table: "default",
-  bar: "green",
-  line: "purple",
-  funnel: "orange",
-};
 
 export default function ObjectLibraryPage() {
   usePageTitle("Library");
@@ -104,7 +97,7 @@ export default function ObjectLibraryPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div>
                     {obj.title}{" "}
-                    <Tag color={VIZ_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
+                    <Tag color={VIZ_TAG_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
                   </div>
                   <div>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>

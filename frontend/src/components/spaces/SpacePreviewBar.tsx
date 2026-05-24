@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { Button, Spin, Typography, Tag, Table, Alert, Space } from "antd";
+import { Button, Spin, Typography, Tag, Table, Alert, Space, theme } from "antd";
 import { DownOutlined, UpOutlined } from "@ant-design/icons";
 
 import { api } from "../../lib/apiClient";
@@ -35,6 +35,7 @@ function PreviewBar({
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }) {
+  const { token } = theme.useToken();
   const [result, setResult] = useState<SqlResult | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -58,7 +59,7 @@ function PreviewBar({
       .finally(() => setLoading(false));
   }, [sql, collapsed]);
 
-  const modeColor = isViewMode ? "#1677ff" : "#8c8c8c";
+  const modeColor = isViewMode ? token.colorPrimary : "#8c8c8c";
   const modeLabel = isViewMode ? "Composed View" : "Source Table";
 
   return (
@@ -70,7 +71,7 @@ function PreviewBar({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          background: isViewMode ? "#e6f4ff" : "#fafafa",
+          background: isViewMode ? token.colorPrimaryBg : "#fafafa",
           borderLeft: isViewMode ? `3px solid ${modeColor}` : "3px solid transparent",
           flexShrink: 0,
           height: 36,
