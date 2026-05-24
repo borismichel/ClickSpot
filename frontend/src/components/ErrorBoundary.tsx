@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <Result
           status="error"
           title="Something went wrong on this page"
-          subTitle={this.state.error.message || "An unexpected error occurred while rendering."}
+          subTitle="We couldn't load this page. Reloading usually fixes it — if it keeps happening, the data source may be unavailable."
           extra={
             <Button type="primary" onClick={() => window.location.reload()}>
               Reload page
