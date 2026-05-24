@@ -75,8 +75,9 @@ function NodeDetail({ node }: { node: StatsNode }) {
               title: "Name",
               dataIndex: "name",
               key: "name",
+              ellipsis: { showTitle: false },
               render: (v: string) => (
-                <Typography.Text code style={{ fontSize: 11 }}>
+                <Typography.Text code ellipsis={{ tooltip: v }} style={{ display: "block", fontSize: 11 }}>
                   {v}
                 </Typography.Text>
               ),
