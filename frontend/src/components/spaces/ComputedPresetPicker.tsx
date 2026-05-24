@@ -217,7 +217,13 @@ export function ComputedPresetPicker({ entity, grainColumns, value, onChange }: 
                   borderRadius: radius.control,
                 }}
               >
-                <Typography.Text strong>{entry.alias || "(unnamed)"}</Typography.Text>
+                <Typography.Text
+                  strong
+                  ellipsis={{ tooltip: entry.alias || "(unnamed)" }}
+                  style={{ minWidth: 0 }}
+                >
+                  {entry.alias || "(unnamed)"}
+                </Typography.Text>
                 <Tag color="processing">{PRESET_NAME[entry.preset.kind]}</Tag>
                 <Typography.Text
                   type="secondary"
