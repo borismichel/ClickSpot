@@ -8,6 +8,8 @@ import {
   Empty,
   Alert,
   Popover,
+  Tooltip,
+  Grid,
   message,
   theme,
 } from "antd";
@@ -40,6 +42,8 @@ const { Header, Content } = Layout;
 
 export default function SpaceOverviewPage() {
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const showLabels = screens.md !== false; // labels on ≥md, icons-only on mobile
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -210,51 +214,70 @@ export default function SpaceOverviewPage() {
           justifyContent: "space-between",
         }}
       >
-        <Space>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, minWidth: 0, flex: 1 }}>
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/spaces")} />
-          <DatabaseOutlined style={{ color: token.colorPrimary }} />
-          <Typography.Title level={5} style={{ margin: 0 }}>
+          <DatabaseOutlined style={{ color: token.colorPrimary, flexShrink: 0 }} />
+          <Typography.Title level={5} ellipsis={{ tooltip: stats.name }} style={{ margin: 0, minWidth: 0 }}>
             {stats.name}
           </Typography.Title>
-          <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
-            {formatCount(stats.view_row_count)} rows
-          </Typography.Text>
-          <Popover
-            placement="bottomLeft"
-            title="Technical details"
-            content={
-              <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
-                Physical view: <Typography.Text code>{stats.view_name}</Typography.Text>
-              </Typography.Text>
-            }
-          >
-            <Button type="text" size="small" style={{ color: token.colorTextTertiary }}>
-              Technical details
-            </Button>
-          </Popover>
-        </Space>
+          {showLabels && (
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: token.fontSizeSM, whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              {formatCount(stats.view_row_count)} rows
+            </Typography.Text>
+          )}
+          {showLabels && (
+            <Popover
+              placement="bottomLeft"
+              title="Technical details"
+              content={
+                <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+                  Physical view: <Typography.Text code>{stats.view_name}</Typography.Text>
+                </Typography.Text>
+              }
+            >
+              <Button
+                type="text"
+                size="small"
+                style={{ color: token.colorTextTertiary, flexShrink: 0 }}
+              >
+                Technical details
+              </Button>
+            </Popover>
+          )}
+        </div>
 
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchStats}>
-            Refresh
-          </Button>
-          <Button icon={<EditOutlined />} onClick={() => navigate(`/spaces/${id}/edit`)}>
-            Edit
-          </Button>
-          <Button
-            icon={<MessageOutlined />}
-            type={chatOpen ? "primary" : "default"}
-            onClick={() => setChatOpen((o) => !o)}
-          >
-            Ask
-          </Button>
-          <Button
-            type="primary"
-            icon={<LineChartOutlined />}
-            onClick={() => navigate(`/spaces/${id}/dashboard`)}
-          >
-            Analyze
-          </Button>
+        <Space style={{ flexShrink: 0 }}>
+          <Tooltip title={showLabels ? undefined : "Refresh"}>
+            <Button icon={<ReloadOutlined />} onClick={fetchStats}>
+              {showLabels && "Refresh"}
+            </Button>
+          </Tooltip>
+          <Tooltip title={showLabels ? undefined : "Edit"}>
+            <Button icon={<EditOutlined />} onClick={() => navigate(`/spaces/${id}/edit`)}>
+              {showLabels && "Edit"}
+            </Button>
+          </Tooltip>
+          <Tooltip title={showLabels ? undefined : "Ask"}>
+            <Button
+              icon={<MessageOutlined />}
+              type={chatOpen ? "primary" : "default"}
+              onClick={() => setChatOpen((o) => !o)}
+            >
+              {showLabels && "Ask"}
+            </Button>
+          </Tooltip>
+          <Tooltip title={showLabels ? undefined : "Analyze"}>
+            <Button
+              type="primary"
+              icon={<LineChartOutlined />}
+              onClick={() => navigate(`/spaces/${id}/dashboard`)}
+            >
+              {showLabels && "Analyze"}
+            </Button>
+          </Tooltip>
         </Space>
       </Header>
 
