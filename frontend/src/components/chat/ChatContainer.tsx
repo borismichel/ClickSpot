@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import { Spin } from "antd";
 import type { ChatMessage as ChatMsg } from "../../types/chat";
 import type { VizType } from "../../types/dashboard";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { SuggestedQuestions } from "./SuggestedQuestions";
+import { GeneratingIndicator } from "./GeneratingIndicator";
 
 interface Props {
   messages: ChatMsg[];
@@ -30,12 +30,7 @@ export function ChatContainer({ messages, isLoading, onSend, onSaveToRepo }: Pro
             {messages.map((msg) => (
               <ChatMessage key={msg.id} message={msg} onSaveToRepo={onSaveToRepo} />
             ))}
-            {isLoading && (
-              <div style={{ padding: "16px 0", display: "flex", gap: 12, alignItems: "center" }}>
-                <Spin size="small" />
-                <span style={{ color: "#8c8c8c" }}>Generating SQL...</span>
-              </div>
-            )}
+            {isLoading && <GeneratingIndicator />}
             <div ref={bottomRef} />
           </div>
         )}

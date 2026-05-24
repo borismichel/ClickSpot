@@ -1,4 +1,4 @@
-import { Typography, Alert, Tag, Space, theme } from "antd";
+import { Typography, Alert, Tag, Space, Popover, Button, theme } from "antd";
 import { UserOutlined, RobotOutlined, ClockCircleOutlined, DatabaseOutlined, TableOutlined } from "@ant-design/icons";
 import type { ChatMessage as ChatMsg } from "../../types/chat";
 import type { VizType } from "../../types/dashboard";
@@ -56,19 +56,41 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
             </Typography.Paragraph>
 
             {message.llmMs != null && (
-              <Space size={4} style={{ marginBottom: 8 }}>
-                <Tag icon={<ClockCircleOutlined />} color="blue">
-                  LLM {formatMs(message.llmMs)}
-                </Tag>
-                <Tag icon={<DatabaseOutlined />} color="green">
-                  Query {formatMs(message.queryMs ?? 0)}
-                </Tag>
-                <Tag icon={<TableOutlined />}>
+              <Space size={4} style={{ marginBottom: 8 }} align="center">
+                <Tag icon={<TableOutlined />} style={{ marginInlineEnd: 0 }}>
                   {message.rowCount} {message.rowCount === 1 ? "row" : "rows"}
                 </Tag>
-                <Tag>
-                  Total {formatMs((message.llmMs ?? 0) + (message.queryMs ?? 0))}
-                </Tag>
+                {/* Raw latency is demoted behind a details popover — visible on
+                    demand, not shouting "13.2s" at every answer (CLI-42). */}
+                <Popover
+                  trigger={["hover", "click"]}
+                  placement="bottomLeft"
+                  content={
+                    <div style={{ display: "grid", gridTemplateColumns: "auto auto", columnGap: 16, rowGap: 4, fontSize: 12, minWidth: 150 }}>
+                      <span style={{ color: token.colorTextSecondary }}>
+                        <ClockCircleOutlined style={{ marginRight: 6 }} />LLM
+                      </span>
+                      <span style={{ textAlign: "right" }}>{formatMs(message.llmMs)}</span>
+                      <span style={{ color: token.colorTextSecondary }}>
+                        <DatabaseOutlined style={{ marginRight: 6 }} />Query
+                      </span>
+                      <span style={{ textAlign: "right" }}>{formatMs(message.queryMs ?? 0)}</span>
+                      <span style={{ color: token.colorTextSecondary, fontWeight: 600 }}>Total</span>
+                      <span style={{ textAlign: "right", fontWeight: 600 }}>
+                        {formatMs((message.llmMs ?? 0) + (message.queryMs ?? 0))}
+                      </span>
+                    </div>
+                  }
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ClockCircleOutlined />}
+                    style={{ color: token.colorTextTertiary, fontSize: 12, height: 22, paddingInline: 6 }}
+                  >
+                    Details
+                  </Button>
+                </Popover>
               </Space>
             )}
 
