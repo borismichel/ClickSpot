@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { Layout, Tabs, Button, Alert, Space, Checkbox, message } from "antd";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
+import { useSearchParams } from "react-router-dom";
+import { ReloadOutlined } from "@ant-design/icons";
+import { AppHeader } from "../components/AppHeader";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { OnboardingTab } from "../components/settings/OnboardingTab";
 import { ExtractionTab } from "../components/settings/ExtractionTab";
@@ -12,11 +13,10 @@ import { ArchitectureTab } from "../components/settings/ArchitectureTab";
 import { useCustomerConfig } from "../hooks/useCustomerConfig";
 import { api } from "../lib/apiClient";
 
-const { Header, Content } = Layout;
+const { Content } = Layout;
 
 export default function SettingsPage() {
   usePageTitle("Settings");
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "onboarding";
   const { config } = useCustomerConfig();
@@ -65,26 +65,9 @@ export default function SettingsPage() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Space>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")}>
-            Back
-          </Button>
-          <div style={{ fontWeight: 600, fontSize: 16 }}>Settings</div>
-        </Space>
-        {headerSummary && (
-          <div style={{ color: "#8c8c8c", fontSize: 13 }}>{headerSummary}</div>
-        )}
-      </Header>
+      <AppHeader
+        actions={headerSummary ? <span style={{ color: "#8c8c8c", fontSize: 13 }}>{headerSummary}</span> : undefined}
+      />
       <Content style={{ padding: "24px 32px", background: "#fafafa" }}>
         {pendingReload && (
           <Alert

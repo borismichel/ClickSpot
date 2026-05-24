@@ -45,6 +45,34 @@ router = APIRouter(prefix="/api/v1")
 log = logging.getLogger("app.chat")
 
 
+def compute_kpi_delta(value, prev_value) -> tuple[float | None, str | None]:
+    """Period-over-period delta for a context KPI.
+
+    Returns ``(delta_percent, delta_label)`` — at most one is ever non-None:
+
+    - a signed percentage change when the previous value is a usable, non-zero
+      number;
+    - the label ``"New"`` when the baseline is zero but the current value is not
+      (a percentage change against a zero baseline is undefined — the old code
+      reported a meaningless ``+100% vs 0``; see CLI-42).
+
+    Both are None when either value is missing / non-numeric, or when nothing
+    changed from a zero baseline.
+    """
+    if value is None or prev_value is None:
+        return None, None
+    try:
+        cur = float(value)
+        prev = float(prev_value)
+    except (ValueError, TypeError):
+        return None, None
+    if prev != 0:
+        return round((cur - prev) / abs(prev) * 100, 1), None
+    if cur != 0:
+        return None, "New"
+    return None, None
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     # 1. Get LLM provider
@@ -104,6 +132,7 @@ async def chat(req: ChatRequest):
             # Execute previous period SQL if provided
             prev_val = None
             delta_pct = None
+            delta_label = None
             if kpi.previous_sql:
                 prev_sql = kpi.previous_sql.strip().rstrip(";")
                 is_valid_prev, _ = validate_sql(prev_sql)
@@ -116,17 +145,9 @@ async def chat(req: ChatRequest):
                     except Exception as e:
                         log.warning(f"Previous KPI failed ({kpi.label}): {e}")
 
-                # Compute delta percent
-                if val is not None and prev_val is not None:
-                    try:
-                        cur = float(val)
-                        prev = float(prev_val)
-                        if prev != 0:
-                            delta_pct = round((cur - prev) / abs(prev) * 100, 1)
-                        elif cur != 0:
-                            delta_pct = 100.0
-                    except (ValueError, TypeError):
-                        pass
+                # Period-over-period delta — a label (not a bogus %) when the
+                # baseline is zero (CLI-42).
+                delta_pct, delta_label = compute_kpi_delta(val, prev_val)
 
             context_results.append(ContextKPIResult(
                 label=kpi.label,
@@ -135,6 +156,7 @@ async def chat(req: ChatRequest):
                 previous_sql=kpi.previous_sql.strip().rstrip(";") if kpi.previous_sql else None,
                 previous_value=prev_val,
                 delta_percent=delta_pct,
+                delta_label=delta_label,
             ))
         except Exception as e:
             log.warning(f"Context KPI failed ({kpi.label}): {e}")

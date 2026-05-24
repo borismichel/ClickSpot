@@ -26,6 +26,9 @@ export interface ContextKPI {
   previous_sql?: string | null;
   previous_value?: string | number | null;
   delta_percent?: number | null;
+  // Non-numeric delta label (e.g. "New") when a percentage is undefined —
+  // notably a zero baseline. Mutually exclusive with delta_percent (CLI-42).
+  delta_label?: string | null;
 }
 
 export interface ChatResponse {

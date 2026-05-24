@@ -1,23 +1,25 @@
 import { useEffect } from "react";
-import { Layout, Button, Space } from "antd";
-import { SettingOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined, ClusterOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { Layout } from "antd";
+import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
 import { useObjectRepo } from "./hooks/useObjectRepo";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { ConversationSidebar } from "./components/ConversationSidebar";
+import { AppHeader } from "./components/AppHeader";
 
-const { Header, Sider, Content } = Layout;
+const { Sider, Content } = Layout;
 
 export default function App() {
   usePageTitle("Chat");
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { messages, isLoading, sendMessage, newChat, loadMessages } = useChat();
   const {
     conversations,
     activeId,
+    search,
+    setSearch,
     saveConversation,
     loadConversation,
     startNew,
@@ -32,7 +34,26 @@ export default function App() {
     }
   }, [messages, isLoading, saveConversation]);
 
+  useEffect(() => {
+    const conversationId = searchParams.get("conversation");
+    if (!conversationId || conversationId === activeId) return;
+    const loadedMessages = loadConversation(conversationId);
+    if (loadedMessages.length > 0) {
+      loadMessages(loadedMessages);
+    }
+    setSearchParams({}, { replace: true });
+  }, [activeId, loadConversation, loadMessages, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const activeConversation = conversations.find((conversation) => conversation.id === activeId);
+    if (activeConversation?.messages.length) {
+      loadMessages(activeConversation.messages);
+    }
+  }, [activeId, conversations, loadMessages]);
+
   const handleNewChat = () => {
+    setSearch(""); // clear any active filter so the fresh chat is visible
     startNew();
     newChat();
   };
@@ -48,57 +69,7 @@ export default function App() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: 16 }}>
-          ClickSpot
-        </div>
-        <Space>
-          <Button
-            type="text"
-            icon={<AppstoreOutlined />}
-            onClick={() => navigate("/library")}
-          >
-            Library
-          </Button>
-          <Button
-            type="text"
-            icon={<DashboardOutlined />}
-            onClick={() => navigate("/dashboard")}
-          >
-            Dashboard
-          </Button>
-          <Button
-            type="text"
-            icon={<ClusterOutlined />}
-            onClick={() => navigate("/spaces")}
-          >
-            Spaces
-          </Button>
-          <Button
-            type="text"
-            icon={<DatabaseOutlined />}
-            onClick={() => navigate("/data")}
-          >
-            Data
-          </Button>
-          <Button
-            type="text"
-            icon={<SettingOutlined />}
-            onClick={() => navigate("/settings")}
-          >
-            Settings
-          </Button>
-        </Space>
-      </Header>
+      <AppHeader />
 
       <Layout>
         <Sider
@@ -112,6 +83,8 @@ export default function App() {
           <ConversationSidebar
             conversations={conversations}
             activeId={activeId}
+            search={search}
+            onSearchChange={setSearch}
             onSelect={handleSelectConversation}
             onNew={handleNewChat}
             onDelete={deleteConversation}

@@ -21,6 +21,8 @@ Start backend: `uvicorn app.main:app --port 8192 --reload` → http://localhost:
 
 Start frontend: `cd frontend && npm run dev` → http://localhost:8193
 
+Visual QA / screenshots: this is a shared host — **always launch headless Chrome through `qa-render`** (`qa-render node my-qa.cjs`). It forces scratch onto `/dev/shm` (never the often-full `/`) and caps concurrent renders. See `docs/qa-render-runbook.md`; (re)install with `./scripts/qa-render/install.sh`.
+
 Docker-free local setup (default): `./bootstrap.sh` (Python + frontend deps + a pinned single-binary ClickHouse under `.clickhouse/`), then `./start.sh`. `start.sh` defaults to `CLICKSPOT_CLICKHOUSE_MODE=local` and manages the local ClickHouse via `scripts/clickhouse-local.sh`.
 
 ClickHouse init (run once): `python scripts/init_clickhouse.py` (both `bootstrap.sh --seed` and `start.sh` run this for you).

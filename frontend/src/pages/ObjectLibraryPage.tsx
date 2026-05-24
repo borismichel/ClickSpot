@@ -1,19 +1,22 @@
-import { useState } from "react";
-import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, EyeOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space, Input } from "antd";
+import { DeleteOutlined, EyeOutlined, SearchOutlined } from "@ant-design/icons";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import type { SavedObject } from "../types/dashboard";
 import { VizRouter } from "../components/viz/VizRouter";
 import { VIZ_TAG_COLORS } from "../theme/tagColors";
+import { AppHeader } from "../components/AppHeader";
 
-const { Header, Content } = Layout;
+const { Content } = Layout;
 
 export default function ObjectLibraryPage() {
   usePageTitle("Library");
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { objects, removeObject } = useObjectRepo();
+  const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<{
     object: SavedObject;
     results: Record<string, unknown>[];
@@ -42,30 +45,30 @@ export default function ObjectLibraryPage() {
     setPreviewLoading(false);
   };
 
+  useEffect(() => {
+    const objectId = searchParams.get("object");
+    if (!objectId || objects.length === 0) return;
+    const obj = objects.find((candidate) => candidate.id === objectId);
+    if (obj) {
+      void handlePreview(obj);
+      setSearchParams({}, { replace: true });
+    }
+  }, [objects, searchParams, setSearchParams]);
+
+  const filteredObjects = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return objects;
+    return objects.filter((obj) =>
+      [obj.title, obj.viz, obj.sql, new Date(obj.savedAt).toLocaleDateString()]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(needle),
+    );
+  }, [objects, query]);
+
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Space>
-          <Button
-            type="text"
-            icon={<ArrowLeftOutlined />}
-            onClick={() => navigate("/")}
-          />
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Object Library
-          </Typography.Title>
-        </Space>
-        <Tag>{objects.length} objects</Tag>
-      </Header>
+      <AppHeader actions={<Tag>{objects.length} objects</Tag>} />
 
       <Content style={{ padding: 24, background: "#fafafa", maxWidth: 900, margin: "0 auto", width: "100%" }}>
         {objects.length === 0 ? (
@@ -81,7 +84,20 @@ export default function ObjectLibraryPage() {
           </div>
         ) : (
           <div>
-            {objects.map((obj) => (
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="Search saved objects by title, SQL, or visualization"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              style={{ marginBottom: 16 }}
+            />
+
+            {filteredObjects.length === 0 ? (
+              <div style={{ textAlign: "center", paddingTop: 72 }}>
+                <Empty description="No saved objects match your search" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              </div>
+            ) : filteredObjects.map((obj) => (
               <div
                 key={obj.id}
                 style={{
