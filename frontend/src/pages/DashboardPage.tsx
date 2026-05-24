@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, theme } from "antd";
+import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, Tooltip, message, theme } from "antd";
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -9,6 +9,7 @@ import {
   MessageOutlined,
   DatabaseOutlined,
   AppstoreOutlined,
+  ShareAltOutlined,
 } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
@@ -16,6 +17,7 @@ import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useDashboards } from "../hooks/useDashboards";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import { useSpaceChat } from "../hooks/useSpaceChat";
@@ -86,6 +88,7 @@ function hasSpaceFilters(filters: SpaceFilter[]) {
 export default function DashboardPage() {
   const { token } = theme.useToken();
   usePageTitle("Dashboard");
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
   const {
@@ -305,6 +308,32 @@ export default function DashboardPage() {
     next.delete("filters");
     setSearchParams(next, { replace: true });
   };
+
+  // Copy a shareable link to the current dashboard + filter view. The active
+  // dashboard and filters are already mirrored into the URL (see
+  // writeFiltersToUrl / handleSelectChange), so the live href is the share link.
+  const handleShare = useCallback(async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // Fallback for non-secure contexts where the async Clipboard API is unavailable.
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      message.success("Link copied — opens this dashboard with the same filters");
+    } catch {
+      message.error("Couldn't copy the link. Copy it from your browser's address bar.");
+    }
+  }, []);
 
   // Title for display
   const activeTitle = activeLibDash?.title ?? activeSpaceDash?.title ?? "Dashboard";
@@ -645,7 +674,7 @@ export default function DashboardPage() {
             <Select
               value={activeSelectValue}
               onChange={handleSelectChange}
-              style={{ width: 260 }}
+              style={{ width: isMobile ? 140 : 260 }}
               placeholder="Select dashboard"
               options={selectorOptions}
               popupRender={(menu) => (
@@ -669,22 +698,36 @@ export default function DashboardPage() {
               </Popconfirm>
             )}
             {isSpace && (
-              <Button
-                icon={<MessageOutlined />}
-                type={chatOpen ? "primary" : "default"}
-                onClick={() => setChatOpen(!chatOpen)}
-              >
-                Chat
-              </Button>
+              <Tooltip title={isMobile ? "Chat" : ""}>
+                <Button
+                  icon={<MessageOutlined />}
+                  type={chatOpen ? "primary" : "default"}
+                  onClick={() => setChatOpen(!chatOpen)}
+                  aria-label="Chat"
+                >
+                  {!isMobile && "Chat"}
+                </Button>
+              </Tooltip>
             )}
             {!isSpace && active && (
-              <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
-                Add
-              </Button>
+              <Tooltip title={isMobile ? "Add objects" : ""}>
+                <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)} aria-label="Add objects">
+                  {!isMobile && "Add"}
+                </Button>
+              </Tooltip>
             )}
-            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
-              Refresh
-            </Button>
+            <Tooltip title={isMobile ? "Refresh" : ""}>
+              <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)} aria-label="Refresh">
+                {!isMobile && "Refresh"}
+              </Button>
+            </Tooltip>
+            {active && (
+              <Tooltip title="Copy a link to this dashboard with its current filters">
+                <Button icon={<ShareAltOutlined />} onClick={handleShare} aria-label="Share">
+                  {!isMobile && "Share"}
+                </Button>
+              </Tooltip>
+            )}
           </>
         }
       />
