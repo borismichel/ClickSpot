@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Layout, Button, Space } from "antd";
 import { SettingOutlined, DatabaseOutlined, DashboardOutlined, AppstoreOutlined, ClusterOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
@@ -14,6 +14,7 @@ const { Header, Sider, Content } = Layout;
 export default function App() {
   usePageTitle("Chat");
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { messages, isLoading, sendMessage, newChat, loadMessages } = useChat();
   const {
     conversations,
@@ -31,6 +32,24 @@ export default function App() {
       saveConversation(messages);
     }
   }, [messages, isLoading, saveConversation]);
+
+  useEffect(() => {
+    const conversationId = searchParams.get("conversation");
+    if (!conversationId || conversationId === activeId) return;
+    const loadedMessages = loadConversation(conversationId);
+    if (loadedMessages.length > 0) {
+      loadMessages(loadedMessages);
+    }
+    setSearchParams({}, { replace: true });
+  }, [activeId, loadConversation, loadMessages, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const activeConversation = conversations.find((conversation) => conversation.id === activeId);
+    if (activeConversation?.messages.length) {
+      loadMessages(activeConversation.messages);
+    }
+  }, [activeId, conversations, loadMessages]);
 
   const handleNewChat = () => {
     startNew();
