@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, theme } from "antd";
 import {
   PlusOutlined,
@@ -10,8 +10,9 @@ import {
   DatabaseOutlined,
   AppstoreOutlined,
 } from "@ant-design/icons";
+import { useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
-import type { Layout as RGLLayout, ResponsiveLayouts } from "react-grid-layout";
+import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -20,9 +21,9 @@ import { useObjectRepo } from "../hooks/useObjectRepo";
 import { useSpaceChat } from "../hooks/useSpaceChat";
 import { DashboardCard } from "../components/dashboard/DashboardCard";
 import { AddObjectDrawer } from "../components/dashboard/AddObjectDrawer";
-import { DashboardFilterBar } from "../components/dashboard/DashboardFilterBar";
+import { UnifiedFilterBar } from "../components/filters/UnifiedFilterBar";
+import type { FilterValueOption, UnifiedFilterColumn } from "../components/filters/UnifiedFilterBar";
 import { SpaceDashboardCard } from "../components/spaces/SpaceDashboardCard";
-import { SpaceFilterBar } from "../components/spaces/SpaceFilterBar";
 import { SpaceChatDrawer } from "../components/spaces/SpaceChatDrawer";
 import type {
   DashboardFilters,
@@ -32,20 +33,64 @@ import type {
 } from "../types/dashboard";
 import { EMPTY_FILTERS } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
+import { decodeFilterUrlState, encodeFilterUrlState } from "../utils/filterUrlState";
 import { AppHeader } from "../components/AppHeader";
 
 const { Content } = Layout;
 
 type ActiveSelection = { kind: "library"; id: string } | { kind: "space"; id: string };
 
+const DASHBOARD_FILTER_COLUMNS: UnifiedFilterColumn[] = [
+  { name: "date", display: "Date", type: "Date" },
+  { name: "owner", display: "Owner", type: "String" },
+  { name: "pipeline", display: "Pipeline", type: "String" },
+];
+
+function dashboardFiltersToUnified(filters: DashboardFilters): SpaceFilter[] {
+  return [
+    { column: "date", operator: "gte", values: [filters.dateFrom ?? "", filters.dateTo ?? ""].filter(Boolean) },
+    { column: "owner", operator: filters.ownerIds.length > 1 ? "in" : "eq", values: filters.ownerIds },
+    { column: "pipeline", operator: filters.pipelineIds.length > 1 ? "in" : "eq", values: filters.pipelineIds },
+  ];
+}
+
+function unifiedToDashboardFilters(
+  filters: SpaceFilter[],
+  previous: DashboardFilters,
+  labels: Record<string, Record<string, string>>
+): DashboardFilters {
+  const byColumn = new Map(filters.map((filter) => [filter.column, filter]));
+  const date = byColumn.get("date")?.values ?? [];
+  const ownerIds = byColumn.get("owner")?.values ?? [];
+  const pipelineIds = byColumn.get("pipeline")?.values ?? [];
+  return {
+    dateFrom: date[0] ?? null,
+    dateTo: date[1] ?? null,
+    ownerIds,
+    ownerNames: ownerIds.map((id) => labels.owner?.[id] ?? previous.ownerNames[previous.ownerIds.indexOf(id)] ?? id),
+    pipelineIds,
+    pipelineLabels: pipelineIds.map(
+      (id) => labels.pipeline?.[id] ?? previous.pipelineLabels[previous.pipelineIds.indexOf(id)] ?? id
+    ),
+  };
+}
+
+function hasDashboardFilters(filters: DashboardFilters) {
+  return Boolean(filters.dateFrom || filters.dateTo || filters.ownerIds.length || filters.pipelineIds.length);
+}
+
+function hasSpaceFilters(filters: SpaceFilter[]) {
+  return filters.some((filter) => filter.values.length > 0);
+}
+
 export default function DashboardPage() {
   const { token } = theme.useToken();
   usePageTitle("Dashboard");
+  const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
   const {
     dashboards: libraryDashboards,
-    activeId: _libActiveId,
-    setActiveId: _setLibActiveId,
+    loading: libraryDashboardsLoading,
     createDashboard: createLibDashboard,
     deleteDashboard: deleteLibDashboard,
     renameDashboard: renameLibDashboard,
@@ -57,6 +102,7 @@ export default function DashboardPage() {
 
   // Space dashboards state
   const [spaceDashboards, setSpaceDashboards] = useState<SpaceDashboard[]>([]);
+  const [spaceDashboardsLoaded, setSpaceDashboardsLoaded] = useState(false);
   const [spaceColumns, setSpaceColumns] = useState<SpaceColumnMeta[]>([]);
   const [spaceConfig, setSpaceConfig] = useState<{ id: string; name: string } | null>(null);
 
@@ -72,6 +118,11 @@ export default function DashboardPage() {
   const [editTitle, setEditTitle] = useState("");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [availableSpaces, setAvailableSpaces] = useState<{ id: string; name: string }[]>([]);
+  const [dashboardValueLabels, setDashboardValueLabels] = useState<Record<string, Record<string, string>>>({
+    owner: {},
+    pipeline: {},
+  });
+  const appliedUrlFilters = useRef<string | null>(null);
 
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
 
@@ -90,6 +141,7 @@ export default function DashboardPage() {
       const data: SpaceDashboard[] = await res.json();
       setSpaceDashboards(data);
     } catch { /* silent */ }
+    setSpaceDashboardsLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -100,14 +152,22 @@ export default function DashboardPage() {
   useEffect(() => {
     if (initialized) return;
     if (libraryDashboards.length > 0 || spaceDashboards.length > 0) {
-      if (libraryDashboards.length > 0) {
+      const dashboardKey = searchParams.get("dashboard");
+      const [kind, id] = dashboardKey?.split(":", 2) ?? [];
+      if (kind === "lib" && libraryDashboards.some((dash) => dash.id === id)) {
+        setActive({ kind: "library", id });
+      } else if (kind === "space" && spaceDashboards.some((dash) => dash.id === id)) {
+        setActive({ kind: "space", id });
+      } else if ((kind === "lib" && libraryDashboardsLoading) || (kind === "space" && !spaceDashboardsLoaded)) {
+        return;
+      } else if (libraryDashboards.length > 0) {
         setActive({ kind: "library", id: libraryDashboards[0].id });
       } else if (spaceDashboards.length > 0) {
         setActive({ kind: "space", id: spaceDashboards[0].id });
       }
       setInitialized(true);
     }
-  }, [libraryDashboards, spaceDashboards, initialized]);
+  }, [initialized, libraryDashboards, libraryDashboardsLoading, searchParams, spaceDashboards, spaceDashboardsLoaded]);
 
   // Fetch space columns when active space dashboard changes
   useEffect(() => {
@@ -138,6 +198,71 @@ export default function DashboardPage() {
   const activeLibDash = active?.kind === "library"
     ? libraryDashboards.find((d) => d.id === active.id) ?? null
     : null;
+
+  const activeDashboardKey = active
+    ? `${active.kind === "library" ? "lib" : "space"}:${active.id}`
+    : null;
+
+  const selectedDashboardValueLabels = useMemo(() => {
+    const filters = activeLibDash?.filters ?? EMPTY_FILTERS;
+    return {
+      owner: Object.fromEntries(filters.ownerIds.map((id, idx) => [id, filters.ownerNames[idx] ?? dashboardValueLabels.owner[id] ?? id])),
+      pipeline: Object.fromEntries(
+        filters.pipelineIds.map((id, idx) => [id, filters.pipelineLabels[idx] ?? dashboardValueLabels.pipeline[id] ?? id])
+      ),
+    };
+  }, [activeLibDash?.filters, dashboardValueLabels]);
+
+  const rememberValueLabels = useCallback((column: string, options: FilterValueOption[]) => {
+    setDashboardValueLabels((prev) => ({
+      ...prev,
+      [column]: {
+        ...prev[column],
+        ...Object.fromEntries(options.map((option) => [option.value, option.label ?? option.value])),
+      },
+    }));
+  }, []);
+
+  const loadDashboardValues = useCallback(
+    async (column: UnifiedFilterColumn, search: string): Promise<FilterValueOption[]> => {
+      if (column.name !== "owner" && column.name !== "pipeline") return [];
+      const params = new URLSearchParams({ limit: "50" });
+      if (search.trim()) params.set("q", search.trim());
+      const res = await fetch(`/api/v1/filters/values/${column.name}?${params.toString()}`);
+      const options: FilterValueOption[] = await res.json();
+      rememberValueLabels(column.name, options);
+      return options;
+    },
+    [rememberValueLabels]
+  );
+
+  const loadSpaceValues = useCallback(
+    async (spaceId: string, column: UnifiedFilterColumn, search: string): Promise<FilterValueOption[]> => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (search.trim()) params.set("q", search.trim());
+      const res = await fetch(
+        `/api/v1/spaces/${spaceId}/columns/${encodeURIComponent(column.name)}/values?${params.toString()}`
+      );
+      const values: Array<string | FilterValueOption> = await res.json();
+      return values.map((value) => (typeof value === "string" ? { value, label: value } : value));
+    },
+    []
+  );
+
+  const writeFiltersToUrl = useCallback(
+    (dashboardKey: string, filters: DashboardFilters | SpaceFilter[]) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("dashboard", dashboardKey);
+      const hasFilters = Array.isArray(filters) ? hasSpaceFilters(filters) : hasDashboardFilters(filters);
+      if (hasFilters) {
+        next.set("filters", encodeFilterUrlState(filters));
+      } else {
+        next.delete("filters");
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
 
   // Build unified selector options
   const selectorOptions: { label: React.ReactNode; value: string }[] = [
@@ -171,6 +296,10 @@ export default function DashboardPage() {
   const handleSelectChange = (value: string) => {
     const [kind, id] = value.split(":", 2);
     setActive({ kind: kind === "lib" ? "library" : "space", id });
+    const next = new URLSearchParams(searchParams);
+    next.set("dashboard", value);
+    next.delete("filters");
+    setSearchParams(next, { replace: true });
   };
 
   // Title for display
@@ -266,18 +395,24 @@ export default function DashboardPage() {
 
   // Library filter
   const handleLibFilterChange = useCallback(
-    (filters: DashboardFilters) => {
+    (filters: SpaceFilter[]) => {
       if (active?.kind === "library") {
-        updateLibFilters(active.id, filters);
+        const dashboardFilters = unifiedToDashboardFilters(
+          filters,
+          activeLibDash?.filters ?? EMPTY_FILTERS,
+          dashboardValueLabels
+        );
+        updateLibFilters(active.id, dashboardFilters);
+        writeFiltersToUrl(`lib:${active.id}`, dashboardFilters);
         setRefreshKey((k) => k + 1);
       }
     },
-    [active, updateLibFilters]
+    [active, activeLibDash?.filters, dashboardValueLabels, updateLibFilters, writeFiltersToUrl]
   );
 
   // Library layout
   const handleLibLayoutChange = useCallback(
-    (layout: RGLLayout, _layouts: ResponsiveLayouts) => {
+    (layout: RGLLayout) => {
       if (active?.kind !== "library") return;
       updateLibLayouts(
         active.id,
@@ -304,9 +439,10 @@ export default function DashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filters }),
       }).catch(() => {});
+      writeFiltersToUrl(`space:${activeSpaceDash.id}`, filters);
       setRefreshKey((k) => k + 1);
     },
-    [activeSpaceDash]
+    [activeSpaceDash, writeFiltersToUrl]
   );
 
   const handleSpacePinnedChange = useCallback(
@@ -325,9 +461,43 @@ export default function DashboardPage() {
     [activeSpaceDash]
   );
 
+  useEffect(() => {
+    if (!active || !activeDashboardKey) return;
+    const encoded = searchParams.get("filters");
+    if (!encoded) return;
+    const hydrationKey = `${activeDashboardKey}:${encoded}`;
+    if (appliedUrlFilters.current === hydrationKey) return;
+    appliedUrlFilters.current = hydrationKey;
+
+    if (active.kind === "library" && activeLibDash) {
+      const parsed = decodeFilterUrlState<DashboardFilters>(encoded);
+      if (!parsed) return;
+      updateLibFilters(active.id, {
+        ...EMPTY_FILTERS,
+        ...parsed,
+        ownerIds: parsed.ownerIds ?? [],
+        ownerNames: parsed.ownerNames ?? [],
+        pipelineIds: parsed.pipelineIds ?? [],
+        pipelineLabels: parsed.pipelineLabels ?? [],
+      });
+    } else if (active.kind === "space" && activeSpaceDash) {
+      const parsed = decodeFilterUrlState<SpaceFilter[]>(encoded);
+      if (!Array.isArray(parsed)) return;
+      handleSpaceFilterChange(parsed);
+    }
+  }, [
+    active,
+    activeDashboardKey,
+    activeLibDash,
+    activeSpaceDash,
+    handleSpaceFilterChange,
+    searchParams,
+    updateLibFilters,
+  ]);
+
   // Space layout
   const handleSpaceLayoutChange = useCallback(
-    (_layout: RGLLayout, _layouts: ResponsiveLayouts) => {
+    (_layout: RGLLayout) => {
       if (!activeSpaceDash) return;
       const spaceId = activeSpaceDash.space_id;
       const layouts = _layout.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
@@ -432,7 +602,7 @@ export default function DashboardPage() {
     : (activeLibDash?.items.length ?? 0) > 0;
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <AppHeader
         context={
           editing ? (
@@ -515,30 +685,33 @@ export default function DashboardPage() {
         }
       />
 
-      <Content style={{ padding: 16, background: "#fafafa" }}>
+      <Content style={{ padding: 16, background: "#fafafa", overflowX: "hidden" }}>
         {/* Filter bars */}
         {!isSpace && activeLibDash && activeLibDash.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
-            <DashboardFilterBar
-              filters={activeLibDash.filters ?? EMPTY_FILTERS}
+            <UnifiedFilterBar
+              columns={DASHBOARD_FILTER_COLUMNS}
+              filters={dashboardFiltersToUnified(activeLibDash.filters ?? EMPTY_FILTERS)}
+              selectedValueLabels={selectedDashboardValueLabels}
+              loadValues={loadDashboardValues}
               onChange={handleLibFilterChange}
             />
           </div>
         )}
         {isSpace && activeSpaceDash && activeSpaceDash.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
-            <SpaceFilterBar
-              spaceId={activeSpaceDash.space_id}
+            <UnifiedFilterBar
               columns={spaceColumns}
               filters={activeSpaceDash.filters}
               pinnedColumns={activeSpaceDash.pinned_columns}
+              loadValues={(column, search) => loadSpaceValues(activeSpaceDash.space_id, column, search)}
               onChange={handleSpaceFilterChange}
               onPinnedChange={handleSpacePinnedChange}
             />
           </div>
         )}
 
-        <div ref={gridContainerRef}>
+        <div ref={gridContainerRef} style={{ maxWidth: "100%", overflowX: "hidden" }}>
           {hasNoDashboards || !active ? (
             <div style={{ textAlign: "center", paddingTop: 120 }}>
               <Empty description="No dashboards yet" image={Empty.PRESENTED_IMAGE_SIMPLE}>

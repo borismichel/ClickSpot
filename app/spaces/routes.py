@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.spaces.config import DataSpaceConfig
@@ -39,6 +39,10 @@ def _validate_id(space_id: str):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _escape_clickhouse_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 # ===========================================================================
@@ -354,7 +358,12 @@ async def api_space_stats(space_id: str):
 
 
 @router.get("/{space_id}/columns/{col_name}/values")
-async def api_column_values(space_id: str, col_name: str):
+async def api_column_values(
+    space_id: str,
+    col_name: str,
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=50, ge=1, le=200),
+):
     """Return distinct values for a column in a data space VIEW."""
     from app.db import async_query_rows
 
@@ -367,11 +376,14 @@ async def api_column_values(space_id: str, col_name: str):
         raise HTTPException(400, "Invalid column name")
 
     view = config.view_name
+    search = _escape_clickhouse_string((q or "").strip())
+    search_clause = f"AND positionCaseInsensitive(toString({col_name}), '{search}') > 0 " if search else ""
     try:
         rows = await async_query_rows(
             f"SELECT DISTINCT {col_name} AS val FROM {view} "
             f"WHERE toString({col_name}) != '' "
-            f"ORDER BY val LIMIT 200"
+            f"{search_clause}"
+            f"ORDER BY val LIMIT {limit}"
         )
         return [r["val"] for r in rows if r["val"] is not None]
     except Exception as e:

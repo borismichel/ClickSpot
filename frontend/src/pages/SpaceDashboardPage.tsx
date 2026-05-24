@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin } from "antd";
 import {
   ArrowLeftOutlined,
@@ -9,26 +9,29 @@ import {
   CheckOutlined,
   MessageOutlined,
 } from "@ant-design/icons";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
-import type { Layout as RGLLayout, ResponsiveLayouts } from "react-grid-layout";
+import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useSpaceDashboards } from "../hooks/useSpaceDashboards";
 import { useSpaceChat } from "../hooks/useSpaceChat";
-import { SpaceFilterBar } from "../components/spaces/SpaceFilterBar";
+import { UnifiedFilterBar } from "../components/filters/UnifiedFilterBar";
+import type { FilterValueOption, UnifiedFilterColumn } from "../components/filters/UnifiedFilterBar";
 import { SpaceChatDrawer } from "../components/spaces/SpaceChatDrawer";
 import { SpaceDashboardCard } from "../components/spaces/SpaceDashboardCard";
 import type { SpaceColumnMeta, SpaceFilter } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
 import type { DataSpaceConfig } from "../hooks/useDataSpaces";
+import { decodeFilterUrlState, encodeFilterUrlState } from "../utils/filterUrlState";
 
 const { Header, Content } = Layout;
 
 export default function SpaceDashboardPage() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [spaceConfig, setSpaceConfig] = useState<DataSpaceConfig | null>(null);
   const [columns, setColumns] = useState<SpaceColumnMeta[]>([]);
@@ -36,6 +39,7 @@ export default function SpaceDashboardPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
+  const appliedUrlFilters = useRef<string | null>(null);
 
   usePageTitle(spaceConfig?.name ? `${spaceConfig.name} Dashboard` : "Space Dashboard");
 
@@ -58,6 +62,12 @@ export default function SpaceDashboardPage() {
   const { messages, isLoading: chatLoading, sendMessage, clearMessages } = useSpaceChat(spaceId ?? null);
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
 
+  useEffect(() => {
+    const dashboardId = searchParams.get("dashboard");
+    if (!dashboardId || !dashboards.some((dash) => dash.id === dashboardId)) return;
+    if (activeId !== dashboardId) setActiveId(dashboardId);
+  }, [activeId, dashboards, searchParams, setActiveId]);
+
   // Fetch space config + columns on mount
   useEffect(() => {
     if (!spaceId) return;
@@ -79,10 +89,18 @@ export default function SpaceDashboardPage() {
     (filters: SpaceFilter[]) => {
       if (activeId) {
         updateFilters(activeId, filters);
+        const next = new URLSearchParams(searchParams);
+        next.set("dashboard", activeId);
+        if (filters.some((filter) => filter.values.length > 0)) {
+          next.set("filters", encodeFilterUrlState(filters));
+        } else {
+          next.delete("filters");
+        }
+        setSearchParams(next, { replace: true });
         setRefreshKey((k) => k + 1);
       }
     },
-    [activeId, updateFilters]
+    [activeId, searchParams, setSearchParams, updateFilters]
   );
 
   const handlePinnedChange = useCallback(
@@ -92,8 +110,33 @@ export default function SpaceDashboardPage() {
     [activeId, updatePinnedColumns]
   );
 
+  const loadSpaceValues = useCallback(
+    async (column: UnifiedFilterColumn, search: string): Promise<FilterValueOption[]> => {
+      if (!spaceId) return [];
+      const params = new URLSearchParams({ limit: "50" });
+      if (search.trim()) params.set("q", search.trim());
+      const res = await fetch(
+        `/api/v1/spaces/${spaceId}/columns/${encodeURIComponent(column.name)}/values?${params.toString()}`
+      );
+      const values: Array<string | FilterValueOption> = await res.json();
+      return values.map((value) => (typeof value === "string" ? { value, label: value } : value));
+    },
+    [spaceId]
+  );
+
+  useEffect(() => {
+    const encoded = searchParams.get("filters");
+    if (!activeId || !encoded) return;
+    const hydrationKey = `${activeId}:${encoded}`;
+    if (appliedUrlFilters.current === hydrationKey) return;
+    const parsed = decodeFilterUrlState<SpaceFilter[]>(encoded);
+    if (!Array.isArray(parsed)) return;
+    appliedUrlFilters.current = hydrationKey;
+    updateFilters(activeId, parsed);
+  }, [activeId, searchParams, updateFilters]);
+
   const handleLayoutChange = useCallback(
-    (_layout: RGLLayout, _layouts: ResponsiveLayouts) => {
+    (_layout: RGLLayout) => {
       if (!activeId) return;
       updateLayouts(
         activeId,
@@ -217,11 +260,11 @@ export default function SpaceDashboardPage() {
       <Content style={{ padding: 16, background: "#fafafa" }}>
         {activeDashboard && activeDashboard.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
-            <SpaceFilterBar
-              spaceId={spaceId!}
+            <UnifiedFilterBar
               columns={columns}
               filters={activeDashboard.filters}
               pinnedColumns={activeDashboard.pinned_columns}
+              loadValues={loadSpaceValues}
               onChange={handleFilterChange}
               onPinnedChange={handlePinnedChange}
             />
