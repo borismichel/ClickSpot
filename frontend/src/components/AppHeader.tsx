@@ -128,7 +128,23 @@ export function AppHeader({ context, actions }: Props) {
           );
         })}
 
-        {context && <div style={{ marginLeft: 12, minWidth: 0 }}>{context}</div>}
+        {context && (
+          // A 1px divider + secondary-text weight so the per-page context reads
+          // as metadata, never as another nav item (CLI-57).
+          <div
+            style={{
+              marginLeft: 12,
+              paddingLeft: 12,
+              borderLeft: `1px solid ${token.colorSplit}`,
+              color: token.colorTextSecondary,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            {context}
+          </div>
+        )}
       </div>
 
       {actions && <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>{actions}</div>}

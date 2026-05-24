@@ -13,6 +13,7 @@ import {
   Tabs,
   Badge,
   Empty,
+  theme,
 } from "antd";
 import {
   DatabaseOutlined,
@@ -24,6 +25,8 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { AppHeader } from "../components/AppHeader";
+import { DensityToggle } from "../components/DensityToggle";
+import { useTableDensity } from "../hooks/useTableDensity";
 
 const { Sider, Content } = Layout;
 const { TextArea } = Input;
@@ -54,6 +57,8 @@ function formatValue(v: unknown): string {
 // ---------- Table Browser ----------
 
 function TableBrowser({ initialTable, initialColumn }: { initialTable?: string | null; initialColumn?: string | null }) {
+  const { token } = theme.useToken();
+  const [density, setDensity] = useTableDensity();
   const [tables, setTables] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<TableInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -151,7 +156,7 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
 
   return (
     <Layout style={{ height: "100%" }}>
-      <Sider width={260} style={{ background: "#fff", borderRight: "1px solid #f0f0f0", overflow: "auto" }}>
+      <Sider width={260} style={{ background: token.colorBgContainer, borderRight: `1px solid ${token.colorBorderSecondary}`, overflow: "auto" }}>
         {loading ? (
           <div style={{ padding: 24, textAlign: "center" }}><Spin /></div>
         ) : (
@@ -211,21 +216,32 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
                   label: `Columns (${selected.columns.length})`,
                   children: (
                     <div>
-                      <Input
-                        allowClear
-                        prefix={<SearchOutlined />}
-                        placeholder="Search columns"
-                        value={columnQuery}
-                        onChange={(event) => setColumnQuery(event.target.value)}
-                        style={{ marginBottom: 12, maxWidth: 360 }}
-                      />
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          gap: 12,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <Input
+                          allowClear
+                          prefix={<SearchOutlined />}
+                          placeholder="Search columns"
+                          value={columnQuery}
+                          onChange={(event) => setColumnQuery(event.target.value)}
+                          style={{ flex: 1, minWidth: 200, maxWidth: 360 }}
+                        />
+                        <DensityToggle value={density} onChange={setDensity} />
+                      </div>
                       {visibleColumns.length === 0 ? (
                         <Empty description="No columns match your search" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                       ) : (
                         <Table
                           dataSource={visibleColumns.map((c, i) => ({ ...c, _key: i }))}
                           rowKey="_key"
-                          size="small"
+                          size={density}
                           pagination={false}
                           columns={[
                             { title: "Name", dataIndex: "name", key: "name", render: (v: string) => <Text code>{v}</Text> },
@@ -254,7 +270,7 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
                       dataSource={selected.sample.map((r, i) => ({ ...r, _key: i }))}
                       rowKey="_key"
                       columns={sampleColumns}
-                      size="small"
+                      size={density}
                       pagination={selected.sample.length > 20 ? { pageSize: 20 } : false}
                       scroll={{ x: "max-content" }}
                     />
@@ -264,7 +280,7 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
             />
           </div>
         ) : (
-          <div style={{ color: "#999", marginTop: 48, textAlign: "center" }}>
+          <div style={{ color: token.colorTextTertiary, marginTop: 48, textAlign: "center" }}>
             Select a table from the sidebar to inspect its schema and data.
           </div>
         )}
@@ -276,6 +292,8 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
 // ---------- SQL Editor ----------
 
 function SQLEditor() {
+  const { token } = theme.useToken();
+  const [density, setDensity] = useTableDensity();
   const [sql, setSql] = useState("SELECT count() FROM silver.dim_deals FINAL WHERE archived = 0");
   const [result, setResult] = useState<SQLResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -349,16 +367,19 @@ function SQLEditor() {
 
       {result && !result.error && (
         <div style={{ flex: 1, overflow: "auto" }}>
-          <Space style={{ marginBottom: 8 }}>
-            <Tag color="blue">{result.row_count} rows</Tag>
-            <Tag color="green">{result.elapsed_ms}ms</Tag>
-            <Tag>{result.columns.length} columns</Tag>
-          </Space>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+            <Space>
+              <Tag color="blue">{result.row_count} rows</Tag>
+              <Tag color="green">{result.elapsed_ms}ms</Tag>
+              <Tag>{result.columns.length} columns</Tag>
+            </Space>
+            <DensityToggle value={density} onChange={setDensity} />
+          </div>
           <Table
             dataSource={result.rows.map((r, i) => ({ ...r, _key: i }))}
             rowKey="_key"
             columns={resultColumns}
-            size="small"
+            size={density}
             pagination={result.row_count > 50 ? { pageSize: 50 } : false}
             scroll={{ x: "max-content" }}
           />
@@ -366,7 +387,7 @@ function SQLEditor() {
       )}
 
       {!result && !loading && (
-        <div style={{ color: "#999", textAlign: "center", marginTop: 48 }}>
+        <div style={{ color: token.colorTextTertiary, textAlign: "center", marginTop: 48 }}>
           Write a query and press Run or Cmd+Enter.
         </div>
       )}
