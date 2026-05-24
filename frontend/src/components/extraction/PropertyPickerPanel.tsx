@@ -12,10 +12,13 @@ import {
   Space,
   Tooltip,
   Modal,
+  theme,
 } from "antd";
 import { ReloadOutlined, LockOutlined, WarningOutlined } from "@ant-design/icons";
 import { useExtractionConfig } from "../../hooks/useExtractionConfig";
 import { api } from "../../lib/apiClient";
+import { propertySourceColor } from "../../theme/tagColors";
+import { PropertyTagLegend } from "./PropertyTagLegend";
 
 interface Props {
   onSaved: () => void;
@@ -49,25 +52,8 @@ const OBJECTS = [
   { value: "leads", label: "Leads (dim_leads)" },
 ];
 
-function sourceColor(s: PropertyRow["source"]) {
-  switch (s) {
-    case "locked-core":
-      return "red";
-    case "core":
-      return "blue";
-    case "extra":
-      return "green";
-    case "bronze-only":
-      return "orange";
-    case "hubspot-only":
-      return "default";
-    case "available":
-    default:
-      return "default";
-  }
-}
-
 export function PropertyPickerPanel({ onSaved }: Props) {
+  const { token } = theme.useToken();
   const { view, save } = useExtractionConfig();
   const [objectType, setObjectType] = useState<string>("deals");
   const [data, setData] = useState<PropertyResponse | null>(null);
@@ -224,22 +210,7 @@ export function PropertyPickerPanel({ onSaved }: Props) {
         showIcon
         style={{ marginBottom: 16 }}
         message="Pick which HubSpot properties land in silver"
-        description={
-          <Space direction="vertical">
-            <span>
-              <Tag color="red"><LockOutlined /> locked-core</Tag>
-              <Tag color="blue">core</Tag>
-              <Tag color="green">extra</Tag>
-              <Tag color="orange">bronze-only</Tag>
-              <Tag>hubspot-only</Tag>
-            </span>
-            <span>
-              Locked-core columns are required by gold aggregates and cannot be removed. Core
-              columns ship with the project — uncheck to remove them. Extra columns are added by
-              you. Bronze-only / hubspot-only haven't been added to silver yet.
-            </span>
-          </Space>
-        }
+        description={<PropertyTagLegend />}
       />
 
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -292,8 +263,8 @@ export function PropertyPickerPanel({ onSaved }: Props) {
                   display: "flex",
                   alignItems: "center",
                   padding: "8px 12px",
-                  borderBottom: "1px solid #f0f0f0",
-                  background: checked ? "#fafafa" : undefined,
+                  borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                  background: checked ? token.colorFillQuaternary : undefined,
                   gap: 12,
                 }}
               >
@@ -331,7 +302,7 @@ export function PropertyPickerPanel({ onSaved }: Props) {
                     </Typography.Paragraph>
                   )}
                 </div>
-                <Tag color={sourceColor(row.source)}>
+                <Tag color={propertySourceColor(row.source)}>
                   {row.source === "locked-core" && <LockOutlined />} {row.source}
                 </Tag>
                 <Tag>{row.suggested_ch_type}</Tag>
@@ -342,7 +313,7 @@ export function PropertyPickerPanel({ onSaved }: Props) {
             );
           })}
           {!loading && filtered.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "#8c8c8c" }}>
+            <div style={{ padding: 24, textAlign: "center", color: token.colorTextTertiary }}>
               No properties match.
             </div>
           )}

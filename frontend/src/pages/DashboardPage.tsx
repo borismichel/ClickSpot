@@ -37,6 +37,10 @@ import { EMPTY_FILTERS } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
 import { decodeFilterUrlState, encodeFilterUrlState } from "../utils/filterUrlState";
 import { AppHeader } from "../components/AppHeader";
+import { spacing } from "../theme/tokens";
+
+/** Single source for the dashboard grid gutter (react-grid-layout margin). */
+const GRID_GUTTER: [number, number] = [spacing.md, spacing.md];
 
 const { Content } = Layout;
 
@@ -276,7 +280,7 @@ export default function DashboardPage() {
     ...libraryDashboards.map((d) => ({
       label: (
         <Space size={4}>
-          <AppstoreOutlined style={{ color: "#8c8c8c", fontSize: 11 }} />
+          <AppstoreOutlined style={{ color: token.colorTextTertiary, fontSize: 11 }} />
           <span>{d.title}</span>
         </Space>
       ),
@@ -335,8 +339,9 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Title for display
-  const activeTitle = activeLibDash?.title ?? activeSpaceDash?.title ?? "Dashboard";
+  // Title for display. Blank when nothing is selected so the empty state doesn't
+  // render a second "Dashboard" label next to the active nav item (CLI-57).
+  const activeTitle = activeLibDash?.title ?? activeSpaceDash?.title ?? "";
 
   // --- Handlers ---
 
@@ -649,7 +654,7 @@ export default function DashboardPage() {
               />
               <Button icon={<CheckOutlined />} onClick={finishRename} />
             </Space.Compact>
-          ) : (
+          ) : activeTitle ? (
             <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
               {activeTitle}
               {active && (
@@ -667,7 +672,7 @@ export default function DashboardPage() {
                 </Tag>
               )}
             </Typography.Title>
-          )
+          ) : undefined
         }
         actions={
           <>
@@ -798,6 +803,7 @@ export default function DashboardPage() {
                 breakpoints={{ lg: 1200, md: 996, sm: 768 }}
                 cols={{ lg: 12, md: 8, sm: 4 }}
                 rowHeight={80}
+                margin={GRID_GUTTER}
                 onLayoutChange={handleLibLayoutChange}
                 dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
                 resizeConfig={{ enabled: true, handles: ["se"] }}
@@ -826,6 +832,7 @@ export default function DashboardPage() {
                 breakpoints={{ lg: 1200, md: 996, sm: 768 }}
                 cols={{ lg: 12, md: 8, sm: 4 }}
                 rowHeight={80}
+                margin={GRID_GUTTER}
                 onLayoutChange={handleSpaceLayoutChange}
                 dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
                 resizeConfig={{ enabled: true, handles: ["se"] }}
