@@ -1,6 +1,5 @@
 import { Layout, Button, Card, Tag, Typography, Empty, Space, Popconfirm, Spin } from "antd";
 import {
-  ArrowLeftOutlined,
   PlusOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -11,8 +10,9 @@ import { useNavigate } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useDataSpaces } from "../hooks/useDataSpaces";
 import { STRATEGY_TAG_COLORS } from "../theme/tagColors";
+import { AppHeader } from "../components/AppHeader";
 
-const { Header, Content } = Layout;
+const { Content } = Layout;
 
 export default function DataSpaceListPage() {
   usePageTitle("Data Spaces");
@@ -21,26 +21,13 @@ export default function DataSpaceListPage() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Space>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")} />
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Data Spaces
-          </Typography.Title>
-        </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/spaces/new")}>
-          New Data Space
-        </Button>
-      </Header>
+      <AppHeader
+        actions={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/spaces/new")}>
+            New Data Space
+          </Button>
+        }
+      />
 
       <Content style={{ padding: 24, background: "#fafafa", maxWidth: 1100, margin: "0 auto", width: "100%" }}>
         {loading ? (

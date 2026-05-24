@@ -15,17 +15,17 @@ import {
   Empty,
 } from "antd";
 import {
-  ArrowLeftOutlined,
   DatabaseOutlined,
   PlayCircleOutlined,
   TableOutlined,
   CodeOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { AppHeader } from "../components/AppHeader";
 
-const { Header, Sider, Content } = Layout;
+const { Sider, Content } = Layout;
 const { TextArea } = Input;
 const { Text, Title } = Typography;
 
@@ -378,30 +378,13 @@ function SQLEditor() {
 
 export default function DataExplorerPage() {
   usePageTitle("Data Explorer");
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTable = searchParams.get("table");
   const initialColumn = searchParams.get("column");
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Space>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")}>
-            Back
-          </Button>
-          <span style={{ fontWeight: 600, fontSize: 16 }}>Data Explorer</span>
-        </Space>
-      </Header>
+      <AppHeader />
       <Content style={{ height: "calc(100vh - 64px)" }}>
         <Tabs
           defaultActiveKey="browser"

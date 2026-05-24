@@ -25,6 +25,10 @@ class ContextKPIResult(BaseModel):
     previous_sql: str | None = None
     previous_value: str | int | float | None = None
     delta_percent: float | None = None
+    # Non-numeric delta label (e.g. "New") for cases where a percentage change
+    # is undefined — notably a zero baseline. Mutually exclusive with
+    # delta_percent. See app.api.chat_routes.compute_kpi_delta (CLI-42).
+    delta_label: str | None = None
 
 
 class ChatResponse(BaseModel):

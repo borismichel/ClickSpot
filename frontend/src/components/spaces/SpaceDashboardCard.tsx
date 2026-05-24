@@ -5,6 +5,7 @@ import type { SpaceDashboardItem, SpaceFilter } from "../../types/dashboard";
 import type { ContextKPI } from "../../types/chat";
 import { VizRouter } from "../viz/VizRouter";
 import { ContextBar } from "../viz/ContextBar";
+import { computeKpiDelta } from "../../lib/kpiDelta";
 
 interface Props {
   item: SpaceDashboardItem;
@@ -73,6 +74,7 @@ export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRem
 
           let previous_value: string | number | null = null;
           let delta_percent: number | null = null;
+          let delta_label: string | null = null;
 
           if (kpi.previous_sql) {
             try {
@@ -91,21 +93,13 @@ export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRem
                   ? (Object.values(prevData.rows[0] as Record<string, unknown>)[0] as string | number | null)
                   : null;
 
-              if (value != null && previous_value != null) {
-                const cur = Number(value);
-                const prev = Number(previous_value);
-                if (!isNaN(cur) && !isNaN(prev) && prev !== 0) {
-                  delta_percent = Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10;
-                } else if (!isNaN(cur) && prev === 0 && cur !== 0) {
-                  delta_percent = 100;
-                }
-              }
+              ({ delta_percent, delta_label } = computeKpiDelta(value, previous_value));
             } catch {
               // silently skip previous period errors
             }
           }
 
-          return { label: kpi.label, value: value as string | number | null, sql: kpi.sql, previous_value, delta_percent } as ContextKPI;
+          return { label: kpi.label, value: value as string | number | null, sql: kpi.sql, previous_value, delta_percent, delta_label } as ContextKPI;
         })
       );
       setKpis(
