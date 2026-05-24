@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { Drawer, Input, Button, Typography, Space, Spin, Alert, Tag, Collapse } from "antd";
+import { Drawer, Input, Button, Typography, Space, Spin, Alert, Tag, Collapse, theme } from "antd";
 import { SendOutlined, PlusCircleOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ChatMessage } from "../../types/chat";
 import { VizRouter } from "../viz/VizRouter";
 import { ContextBar } from "../viz/ContextBar";
+import { spacing, radius } from "../../theme/tokens";
 
 interface Props {
   open: boolean;
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading, onSend, onAddToDashboard, onClear }: Props) {
+  const { token } = theme.useToken();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -35,7 +37,15 @@ export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading,
       title={
         <Space>
           <Typography.Text strong>Chat</Typography.Text>
-          <Tag color="blue">{spaceName}</Tag>
+          <Tag
+            style={{
+              color: token.colorPrimary,
+              background: token.colorPrimaryBg,
+              borderColor: token.colorPrimaryBorder,
+            }}
+          >
+            {spaceName}
+          </Tag>
         </Space>
       }
       extra={
@@ -52,9 +62,9 @@ export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading,
       styles={{ body: { display: "flex", flexDirection: "column", padding: 0 } }}
     >
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: `${spacing.lg}px ${spacing.lg}px ${spacing.sm}px` }}>
         {messages.length === 0 && (
-          <div style={{ textAlign: "center", color: "#999", paddingTop: 60 }}>
+          <div style={{ textAlign: "center", paddingTop: 60 }}>
             <Typography.Text type="secondary">
               Ask questions about this data space. Results can be added to the dashboard.
             </Typography.Text>
@@ -65,14 +75,14 @@ export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading,
           <div
             key={msg.id}
             style={{
-              marginBottom: 16,
-              padding: "8px 12px",
-              borderRadius: 8,
-              background: msg.role === "user" ? "#e6f4ff" : "#fafafa",
-              border: msg.role === "user" ? "1px solid #91caff" : "1px solid #f0f0f0",
+              marginBottom: spacing.lg,
+              padding: `${spacing.sm}px ${spacing.md}px`,
+              borderRadius: radius.card,
+              background: msg.role === "user" ? token.colorPrimaryBg : token.colorFillQuaternary,
+              border: `1px solid ${msg.role === "user" ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
             }}
           >
-            <Typography.Text strong style={{ fontSize: 11, color: "#999" }}>
+            <Typography.Text strong style={{ fontSize: token.fontSizeSM, color: token.colorTextTertiary }}>
               {msg.role === "user" ? "You" : "Assistant"}
             </Typography.Text>
             <div style={{ marginTop: 4 }}>{msg.content}</div>
@@ -136,7 +146,7 @@ export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading,
       </div>
 
       {/* Input */}
-      <div style={{ padding: "12px 16px", borderTop: "1px solid #f0f0f0" }}>
+      <div style={{ padding: `${spacing.md}px ${spacing.lg}px`, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
         <Space.Compact style={{ width: "100%" }}>
           <Input
             value={input}

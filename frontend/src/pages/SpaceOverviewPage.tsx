@@ -4,16 +4,18 @@ import {
   Button,
   Space,
   Typography,
-  Tag,
   Spin,
   Empty,
   Alert,
+  Popover,
+  message,
   theme,
 } from "antd";
 import {
   ArrowLeftOutlined,
   EditOutlined,
   LineChartOutlined,
+  MessageOutlined,
   ReloadOutlined,
   DatabaseOutlined,
 } from "@ant-design/icons";
@@ -23,11 +25,15 @@ import "@xyflow/react/dist/style.css";
 
 import { usePageTitle } from "../hooks/usePageTitle";
 import { api } from "../lib/apiClient";
+import { useSpaceChat } from "../hooks/useSpaceChat";
+import { spacing } from "../theme/tokens";
 
 import { formatCount, type SpaceStats } from "../components/spaces/spaceStats";
 import { buildFlow, nodeTypes } from "../components/spaces/SpaceFlowNodes";
 import { PreviewBar } from "../components/spaces/SpacePreviewBar";
 import { NodeDetail } from "../components/spaces/SpaceNodeDetail";
+import { SpaceChatDrawer } from "../components/spaces/SpaceChatDrawer";
+import type { ChatMessage } from "../types/chat";
 
 const { Header, Content } = Layout;
 
@@ -41,6 +47,54 @@ export default function SpaceOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const { messages, isLoading: chatLoading, sendMessage, clearMessages } = useSpaceChat(id ?? null);
+
+  // Add a chat result to the space's dashboard (create one if needed), then link.
+  const handleAddToDashboard = useCallback(
+    async (msg: ChatMessage) => {
+      if (!id || !msg.sql) return;
+      try {
+        const list = await fetch(`/api/v1/spaces/${id}/dashboards`).then((r) => r.json());
+        let dashId: string | undefined = Array.isArray(list) && list[0]?.id;
+        if (!dashId) {
+          const created = await fetch(`/api/v1/spaces/${id}/dashboards`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: `${stats?.name ?? "Space"} Dashboard` }),
+          }).then((r) => r.json());
+          dashId = created?.id;
+        }
+        if (!dashId) throw new Error("Could not resolve a dashboard");
+        await fetch(`/api/v1/spaces/${id}/dashboards/${dashId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: msg.title ?? "Untitled",
+            sql: msg.sql,
+            viz: msg.viz ?? "table",
+            context_kpis: (msg.context ?? []).map((k) => ({
+              label: k.label,
+              sql: k.sql,
+              previous_sql: k.previous_sql ?? undefined,
+            })),
+          }),
+        });
+        message.success({
+          content: (
+            <span>
+              Added to dashboard.{" "}
+              <a onClick={() => navigate(`/spaces/${id}/dashboard?dashboard=${dashId}`)}>Open</a>
+            </span>
+          ),
+        });
+      } catch (e) {
+        message.error(`Could not add to dashboard: ${String(e)}`);
+      }
+    },
+    [id, stats?.name, navigate]
+  );
 
   // Preview bar: default 1/3 of viewport height, collapsible, drag-resizable
   const COLLAPSED_HEIGHT = 36;
@@ -124,9 +178,9 @@ export default function SpaceOverviewPage() {
       <Layout style={{ minHeight: "100vh" }}>
         <Header
           style={{
-            background: "#fff",
-            borderBottom: "1px solid #f0f0f0",
-            padding: "0 24px",
+            background: token.colorBgContainer,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            padding: `0 ${spacing.xl}px`,
             display: "flex",
             alignItems: "center",
           }}
@@ -148,9 +202,9 @@ export default function SpaceOverviewPage() {
     <Layout style={{ minHeight: "100vh" }}>
       <Header
         style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
+          background: token.colorBgContainer,
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          padding: `0 ${spacing.xl}px`,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -162,10 +216,22 @@ export default function SpaceOverviewPage() {
           <Typography.Title level={5} style={{ margin: 0 }}>
             {stats.name}
           </Typography.Title>
-          <Tag color="gold">{stats.view_name}</Tag>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
             {formatCount(stats.view_row_count)} rows
           </Typography.Text>
+          <Popover
+            placement="bottomLeft"
+            title="Technical details"
+            content={
+              <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+                Physical view: <Typography.Text code>{stats.view_name}</Typography.Text>
+              </Typography.Text>
+            }
+          >
+            <Button type="text" size="small" style={{ color: token.colorTextTertiary }}>
+              Technical details
+            </Button>
+          </Popover>
         </Space>
 
         <Space>
@@ -174,6 +240,13 @@ export default function SpaceOverviewPage() {
           </Button>
           <Button icon={<EditOutlined />} onClick={() => navigate(`/spaces/${id}/edit`)}>
             Edit
+          </Button>
+          <Button
+            icon={<MessageOutlined />}
+            type={chatOpen ? "primary" : "default"}
+            onClick={() => setChatOpen((o) => !o)}
+          >
+            Ask
           </Button>
           <Button
             type="primary"
@@ -190,7 +263,7 @@ export default function SpaceOverviewPage() {
           display: "flex",
           flexDirection: "column",
           height: "calc(100vh - 64px)",
-          background: "#fafafa",
+          background: token.colorBgLayout,
         }}
       >
         <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
@@ -208,7 +281,7 @@ export default function SpaceOverviewPage() {
               maxZoom={2}
               proOptions={{ hideAttribution: true }}
             >
-              <Background gap={20} color="#e8e8e8" />
+              <Background gap={20} color={token.colorBorderSecondary} />
               <Controls showInteractive={false} />
             </ReactFlow>
           </div>
@@ -217,21 +290,26 @@ export default function SpaceOverviewPage() {
           <div
             style={{
               width: 380,
-              background: "#fff",
-              borderLeft: "1px solid #f0f0f0",
+              background: token.colorBgContainer,
+              borderLeft: `1px solid ${token.colorBorderSecondary}`,
               overflow: "auto",
-              padding: 16,
+              padding: spacing.lg,
             }}
           >
             {selectedNode ? (
               <NodeDetail node={selectedNode} />
             ) : (
-              <Alert
-                type="info"
-                showIcon
-                message="Click a node"
-                description="Select the grain or a dimension to see its stats, columns, and join details."
-              />
+              <Space direction="vertical" size={spacing.md} style={{ width: "100%" }}>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Click a node"
+                  description="Select the grain or a dimension to see its stats, columns, and join details."
+                />
+                <Button block icon={<MessageOutlined />} onClick={() => setChatOpen(true)}>
+                  Ask a question
+                </Button>
+              </Space>
             )}
           </div>
         </div>
@@ -243,9 +321,9 @@ export default function SpaceOverviewPage() {
             style={{
               height: 6,
               cursor: "row-resize",
-              background: "#f0f0f0",
-              borderTop: "1px solid #e8e8e8",
-              borderBottom: "1px solid #e8e8e8",
+              background: token.colorFillSecondary,
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
               flexShrink: 0,
               display: "flex",
               alignItems: "center",
@@ -256,7 +334,7 @@ export default function SpaceOverviewPage() {
               style={{
                 width: 40,
                 height: 2,
-                background: "#bfbfbf",
+                background: token.colorBorder,
                 borderRadius: 1,
               }}
             />
@@ -268,8 +346,8 @@ export default function SpaceOverviewPage() {
           style={{
             height: previewCollapsed ? COLLAPSED_HEIGHT : previewHeight,
             flexShrink: 0,
-            borderTop: previewCollapsed ? "1px solid #f0f0f0" : undefined,
-            background: "#fff",
+            borderTop: previewCollapsed ? `1px solid ${token.colorBorderSecondary}` : undefined,
+            background: token.colorBgContainer,
             overflow: "hidden",
             transition: previewCollapsed ? "height 0.18s ease" : undefined,
           }}
@@ -283,6 +361,17 @@ export default function SpaceOverviewPage() {
           />
         </div>
       </Content>
+
+      <SpaceChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        spaceName={stats.name}
+        messages={messages}
+        isLoading={chatLoading}
+        onSend={sendMessage}
+        onAddToDashboard={handleAddToDashboard}
+        onClear={clearMessages}
+      />
     </Layout>
   );
 }
