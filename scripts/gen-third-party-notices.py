@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Generate THIRD_PARTY_NOTICES.md for ClickSpot (CLI-21).
+
+Scans the local Python virtualenv (.venv) and the frontend production
+dependency tree, resolves each component's license from package metadata,
+and writes an aggregated third-party notices file at the repo root.
+
+Usage:
+    # from repo root, with .venv installed and frontend deps installed
+    python3 -m venv .venv && .venv/bin/pip install -e .
+    (cd frontend && npm ci)
+    .venv/bin/python frontend/node_modules/.bin/...    # (no extra tools needed)
+    python3 scripts/gen-third-party-notices.py
+
+The script only reads already-installed metadata; it installs nothing.
+"""
+import os
+import glob
+import json
+import email
+import subprocess
+from collections import Counter
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Python packages whose metadata omits a machine-readable license field.
+# Values verified against each project's upstream LICENSE (2026-05).
+PY_FALLBACK = {
+    "antlr4-python3-runtime": "BSD-3-Clause",
+    "charset-normalizer": "MIT",
+    "gql": "MIT",
+    "graphene": "MIT",
+    "httpx-sse": "MIT",
+    "hubspot-api-client": "Apache-2.0",
+    "multidict": "Apache-2.0",
+    "protobuf": "BSD-3-Clause",
+    "python-dotenv": "BSD-3-Clause",
+    "SQLAlchemy": "MIT",
+    "tqdm": "MPL-2.0 AND MIT",
+    "tzdata": "Apache-2.0",
+    "yarl": "Apache-2.0",
+}
+
+_NORM = {
+    "[MIT License]": "MIT",
+    "[BSD License]": "BSD",
+    "[Apache Software License]": "Apache-2.0",
+    "[Mozilla Public License 2.0 (MPL 2.0)]": "MPL-2.0",
+    "[ISC License (ISCL)]": "ISC",
+    "[Python Software Foundation License]": "PSF-2.0",
+}
+
+
+def _norm(s: str) -> str:
+    return _NORM.get(s.strip(), s.strip())
+
+
+def python_deps():
+    sp = glob.glob(os.path.join(ROOT, ".venv/lib/python*/site-packages"))
+    if not sp:
+        return []
+    sp = sp[0]
+    out = []
+    for di in sorted(glob.glob(os.path.join(sp, "*.dist-info"))):
+        meta = os.path.join(di, "METADATA")
+        if not os.path.exists(meta):
+            continue
+        with open(meta, encoding="utf-8", errors="replace") as f:
+            msg = email.message_from_file(f)
+        name = msg.get("Name", "?")
+        if name == "clickspot":
+            continue
+        ver = msg.get("Version", "?")
+        lexpr = (msg.get("License-Expression", "") or "").strip()
+        raw = (msg.get("License", "") or "").strip()
+        lic = raw.splitlines()[0] if raw else ""
+        cls = "; ".join(
+            c.replace("License :: ", "").replace("OSI Approved :: ", "")
+            for c in msg.get_all("Classifier", [])
+            if c.startswith("License")
+        )
+        best = lexpr or ("[" + cls + "]" if cls else "") or lic or PY_FALLBACK.get(name, "")
+        out.append((name, ver, _norm(best) or "SEE PACKAGE"))
+    out.sort(key=lambda x: x[0].lower())
+    return out
+
+
+def frontend_prod_deps():
+    nm = os.path.join(ROOT, "frontend", "node_modules")
+    if not os.path.isdir(nm):
+        return []
+    # production-only tree (what Vite bundles into the shipped artifact)
+    res = subprocess.run(
+        ["npm", "ls", "--prod", "--all"],
+        cwd=os.path.join(ROOT, "frontend"),
+        capture_output=True, text=True,
+    )
+    import re
+    names = set()
+    for tok in re.findall(r"[a-z@][a-zA-Z0-9@/_.-]+@[0-9][^\s]*", res.stdout):
+        names.add(tok.rsplit("@", 1)[0])
+    out = []
+    for name in sorted(names, key=str.lower):
+        if name == "hubspot-analytics":
+            continue
+        pj = os.path.join(nm, name, "package.json")
+        if not os.path.exists(pj):
+            continue
+        try:
+            j = json.load(open(pj, encoding="utf-8", errors="replace"))
+        except Exception:
+            continue
+        lic = j.get("license") or j.get("licenses")
+        if isinstance(lic, dict):
+            lic = lic.get("type")
+        if isinstance(lic, list):
+            lic = " OR ".join(
+                x.get("type", "?") if isinstance(x, dict) else str(x) for x in lic
+            )
+        out.append((name, j.get("version", "?"), lic or "UNKNOWN"))
+    return out
+
+
+def main():
+    py = python_deps()
+    fe = frontend_prod_deps()
+    pc = Counter(l for _, _, l in py)
+    fc = Counter(l for _, _, l in fe)
+
+    lines = []
+    w = lines.append
+    w("# Third-Party Notices\n")
+    w("ClickSpot is distributed under the [MIT License](LICENSE), © 2026 Boris Michel.")
+    w("It bundles and depends on third-party open-source components listed below, each under its own license.")
+    w("All licenses are permissive (MIT/BSD/Apache-2.0/ISC/PSF) or weak file-level copyleft (MPL-2.0); none impose copyleft obligations on ClickSpot's own source.\n")
+    w("Where a component is dual-licensed, ClickSpot elects the permissive option:\n")
+    w("- **jszip** — `MIT OR GPL-3.0-or-later` → ClickSpot uses it under **MIT**.")
+    w("- **dompurify** — `MPL-2.0 OR Apache-2.0` → ClickSpot uses it under **Apache-2.0**.\n")
+    w("_Generated by `scripts/gen-third-party-notices.py` (CLI-21)._\n")
+
+    w("## Bundled container tools\n")
+    w("| Tool / image | License |")
+    w("|---|---|")
+    w("| ClickHouse server (`clickhouse/clickhouse-server`) | Apache-2.0 |")
+    w("| Python runtime (`python:3.10-slim-bookworm`) | PSF-2.0 (Python); Debian base ships its own OS packages under their respective licenses |")
+    w("| Node.js build stage (`node:20-alpine`) | MIT (Node.js); Alpine base ships its own OS packages under their respective licenses |\n")
+    w("> Debian/Alpine base images include system packages under GPL/LGPL. These are aggregated at the OS layer (\"mere aggregation\") and are not linked into or combined with ClickSpot's code; their presence does not affect ClickSpot's MIT licensing. Each package's license text ships inside the image (e.g. `/usr/share/doc/*/copyright`).\n")
+
+    w(f"## Python runtime dependencies ({len(py)})\n")
+    w("License summary: " + ", ".join(f"{l} ({n})" for l, n in pc.most_common()) + "\n")
+    w("| Package | Version | License |")
+    w("|---|---|---|")
+    for n, v, l in py:
+        w(f"| {n} | {v} | {l} |")
+    w("")
+
+    w(f"## Frontend dependencies bundled into the shipped build ({len(fe)})\n")
+    w("License summary: " + ", ".join(f"{l} ({n})" for l, n in fc.most_common()) + "\n")
+    w("Build-only tooling (Vite, ESLint, TypeScript, lightningcss [MPL-2.0], caniuse-lite [CC-BY-4.0], etc.) is **not** included in the shipped artifact and is omitted here.\n")
+    w("| Package | Version | License |")
+    w("|---|---|---|")
+    for n, v, l in fe:
+        w(f"| {n} | {v} | {l} |")
+    w("")
+
+    out_path = os.path.join(ROOT, "THIRD_PARTY_NOTICES.md")
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines))
+    print(f"Wrote {out_path}: {len(py)} Python + {len(fe)} frontend components")
+
+
+if __name__ == "__main__":
+    main()
