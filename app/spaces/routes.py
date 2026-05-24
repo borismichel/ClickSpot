@@ -357,6 +357,43 @@ async def api_space_stats(space_id: str):
     }
 
 
+@router.get("/entities/{entity}/columns/{col_name}/values")
+async def api_entity_column_values(
+    entity: str,
+    col_name: str,
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Distinct values for a column straight from `silver.{entity}`.
+
+    Powers the no-SQL grain/default filter typeahead in the designer, where the
+    space VIEW does not exist yet (Open Q1). Mirrors the saved-view values
+    endpoint below but reads the source silver table instead of the gold view.
+    """
+    from app.config import TABLES
+    from app.db import async_query_rows
+
+    if entity not in TABLES:
+        raise HTTPException(400, f"Unknown entity '{entity}'")
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
+        raise HTTPException(400, "Invalid column name")
+
+    search = _escape_clickhouse_string((q or "").strip())
+    search_clause = (
+        f"AND positionCaseInsensitive(toString({col_name}), '{search}') > 0 " if search else ""
+    )
+    try:
+        rows = await async_query_rows(
+            f"SELECT DISTINCT {col_name} AS val FROM silver.{entity} "
+            f"WHERE toString({col_name}) != '' "
+            f"{search_clause}"
+            f"ORDER BY val LIMIT {limit}"
+        )
+        return [r["val"] for r in rows if r["val"] is not None]
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch column values: {e}")
+
+
 @router.get("/{space_id}/columns/{col_name}/values")
 async def api_column_values(
     space_id: str,

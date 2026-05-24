@@ -15,6 +15,7 @@ from pathlib import Path
 from app.db import get_client, query_rows, query_value
 from app.spaces.config import DataSpaceConfig
 from app.spaces.generator import generate_view_sql, generate_select_sql
+from app.spaces.no_sql import derive_sql
 
 log = logging.getLogger("app.spaces.registry")
 
@@ -159,6 +160,7 @@ def create_space(config: DataSpaceConfig) -> DataSpaceConfig:
     if config.id in _spaces:
         raise ValueError(f"Data space '{config.id}' already exists")
 
+    derive_sql(config)  # structured builders/presets → raw SQL the generator uses
     _create_view(config)
     _save_config(config)
     _spaces[config.id] = config
@@ -175,6 +177,7 @@ def update_space(space_id: str, config: DataSpaceConfig) -> DataSpaceConfig:
         _unregister_from_systems(old)
 
     config.id = space_id  # Ensure ID consistency
+    derive_sql(config)  # structured builders/presets → raw SQL the generator uses
     _create_view(config)
     _save_config(config)
     _spaces[space_id] = config
@@ -198,6 +201,7 @@ def delete_space(space_id: str):
 
 def preview_space(config: DataSpaceConfig) -> dict:
     """Generate SQL and execute preview without saving."""
+    derive_sql(config)  # structured builders/presets → raw SQL the generator uses
     select_sql = generate_select_sql(config)
     preview_sql = select_sql.rstrip().rstrip(";") + " LIMIT 50"
     try:

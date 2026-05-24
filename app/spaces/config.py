@@ -8,9 +8,32 @@ used to generate a ClickHouse VIEW in the gold database.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+
+class FilterCondition(BaseModel):
+    """One structured filter condition emitted by the no-SQL filter builder.
+
+    Mirrors the frontend `SpaceFilter` shape and the `SpaceFilter` dataclass in
+    `space_filter.py`. Persisted as the source-of-truth sidecar so a
+    builder-made filter round-trips on edit (see `no_sql.derive_sql`).
+    """
+
+    column: str
+    operator: Literal[
+        "eq", "neq", "in", "gt", "gte", "lt", "lte", "between", "like"
+    ]
+    values: list[str] = Field(default_factory=list)
+
+
+class ComputedPreset(BaseModel):
+    """A no-SQL computed-column preset: a curated `{kind, params}` recipe that
+    expands to a ClickHouse expression (see `no_sql.expand_preset`)."""
+
+    kind: Literal["days_since", "age_bucket", "flag_equals", "quarter", "month"]
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class BridgeStrategy(str, Enum):
@@ -32,6 +55,14 @@ class GrainConfig(BaseModel):
     filter: str | None = Field(
         default=None,
         description="Optional WHERE expression applied to the grain table, e.g. 'archived = 0'",
+    )
+    filter_builder: list[FilterCondition] | None = Field(
+        default=None,
+        description=(
+            "Structured no-SQL grain filter (source of truth). When present, "
+            "`filter` is derived from it on save (bare grain columns). When None, "
+            "`filter` holds raw/Advanced SQL and the field opens in Advanced on edit."
+        ),
     )
 
 
@@ -106,10 +137,19 @@ DimensionJoin = BridgeDimension | FKDimension | DictDimension
 
 
 class ComputedColumn(BaseModel):
-    """A derived column defined as a SQL expression."""
+    """A derived column defined as a SQL expression.
+
+    Either authored as a raw `expr` (Advanced) or via a no-SQL `preset`. When
+    `preset` is set, `expr` is (re)derived from it on save by `no_sql.derive_sql`,
+    so a preset-built column round-trips on edit without exposing SQL.
+    """
 
     alias: str = Field(description="Output column name")
-    expr: str = Field(description="ClickHouse SQL expression")
+    expr: str = Field(default="", description="ClickHouse SQL expression (derived from preset when set)")
+    preset: ComputedPreset | None = Field(
+        default=None,
+        description="Structured no-SQL preset (source of truth); expands to `expr` on save.",
+    )
 
 
 class DataSpaceConfig(BaseModel):
@@ -123,6 +163,14 @@ class DataSpaceConfig(BaseModel):
     default_filter: str | None = Field(
         default=None,
         description="Default WHERE clause applied to the grain, e.g. 'grain.archived = 0'",
+    )
+    default_filter_builder: list[FilterCondition] | None = Field(
+        default=None,
+        description=(
+            "Structured no-SQL default filter (source of truth). When present, "
+            "`default_filter` is derived from it on save (grain.<col> conditions). "
+            "When None, `default_filter` holds raw/Advanced SQL."
+        ),
     )
 
     @property
