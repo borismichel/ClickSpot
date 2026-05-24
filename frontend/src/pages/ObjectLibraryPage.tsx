@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, EyeOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import type { SavedObject } from "../types/dashboard";
 import { VizRouter } from "../components/viz/VizRouter";
 import { VIZ_TAG_COLORS } from "../theme/tagColors";
+import { AppHeader } from "../components/AppHeader";
 
-const { Header, Content } = Layout;
+const { Content } = Layout;
 
 export default function ObjectLibraryPage() {
   usePageTitle("Library");
@@ -44,28 +45,7 @@ export default function ObjectLibraryPage() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Space>
-          <Button
-            type="text"
-            icon={<ArrowLeftOutlined />}
-            onClick={() => navigate("/")}
-          />
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Object Library
-          </Typography.Title>
-        </Space>
-        <Tag>{objects.length} objects</Tag>
-      </Header>
+      <AppHeader actions={<Tag>{objects.length} objects</Tag>} />
 
       <Content style={{ padding: 24, background: "#fafafa", maxWidth: 900, margin: "0 auto", width: "100%" }}>
         {objects.length === 0 ? (

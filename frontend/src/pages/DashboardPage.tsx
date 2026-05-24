@@ -3,7 +3,6 @@ import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Ta
 import {
   PlusOutlined,
   ReloadOutlined,
-  ArrowLeftOutlined,
   DeleteOutlined,
   EditOutlined,
   CheckOutlined,
@@ -11,7 +10,6 @@ import {
   DatabaseOutlined,
   AppstoreOutlined,
 } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout, ResponsiveLayouts } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
@@ -34,15 +32,15 @@ import type {
 } from "../types/dashboard";
 import { EMPTY_FILTERS } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
+import { AppHeader } from "../components/AppHeader";
 
-const { Header, Content } = Layout;
+const { Content } = Layout;
 
 type ActiveSelection = { kind: "library"; id: string } | { kind: "space"; id: string };
 
 export default function DashboardPage() {
   const { token } = theme.useToken();
   usePageTitle("Dashboard");
-  const navigate = useNavigate();
   const { objects, getObject } = useObjectRepo();
   const {
     dashboards: libraryDashboards,
@@ -435,19 +433,9 @@ export default function DashboardPage() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header
-        style={{
-          background: "#fff",
-          borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Space>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")} />
-          {editing ? (
+      <AppHeader
+        context={
+          editing ? (
             <Space.Compact>
               <Input
                 value={editTitle}
@@ -459,7 +447,7 @@ export default function DashboardPage() {
               <Button icon={<CheckOutlined />} onClick={finishRename} />
             </Space.Compact>
           ) : (
-            <Typography.Title level={5} style={{ margin: 0 }}>
+            <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
               {activeTitle}
               {active && (
                 <Button
@@ -476,55 +464,56 @@ export default function DashboardPage() {
                 </Tag>
               )}
             </Typography.Title>
-          )}
-        </Space>
-
-        <Space>
-          <Select
-            value={activeSelectValue}
-            onChange={handleSelectChange}
-            style={{ width: 260 }}
-            placeholder="Select dashboard"
-            options={selectorOptions}
-            popupRender={(menu) => (
-              <>
-                {menu}
-                <Button
-                  type="text"
-                  block
-                  icon={<PlusOutlined />}
-                  onClick={openCreateModal}
-                  style={{ marginTop: 4 }}
-                >
-                  New Dashboard
-                </Button>
-              </>
+          )
+        }
+        actions={
+          <>
+            <Select
+              value={activeSelectValue}
+              onChange={handleSelectChange}
+              style={{ width: 260 }}
+              placeholder="Select dashboard"
+              options={selectorOptions}
+              popupRender={(menu) => (
+                <>
+                  {menu}
+                  <Button
+                    type="text"
+                    block
+                    icon={<PlusOutlined />}
+                    onClick={openCreateModal}
+                    style={{ marginTop: 4 }}
+                  >
+                    New Dashboard
+                  </Button>
+                </>
+              )}
+            />
+            {active && (
+              <Popconfirm title="Delete this dashboard?" onConfirm={handleDelete}>
+                <Button icon={<DeleteOutlined />} danger type="text" />
+              </Popconfirm>
             )}
-          />
-          {active && (
-            <Popconfirm title="Delete this dashboard?" onConfirm={handleDelete}>
-              <Button icon={<DeleteOutlined />} danger type="text" />
-            </Popconfirm>
-          )}
-          {isSpace && (
-            <Button
-              icon={<MessageOutlined />}
-              type={chatOpen ? "primary" : "default"}
-              onClick={() => setChatOpen(!chatOpen)}
-            >
-              Chat
+            {isSpace && (
+              <Button
+                icon={<MessageOutlined />}
+                type={chatOpen ? "primary" : "default"}
+                onClick={() => setChatOpen(!chatOpen)}
+              >
+                Chat
+              </Button>
+            )}
+            {!isSpace && active && (
+              <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
+                Add
+              </Button>
+            )}
+            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
+              Refresh
             </Button>
-          )}
-          {!isSpace && active && (
-            <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
-              Add
-            </Button>
-          )}
-          <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
-            Refresh
-          </Button>
-        </Space>
-      </Header>
+          </>
+        }
+      />
 
       <Content style={{ padding: 16, background: "#fafafa" }}>
         {/* Filter bars */}
