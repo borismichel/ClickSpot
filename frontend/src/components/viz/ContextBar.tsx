@@ -1,4 +1,4 @@
-import { Card, Statistic } from "antd";
+import { Card, Statistic, theme } from "antd";
 import { ArrowUpOutlined, ArrowDownOutlined, MinusOutlined } from "@ant-design/icons";
 import type { ContextKPI } from "../../types/chat";
 
@@ -28,15 +28,27 @@ export function formatKPI(value: string | number | null, label: string): { displ
 }
 
 function DeltaBadge({ delta }: { delta: number }) {
+  const { token } = theme.useToken();
   const isPositive = delta > 0;
   const isZero = delta === 0;
-  const color = isZero ? "#8c8c8c" : isPositive ? "#52c41a" : "#ff4d4f";
+  const color = isZero ? token.colorTextTertiary : isPositive ? token.colorSuccess : token.colorError;
   const Icon = isZero ? MinusOutlined : isPositive ? ArrowUpOutlined : ArrowDownOutlined;
 
   return (
     <span style={{ color, fontSize: 12, fontWeight: 500 }}>
       <Icon style={{ fontSize: 10, marginRight: 2 }} />
       {Math.abs(delta)}%
+    </span>
+  );
+}
+
+// Non-numeric delta (e.g. "New" for a zero baseline, where a percentage is
+// undefined). Replaces the old meaningless "+100% vs 0" badge (CLI-42).
+function DeltaLabel({ label }: { label: string }) {
+  const { token } = theme.useToken();
+  return (
+    <span style={{ color: token.colorSuccess, fontSize: 12, fontWeight: 500 }}>
+      {label}
     </span>
   );
 }
@@ -58,8 +70,11 @@ export function ContextBar({ kpis, large }: Props) {
     >
       {kpis.map((kpi, i) => {
         const { display, prefix, suffix } = formatKPI(kpi.value, kpi.label);
-        const hasDelta = kpi.delta_percent != null;
-        const prevFormatted = hasDelta ? formatKPI(kpi.previous_value ?? null, kpi.label) : null;
+        const hasPct = kpi.delta_percent != null;
+        const hasDelta = hasPct || kpi.delta_label != null;
+        // Only show the "vs <prev>" caption for a real percentage change; a
+        // label like "New" already implies an empty baseline.
+        const prevFormatted = hasPct ? formatKPI(kpi.previous_value ?? null, kpi.label) : null;
 
         return (
           <Card key={i} size="small" style={{ textAlign: "center" }}>
@@ -73,7 +88,11 @@ export function ContextBar({ kpis, large }: Props) {
             />
             {hasDelta && (
               <div style={{ marginTop: 4 }}>
-                <DeltaBadge delta={kpi.delta_percent!} />
+                {hasPct ? (
+                  <DeltaBadge delta={kpi.delta_percent!} />
+                ) : (
+                  <DeltaLabel label={kpi.delta_label!} />
+                )}
                 {prevFormatted && prevFormatted.display !== "-" && (
                   <span style={{ fontSize: 11, color: "#8c8c8c", marginLeft: 6 }}>
                     vs {prevFormatted.prefix}{typeof prevFormatted.display === "number" ? prevFormatted.display.toLocaleString() : prevFormatted.display}{prevFormatted.suffix}
