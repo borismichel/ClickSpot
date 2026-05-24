@@ -12,6 +12,7 @@ import {
   Alert,
   Tabs,
   Badge,
+  Empty,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -19,8 +20,9 @@ import {
   PlayCircleOutlined,
   TableOutlined,
   CodeOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 
 const { Header, Sider, Content } = Layout;
@@ -51,11 +53,14 @@ function formatValue(v: unknown): string {
 
 // ---------- Table Browser ----------
 
-function TableBrowser() {
+function TableBrowser({ initialTable, initialColumn }: { initialTable?: string | null; initialColumn?: string | null }) {
   const [tables, setTables] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<TableInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [tableQuery, setTableQuery] = useState("");
+  const [columnQuery, setColumnQuery] = useState(initialColumn ?? "");
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -68,6 +73,7 @@ function TableBrowser() {
 
   const selectTable = useCallback((db: string, table: string) => {
     setLoadingDetail(true);
+    setSelectedKey(`${db}.${table}`);
     fetch(`/api/v1/tables/${db}/${table}`)
       .then((r) => r.json())
       .then((data) => setSelected(data))
@@ -75,9 +81,34 @@ function TableBrowser() {
       .finally(() => setLoadingDetail(false));
   }, []);
 
+  useEffect(() => {
+    if (!initialTable || Object.keys(tables).length === 0) return;
+    const [db, ...rest] = initialTable.split(".");
+    const table = rest.join(".");
+    if (table && tables[db]?.includes(table)) {
+      selectTable(db, table);
+    }
+  }, [initialTable, selectTable, tables]);
+
+  useEffect(() => {
+    setColumnQuery(initialColumn ?? "");
+  }, [initialColumn]);
+
+  const normalizedTableQuery = tableQuery.trim().toLocaleLowerCase();
+  const visibleTables: Record<string, string[]> = Object.fromEntries(
+    Object.entries(tables)
+      .map(([db, names]) => [
+        db,
+        normalizedTableQuery
+          ? names.filter((name) => `${db}.${name}`.toLocaleLowerCase().includes(normalizedTableQuery))
+          : names,
+      ])
+      .filter(([, names]) => names.length > 0),
+  );
+
   // Build menu items
   const menuItems = ["bronze", "silver", "gold"]
-    .filter((db) => tables[db]?.length)
+    .filter((db) => visibleTables[db]?.length)
     .map((db) => ({
       key: db,
       label: (
@@ -90,12 +121,19 @@ function TableBrowser() {
           />
         </span>
       ),
-      children: (tables[db] ?? []).map((t) => ({
+      children: (visibleTables[db] ?? []).map((t) => ({
         key: `${db}.${t}`,
         label: t,
         icon: <TableOutlined />,
       })),
     }));
+
+  const normalizedColumnQuery = columnQuery.trim().toLocaleLowerCase();
+  const visibleColumns = selected?.columns.filter((column) =>
+    normalizedColumnQuery
+      ? [column.name, column.type, column.default_type].join(" ").toLocaleLowerCase().includes(normalizedColumnQuery)
+      : true,
+  ) ?? [];
 
   const sampleColumns = selected?.sample?.length
     ? Object.keys(selected.sample[0]).map((col) => ({
@@ -117,16 +155,37 @@ function TableBrowser() {
         {loading ? (
           <div style={{ padding: 24, textAlign: "center" }}><Spin /></div>
         ) : (
-          <Menu
-            mode="inline"
-            items={menuItems}
-            defaultOpenKeys={["silver"]}
-            onClick={({ key }) => {
-              const [db, ...rest] = key.split(".");
-              if (rest.length) selectTable(db, rest.join("."));
-            }}
-            style={{ border: "none" }}
-          />
+          <>
+            <div style={{ padding: 12 }}>
+              <Input
+                allowClear
+                size="small"
+                prefix={<SearchOutlined />}
+                placeholder="Search tables"
+                value={tableQuery}
+                onChange={(event) => setTableQuery(event.target.value)}
+              />
+            </div>
+            {menuItems.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="No tables match"
+                style={{ marginTop: 40 }}
+              />
+            ) : (
+              <Menu
+                mode="inline"
+                items={menuItems}
+                defaultOpenKeys={["silver"]}
+                selectedKeys={selectedKey ? [selectedKey] : []}
+                onClick={({ key }) => {
+                  const [db, ...rest] = key.split(".");
+                  if (rest.length) selectTable(db, rest.join("."));
+                }}
+                style={{ border: "none" }}
+              />
+            )}
+          </>
         )}
       </Sider>
       <Content style={{ padding: 24, overflow: "auto" }}>
@@ -151,26 +210,40 @@ function TableBrowser() {
                   key: "columns",
                   label: `Columns (${selected.columns.length})`,
                   children: (
-                    <Table
-                      dataSource={selected.columns.map((c, i) => ({ ...c, _key: i }))}
-                      rowKey="_key"
-                      size="small"
-                      pagination={false}
-                      columns={[
-                        { title: "Name", dataIndex: "name", key: "name", render: (v: string) => <Text code>{v}</Text> },
-                        {
-                          title: "Type",
-                          dataIndex: "type",
-                          key: "type",
-                          render: (v: string) => (
-                            <Tag color={v.includes("String") ? "blue" : v.includes("Date") || v.includes("Time") ? "purple" : v.includes("Float") || v.includes("Int") || v.includes("UInt") ? "green" : "default"}>
-                              {v}
-                            </Tag>
-                          ),
-                        },
-                        { title: "Default", dataIndex: "default_type", key: "default_type" },
-                      ]}
-                    />
+                    <div>
+                      <Input
+                        allowClear
+                        prefix={<SearchOutlined />}
+                        placeholder="Search columns"
+                        value={columnQuery}
+                        onChange={(event) => setColumnQuery(event.target.value)}
+                        style={{ marginBottom: 12, maxWidth: 360 }}
+                      />
+                      {visibleColumns.length === 0 ? (
+                        <Empty description="No columns match your search" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        <Table
+                          dataSource={visibleColumns.map((c, i) => ({ ...c, _key: i }))}
+                          rowKey="_key"
+                          size="small"
+                          pagination={false}
+                          columns={[
+                            { title: "Name", dataIndex: "name", key: "name", render: (v: string) => <Text code>{v}</Text> },
+                            {
+                              title: "Type",
+                              dataIndex: "type",
+                              key: "type",
+                              render: (v: string) => (
+                                <Tag color={v.includes("String") ? "blue" : v.includes("Date") || v.includes("Time") ? "purple" : v.includes("Float") || v.includes("Int") || v.includes("UInt") ? "green" : "default"}>
+                                  {v}
+                                </Tag>
+                              ),
+                            },
+                            { title: "Default", dataIndex: "default_type", key: "default_type" },
+                          ]}
+                        />
+                      )}
+                    </div>
                   ),
                 },
                 {
@@ -306,6 +379,9 @@ function SQLEditor() {
 export default function DataExplorerPage() {
   usePageTitle("Data Explorer");
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialTable = searchParams.get("table");
+  const initialColumn = searchParams.get("column");
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -335,7 +411,7 @@ export default function DataExplorerPage() {
             {
               key: "browser",
               label: <span><TableOutlined /> Table Browser</span>,
-              children: <div style={{ height: "calc(100vh - 110px)" }}><TableBrowser /></div>,
+              children: <div style={{ height: "calc(100vh - 110px)" }}><TableBrowser initialTable={initialTable} initialColumn={initialColumn} /></div>,
             },
             {
               key: "sql",

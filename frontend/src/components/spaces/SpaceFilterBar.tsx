@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { Button, Select, DatePicker, Space, Tag, Typography, Popover, InputNumber, theme } from "antd";
-import { FilterOutlined, ClearOutlined, PlusOutlined, PushpinOutlined } from "@ant-design/icons";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Button, Select, DatePicker, Space, Tag, Typography, Popover, InputNumber, theme, Input, Empty } from "antd";
+import { FilterOutlined, ClearOutlined, PlusOutlined, PushpinOutlined, SearchOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { SpaceColumnMeta, SpaceFilter } from "../../types/dashboard";
 
@@ -124,6 +124,7 @@ function FilterEditor({
 export function SpaceFilterBar({ spaceId, columns, filters, pinnedColumns, onChange, onPinnedChange }: Props) {
   const { token } = theme.useToken();
   const [addingFilter, setAddingFilter] = useState(false);
+  const [columnQuery, setColumnQuery] = useState("");
 
   const hasFilters = filters.some((f) => f.values.length > 0);
 
@@ -134,6 +135,7 @@ export function SpaceFilterBar({ spaceId, columns, filters, pinnedColumns, onCha
       const defaultOp = isDateType(col.type) ? "gte" : isNumericType(col.type) ? "eq" : "in";
       onChange([...filters, { column: colName, operator: defaultOp, values: [] }]);
       setAddingFilter(false);
+      setColumnQuery("");
     },
     [columns, filters, onChange]
   );
@@ -167,6 +169,13 @@ export function SpaceFilterBar({ spaceId, columns, filters, pinnedColumns, onCha
   const availableCols = columns.filter(
     (c) => !activeFilterCols.has(c.name) && c.name !== columns[0]?.name && c.type !== "computed"
   );
+  const visibleCols = useMemo(() => {
+    const needle = columnQuery.trim().toLocaleLowerCase();
+    if (!needle) return availableCols;
+    return availableCols.filter((c) =>
+      [c.display, c.name, c.type].join(" ").toLocaleLowerCase().includes(needle),
+    );
+  }, [availableCols, columnQuery]);
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", flexWrap: "wrap" }}>
@@ -200,33 +209,52 @@ export function SpaceFilterBar({ spaceId, columns, filters, pinnedColumns, onCha
       ) : (
         <Popover
           open
-          onOpenChange={(open) => !open && setAddingFilter(false)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAddingFilter(false);
+              setColumnQuery("");
+            }
+          }}
           trigger="click"
           placement="bottomLeft"
           content={
-            <div style={{ maxHeight: 300, overflowY: "auto", minWidth: 200 }}>
-              {availableCols.map((c) => (
-                <div
-                  key={c.name}
-                  style={{ padding: "4px 8px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                  onClick={() => addFilter(c.name)}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f5f5f5")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  <span>
-                    <Typography.Text>{c.display || c.name}</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                      {c.type}
-                    </Typography.Text>
-                  </span>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<PushpinOutlined style={{ color: pinnedColumns.includes(c.name) ? token.colorPrimary : "#ccc" }} />}
-                    onClick={(e) => { e.stopPropagation(); togglePin(c.name); }}
-                  />
-                </div>
-              ))}
+            <div style={{ width: 280 }}>
+              <Input
+                allowClear
+                autoFocus
+                size="small"
+                prefix={<SearchOutlined />}
+                placeholder="Search columns"
+                value={columnQuery}
+                onChange={(event) => setColumnQuery(event.target.value)}
+                style={{ marginBottom: 8 }}
+              />
+              <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                {visibleCols.length === 0 ? (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No columns match" />
+                ) : visibleCols.map((c) => (
+                  <div
+                    key={c.name}
+                    style={{ padding: "4px 8px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                    onClick={() => addFilter(c.name)}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = token.colorFillTertiary)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span>
+                      <Typography.Text>{c.display || c.name}</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                        {c.type}
+                      </Typography.Text>
+                    </span>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<PushpinOutlined style={{ color: pinnedColumns.includes(c.name) ? token.colorPrimary : token.colorTextQuaternary }} />}
+                      onClick={(e) => { e.stopPropagation(); togglePin(c.name); }}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           }
         >
