@@ -11,7 +11,8 @@ export function useSpaceDashboards(spaceId: string | null) {
     setLoading(true);
     fetch(`/api/v1/spaces/${spaceId}/dashboards`)
       .then((r) => r.json())
-      .then((data: SpaceDashboard[]) => {
+      .then((json) => {
+        const data: SpaceDashboard[] = Array.isArray(json) ? json : [];
         setDashboards(data);
         if (data.length > 0) setActiveId(data[0].id);
       })
