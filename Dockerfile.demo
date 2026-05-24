@@ -39,7 +39,9 @@ RUN python3 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
 COPY requirements.lock ./
-RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.lock
+# --no-deps: install the exact locked closure, never a fresh PyPI re-resolve, so
+# cache-cold rebuilds stay reproducible (see Dockerfile / CLI-56).
+RUN /opt/venv/bin/pip install --no-cache-dir --no-deps -r requirements.lock
 
 # Application code + built frontend.
 COPY . /app
