@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.store import get_db
@@ -99,13 +99,41 @@ async def _get_conversation_with_messages(db, conv_id: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 @router.get("")
-async def list_conversations():
+async def list_conversations(q: str | None = Query(default=None)):
+    """List global (non-space) conversations, newest first.
+
+    When ``q`` is provided, return only conversations whose title OR any
+    message body matches the term (case-insensitive substring). This powers
+    the sidebar search box (title + content match).
+    """
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "SELECT id, title, created_at, updated_at FROM conversations "
-            "WHERE space_id IS NULL ORDER BY updated_at DESC"
-        )
+        term = (q or "").strip()
+        if term:
+            # Escape LIKE wildcards so user input is matched literally.
+            escaped = (
+                term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            like = f"%{escaped}%"
+            cursor = await db.execute(
+                "SELECT c.id, c.title, c.created_at, c.updated_at "
+                "FROM conversations c "
+                "WHERE c.space_id IS NULL AND ("
+                "  c.title LIKE ? ESCAPE '\\' "
+                "  OR EXISTS ("
+                "    SELECT 1 FROM conversation_messages m "
+                "    WHERE m.conversation_id = c.id "
+                "    AND m.content LIKE ? ESCAPE '\\'"
+                "  )"
+                ") "
+                "ORDER BY c.updated_at DESC",
+                (like, like),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT id, title, created_at, updated_at FROM conversations "
+                "WHERE space_id IS NULL ORDER BY updated_at DESC"
+            )
         rows = await cursor.fetchall()
         return [
             {
