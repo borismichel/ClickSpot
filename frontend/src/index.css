@@ -6,3 +6,34 @@ body {
   background: #edebe9;
   color: #0e1015;
 }
+
+/* Conversation sidebar rows. Hover/active backgrounds come from antd tokens
+   via the --conv-hover-bg custom property set on the list container, so the
+   theme stays the single source of truth. */
+.conv-item {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.conv-item:hover {
+  background: var(--conv-hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+/* Delete affordance is hover-reveal (not always-on): hidden by default,
+   shown when the row is hovered or focused. */
+.conv-item__delete {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.conv-item:hover .conv-item__delete,
+.conv-item:focus-within .conv-item__delete,
+.conv-item--active .conv-item__delete {
+  opacity: 1;
+}
+
+/* Touch devices have no hover — keep the delete affordance visible there so
+   it stays reachable (verified at 390x844). */
+@media (hover: none) {
+  .conv-item__delete {
+    opacity: 1;
+  }
+}

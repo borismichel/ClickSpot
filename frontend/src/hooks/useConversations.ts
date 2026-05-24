@@ -6,58 +6,81 @@ const LS_KEY = "hs2ch_conversations";
 export function useConversations() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const migrated = useRef(false);
   const savingRef = useRef(false);
+  const didInit = useRef(false);
 
-  // Fetch from API on mount + migrate localStorage
+  // Load the conversation list, optionally filtered by a search term. The
+  // backend matches the term against both title and message content, so a
+  // non-empty query narrows the list server-side (no N+1 message fetches).
+  const reload = useCallback(async (query: string) => {
+    try {
+      const q = query.trim();
+      const url = q
+        ? `/api/v1/conversations?q=${encodeURIComponent(q)}`
+        : "/api/v1/conversations";
+      const res = await fetch(url);
+      const data = await res.json();
+      setConversations(
+        data.map((c: Record<string, unknown>) => ({
+          id: c.id,
+          title: c.title,
+          messages: [], // lazy-loaded when selected
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        }))
+      );
+    } catch {
+      // silent
+    }
+  }, []);
+
+  // Mount: migrate localStorage (one-time), then load the unfiltered list.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      try {
-        // Migrate localStorage (one-time)
-        if (!migrated.current) {
-          migrated.current = true;
-          const raw = localStorage.getItem(LS_KEY);
-          if (raw) {
-            try {
-              const local: Conversation[] = JSON.parse(raw);
-              if (local.length > 0) {
-                await fetch("/api/v1/conversations/import", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    conversations: local.map((c) => ({
-                      id: c.id,
-                      title: c.title,
-                      messages: c.messages,
-                      created_at: c.createdAt,
-                      updated_at: c.updatedAt,
-                    })),
-                  }),
-                });
-                localStorage.removeItem(LS_KEY);
-              }
-            } catch {
-              // migration failed
+      if (!migrated.current) {
+        migrated.current = true;
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
+          try {
+            const local: Conversation[] = JSON.parse(raw);
+            if (local.length > 0) {
+              await fetch("/api/v1/conversations/import", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  conversations: local.map((c) => ({
+                    id: c.id,
+                    title: c.title,
+                    messages: c.messages,
+                    created_at: c.createdAt,
+                    updated_at: c.updatedAt,
+                  })),
+                }),
+              });
+              localStorage.removeItem(LS_KEY);
             }
+          } catch {
+            // migration failed
           }
         }
-
-        const res = await fetch("/api/v1/conversations");
-        const data = await res.json();
-        setConversations(
-          data.map((c: Record<string, unknown>) => ({
-            id: c.id,
-            title: c.title,
-            messages: [], // lazy-loaded when selected
-            createdAt: c.createdAt,
-            updatedAt: c.updatedAt,
-          }))
-        );
-      } catch {
-        // silent
       }
+      if (!cancelled) await reload("");
+      didInit.current = true;
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+
+  // Debounced live search: refetch the (filtered) list when the term changes.
+  useEffect(() => {
+    if (!didInit.current) return; // skip until the initial load has run
+    const t = setTimeout(() => reload(search), 200);
+    return () => clearTimeout(t);
+  }, [search, reload]);
 
   const saveConversation = useCallback(
     async (messages: ChatMessage[]) => {
@@ -209,6 +232,8 @@ export function useConversations() {
         new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     ),
     activeId,
+    search,
+    setSearch,
     saveConversation,
     loadConversation,
     startNew,

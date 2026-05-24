@@ -18,6 +18,8 @@ export default function App() {
   const {
     conversations,
     activeId,
+    search,
+    setSearch,
     saveConversation,
     loadConversation,
     startNew,
@@ -33,6 +35,7 @@ export default function App() {
   }, [messages, isLoading, saveConversation]);
 
   const handleNewChat = () => {
+    setSearch(""); // clear any active filter so the fresh chat is visible
     startNew();
     newChat();
   };
@@ -112,6 +115,8 @@ export default function App() {
           <ConversationSidebar
             conversations={conversations}
             activeId={activeId}
+            search={search}
+            onSearchChange={setSearch}
             onSelect={handleSelectConversation}
             onNew={handleNewChat}
             onDelete={deleteConversation}
