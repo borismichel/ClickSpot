@@ -201,15 +201,19 @@ export function UnifiedFilterBar({
     return next;
   }, [columns, filters, pinnedColumns]);
 
+  const visibleColumnNames = useMemo(() => new Set(visibleFilters.map((filter) => filter.column)), [visibleFilters]);
+  const addableColumnCount = columns.filter(
+    (column) => !visibleColumnNames.has(column.name) && column.type !== "computed"
+  ).length;
+
   const availableColumns = useMemo(() => {
-    const visibleColumns = new Set(visibleFilters.map((filter) => filter.column));
     const normalizedSearch = columnSearch.trim().toLowerCase();
     return columns.filter((column) => {
-      if (visibleColumns.has(column.name) || column.type === "computed") return false;
+      if (visibleColumnNames.has(column.name) || column.type === "computed") return false;
       if (!normalizedSearch) return true;
       return `${column.display ?? ""} ${column.name} ${column.type}`.toLowerCase().includes(normalizedSearch);
     });
-  }, [columnSearch, columns, visibleFilters]);
+  }, [columnSearch, columns, visibleColumnNames]);
 
   const addFilter = useCallback(
     (columnName: string) => {
@@ -343,7 +347,7 @@ export function UnifiedFilterBar({
           </div>
         }
       >
-        <Button size="small" type="dashed" icon={<PlusOutlined />} disabled={columns.length === 0}>
+        <Button size="small" type="dashed" icon={<PlusOutlined />} disabled={addableColumnCount === 0}>
           Filter
         </Button>
       </Popover>

@@ -603,18 +603,23 @@ export default function DashboardPage() {
     : (activeLibDash?.items.length ?? 0) > 0;
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <Header
         style={{
           background: "#fff",
           borderBottom: "1px solid #f0f0f0",
-          padding: "0 24px",
+          padding: "12px 16px",
+          height: "auto",
+          minHeight: 64,
+          lineHeight: "normal",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 8,
         }}
       >
-        <Space>
+        <Space wrap style={{ minWidth: 0, flex: "1 1 280px" }}>
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/")} />
           {editing ? (
             <Space.Compact>
@@ -628,7 +633,7 @@ export default function DashboardPage() {
               <Button icon={<CheckOutlined />} onClick={finishRename} />
             </Space.Compact>
           ) : (
-            <Typography.Title level={5} style={{ margin: 0 }}>
+            <Typography.Title level={5} style={{ margin: 0, minWidth: 0, maxWidth: "100%" }}>
               {activeTitle}
               {active && (
                 <Button
@@ -648,11 +653,11 @@ export default function DashboardPage() {
           )}
         </Space>
 
-        <Space>
+        <Space wrap style={{ justifyContent: "flex-end", minWidth: 0, flex: "1 1 320px" }}>
           <Select
             value={activeSelectValue}
             onChange={handleSelectChange}
-            style={{ width: 260 }}
+            style={{ width: 260, maxWidth: "100%" }}
             placeholder="Select dashboard"
             options={selectorOptions}
             popupRender={(menu) => (
@@ -695,7 +700,7 @@ export default function DashboardPage() {
         </Space>
       </Header>
 
-      <Content style={{ padding: 16, background: "#fafafa" }}>
+      <Content style={{ padding: 16, background: "#fafafa", overflowX: "hidden" }}>
         {/* Filter bars */}
         {!isSpace && activeLibDash && activeLibDash.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
@@ -721,7 +726,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div ref={gridContainerRef}>
+        <div ref={gridContainerRef} style={{ maxWidth: "100%", overflowX: "hidden" }}>
           {hasNoDashboards || !active ? (
             <div style={{ textAlign: "center", paddingTop: 120 }}>
               <Empty description="No dashboards yet" image={Empty.PRESENTED_IMAGE_SIMPLE}>
