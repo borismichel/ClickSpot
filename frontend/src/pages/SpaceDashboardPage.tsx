@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin } from "antd";
+import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin, Tooltip, message } from "antd";
 import {
   ArrowLeftOutlined,
   PlusOutlined,
@@ -8,6 +8,7 @@ import {
   EditOutlined,
   CheckOutlined,
   MessageOutlined,
+  ShareAltOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
@@ -84,6 +85,45 @@ export default function SpaceDashboardPage() {
   const handleCreate = async () => {
     await createDashboard(spaceConfig?.name ? `${spaceConfig.name} Dashboard` : "New Dashboard");
   };
+
+  // Switch dashboards and keep the URL's `dashboard` param in sync so the
+  // share link always points at the dashboard currently in view. Filters for
+  // the newly selected dashboard are re-applied from its own state.
+  const handleSelectDashboard = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      const next = new URLSearchParams(searchParams);
+      next.set("dashboard", id);
+      next.delete("filters");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setActiveId, setSearchParams]
+  );
+
+  // Copy a shareable link to the current dashboard + filter view. Active
+  // dashboard and filters are already mirrored into the URL, so the live href
+  // is the share link.
+  const handleShare = useCallback(async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      message.success("Link copied — opens this dashboard with the same filters");
+    } catch {
+      message.error("Couldn't copy the link. Copy it from your browser's address bar.");
+    }
+  }, []);
 
   const handleFilterChange = useCallback(
     (filters: SpaceFilter[]) => {
@@ -235,7 +275,7 @@ export default function SpaceDashboardPage() {
           {dashboards.length > 1 && (
             <Select
               value={activeId}
-              onChange={setActiveId}
+              onChange={handleSelectDashboard}
               style={{ width: 180 }}
               options={dashboards.map((d) => ({ label: d.title, value: d.id }))}
             />
@@ -255,6 +295,13 @@ export default function SpaceDashboardPage() {
           <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
             Refresh
           </Button>
+          {activeId && (
+            <Tooltip title="Copy a link to this dashboard with its current filters">
+              <Button icon={<ShareAltOutlined />} onClick={handleShare}>
+                Share
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       </Header>
 
