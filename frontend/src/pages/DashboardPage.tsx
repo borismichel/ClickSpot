@@ -138,8 +138,8 @@ export default function DashboardPage() {
   const fetchSpaceDashboards = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/spaces/dashboards/all");
-      const data: SpaceDashboard[] = await res.json();
-      setSpaceDashboards(data);
+      const data = await res.json();
+      setSpaceDashboards(Array.isArray(data) ? data : []);
     } catch { /* silent */ }
     setSpaceDashboardsLoaded(true);
   }, []);
@@ -180,7 +180,7 @@ export default function DashboardPage() {
     setSpaceConfig({ id: spaceId, name: activeSpaceDash.space_name ?? spaceId });
     fetch(`/api/v1/spaces/${spaceId}/columns`)
       .then((r) => r.json())
-      .then(setSpaceColumns)
+      .then((cols) => setSpaceColumns(Array.isArray(cols) ? cols : []))
       .catch(() => {});
   }, [activeSpaceDash?.space_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -189,7 +189,9 @@ export default function DashboardPage() {
     try {
       const res = await fetch("/api/v1/spaces");
       const data = await res.json();
-      setAvailableSpaces(data.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })));
+      setAvailableSpaces(
+        (Array.isArray(data) ? data : []).map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }))
+      );
     } catch { /* silent */ }
     setCreateModalOpen(true);
   }, []);
@@ -229,7 +231,8 @@ export default function DashboardPage() {
       const params = new URLSearchParams({ limit: "50" });
       if (search.trim()) params.set("q", search.trim());
       const res = await fetch(`/api/v1/filters/values/${column.name}?${params.toString()}`);
-      const options: FilterValueOption[] = await res.json();
+      const json = await res.json();
+      const options: FilterValueOption[] = Array.isArray(json) ? json : [];
       rememberValueLabels(column.name, options);
       return options;
     },
@@ -243,7 +246,8 @@ export default function DashboardPage() {
       const res = await fetch(
         `/api/v1/spaces/${spaceId}/columns/${encodeURIComponent(column.name)}/values?${params.toString()}`
       );
-      const values: Array<string | FilterValueOption> = await res.json();
+      const json = await res.json();
+      const values: Array<string | FilterValueOption> = Array.isArray(json) ? json : [];
       return values.map((value) => (typeof value === "string" ? { value, label: value } : value));
     },
     []

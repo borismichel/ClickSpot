@@ -77,7 +77,7 @@ export default function SpaceDashboardPage() {
       .catch(() => {});
     fetch(`/api/v1/spaces/${spaceId}/columns`)
       .then((r) => r.json())
-      .then(setColumns)
+      .then((cols) => setColumns(Array.isArray(cols) ? cols : []))
       .catch(() => {});
   }, [spaceId]);
 
@@ -118,7 +118,8 @@ export default function SpaceDashboardPage() {
       const res = await fetch(
         `/api/v1/spaces/${spaceId}/columns/${encodeURIComponent(column.name)}/values?${params.toString()}`
       );
-      const values: Array<string | FilterValueOption> = await res.json();
+      const json = await res.json();
+      const values: Array<string | FilterValueOption> = Array.isArray(json) ? json : [];
       return values.map((value) => (typeof value === "string" ? { value, label: value } : value));
     },
     [spaceId]

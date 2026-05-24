@@ -41,15 +41,16 @@ export function useObjectRepo() {
         }
 
         const res = await fetch("/api/v1/objects");
-        const data = await res.json();
+        const json = await res.json();
+        const data = Array.isArray(json) ? json : [];
         setObjects(
           data.map((o: Record<string, unknown>) => ({
-            id: o.id,
-            title: o.title,
-            sql: o.sql,
-            viz: o.viz,
-            contextKPIs: o.context_kpis ?? [],
-            savedAt: o.created_at,
+            id: o.id as string,
+            title: o.title as string,
+            sql: o.sql as string,
+            viz: o.viz as VizType,
+            contextKPIs: (o.context_kpis as SavedObject["contextKPIs"]) ?? [],
+            savedAt: o.created_at as string,
           }))
         );
       } catch {

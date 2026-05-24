@@ -44,7 +44,8 @@ export function useDashboards() {
         }
 
         const res = await fetch("/api/v1/dashboards");
-        const data: Dashboard[] = await res.json();
+        const json = await res.json();
+        const data: Dashboard[] = Array.isArray(json) ? json : [];
         setDashboards(data);
         if (data.length > 0 && !activeId) {
           setActiveId(data[0].id);
