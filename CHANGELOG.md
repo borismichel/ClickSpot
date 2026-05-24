@@ -6,7 +6,7 @@ All notable changes to ClickSpot are documented here. The format is based on
 ## [Unreleased]
 
 ### Changed
-- **UI overhaul** — ClickSpot's interface moved from a prototypical Ant Design
+- **UI overhaul:** ClickSpot's interface moved from a prototypical Ant Design
   app to a coherent, branded product on a real design-system foundation. Full
   before/after writeup with screenshots: **[docs/ui-overhaul.md](docs/ui-overhaul.md)**.
   - Design tokens + `ConfigProvider`; ClickSpot coral applied app-wide, replacing
