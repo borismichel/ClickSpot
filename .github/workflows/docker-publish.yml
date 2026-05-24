@@ -1,16 +1,25 @@
 name: Docker images
 
-# Builds the ClickSpot images and publishes them to GitHub Container Registry.
+# Builds the ClickSpot images and publishes them to GitHub Container Registry as
+# multi-arch manifests (linux/amd64 + linux/arm64), so the same tag pulls on
+# Intel/AMD and on ARM — Apple Silicon, ARM Windows/Linux, etc. (CLI-56).
 #
 #   ghcr.io/borismichel/clickspot-app       backend + Dagster + seed loader
 #   ghcr.io/borismichel/clickspot-frontend  nginx-served SPA
 #   ghcr.io/borismichel/clickspot:demo       all-in-one preloaded demo
 #
+# Each architecture is built on its OWN native GitHub-hosted runner (amd64 on
+# ubuntu-latest, arm64 on ubuntu-24.04-arm) rather than via QEMU emulation. The
+# demo image runs ClickHouse + the seed pipeline during `docker build` to bake
+# the warehouse; emulating that under QEMU is slow and fragile, so we build it
+# natively per arch and merge the resulting digests into one manifest list.
+#
 # Pull is public and needs no login (one-time setup: set each package's
 # visibility to Public under the repo/org Packages settings after the first push).
 #
-# - Pull requests build every image (no push) so the Dockerfiles are verified.
-# - Tags (v*) and published releases build and push.
+# - Pull requests build every image on both arches (no push) so the Dockerfiles
+#   are verified on amd64 AND arm64, and the smoke job boots them natively.
+# - Tags (v*) and published releases build, push per-arch by digest, then merge.
 
 on:
   push:
@@ -45,12 +54,16 @@ permissions:
   packages: write
 
 jobs:
+  # One build per (image × arch) on a native runner. On releases/tags each build
+  # pushes by digest (no tag yet); the merge job assembles the tagged manifest
+  # list. On pull requests nothing is pushed — the build just verifies the
+  # Dockerfile compiles on both architectures.
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        image: &images
           - name: app
             image: clickspot-app
             context: .
@@ -74,6 +87,11 @@ jobs:
             tags: |
               type=raw,value=demo
               type=semver,pattern=demo-{{version}}
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,31 +107,106 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Image metadata
+      - name: Image metadata (labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
-          tags: ${{ matrix.tags }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.image }}
 
-      - name: Build and push (${{ matrix.name }})
+      - name: Build ${{ matrix.image.name }} (${{ matrix.platform.arch }})
+        id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: linux/${{ matrix.platform.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # Per-arch cache so the two legs don't clobber each other.
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          # Push by digest only — the merge job applies the human-readable tags.
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image.image }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Combine the per-arch digests into one multi-arch manifest list per image and
+  # push it under the real tags. Only runs when we actually pushed (not on PRs).
+  merge:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        image: *images
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image.name }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.image }}
+          tags: ${{ matrix.image.tags }}
+
+      - name: Create and push manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/${{ github.repository_owner }}/${{ matrix.image.image }}@sha256:%s ' *)
+
+      - name: Inspect manifest list
+        run: |
+          tag=$(jq -cr '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools inspect "$tag"
 
   # Runtime smoke test on the GitHub runners — the heavy-container host the
   # disk-constrained dev box can't be. Acceptance for CLI-14 is "yields a
   # working instance", not just "images build", so boot both delivery paths and
-  # assert they serve real data and degrade cleanly with no LLM key.
+  # assert they serve real data and degrade cleanly with no LLM key. Runs on
+  # both arches natively (CLI-56) so we prove the ARM images actually run, not
+  # just that the manifest exists.
   smoke:
-    runs-on: ubuntu-latest
     needs: build
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,16 +214,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Rebuild into the local daemon, reusing the build job's gha cache (cache
-      # hits, not full rebuilds). Tags match what compose and `docker run` use.
+      # Rebuild into the local daemon for this runner's native arch, reusing the
+      # build job's gha cache (cache hits, not full rebuilds). Tags match what
+      # compose and `docker run` use.
       - name: Build app image (load)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           load: true
+          platforms: linux/${{ matrix.platform.arch }}
           tags: ghcr.io/${{ github.repository_owner }}/clickspot-app:latest
-          cache-from: type=gha,scope=app
+          cache-from: type=gha,scope=app-${{ matrix.platform.arch }}
 
       - name: Build frontend image (load)
         uses: docker/build-push-action@v6
@@ -138,8 +233,9 @@ jobs:
           context: ./frontend
           file: frontend/Dockerfile
           load: true
+          platforms: linux/${{ matrix.platform.arch }}
           tags: ghcr.io/${{ github.repository_owner }}/clickspot-frontend:latest
-          cache-from: type=gha,scope=frontend
+          cache-from: type=gha,scope=frontend-${{ matrix.platform.arch }}
 
       - name: Build demo image (load)
         uses: docker/build-push-action@v6
@@ -147,10 +243,11 @@ jobs:
           context: .
           file: Dockerfile.demo
           load: true
+          platforms: linux/${{ matrix.platform.arch }}
           tags: ghcr.io/${{ github.repository_owner }}/clickspot:demo
-          cache-from: type=gha,scope=demo
+          cache-from: type=gha,scope=demo-${{ matrix.platform.arch }}
 
-      - name: Smoke — preloaded demo image
+      - name: Smoke — preloaded demo image (${{ matrix.platform.arch }})
         run: |
           set -euo pipefail
           docker run -d --name clickspot-demo -p 8080:8080 \
@@ -183,7 +280,7 @@ jobs:
           test "$code" = "503" || { echo "demo chat: expected 503, got $code"; docker logs clickspot-demo; exit 1; }
           echo "demo smoke OK"
 
-      - name: Smoke — compose stack (fresh-clone path)
+      - name: Smoke — compose stack (fresh-clone path, ${{ matrix.platform.arch }})
         run: |
           set -euo pipefail
           # Zero-knob default path: no HUBSPOT_TOKEN, no LLM key.
