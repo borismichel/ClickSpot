@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# qa-render — shared launcher for headless-Chrome / Vite visual QA on this host.
+#
+# Two jobs (see CLI-52 / runbook docs/qa-render-runbook.md):
+#   1. Force ALL render scratch onto the /dev/shm tmpfs, never the (often-full)
+#      root filesystem. Sets TMPDIR/TMP/TEMP + a Chrome user-data-dir + XDG dirs
+#      under /dev/shm so Chromium's mkdtemp("/tmp/...") can never ENOSPC `/`.
+#   2. Cap how many headless Chromes run at once (cross-agent flock semaphore,
+#      default 2). Excess launches QUEUE rather than crash with OOM /
+#      net::ERR_INSUFFICIENT_RESOURCES.
+#
+# Usage:
+#   qa-render <command> [args...]          # run command with a render slot + shm scratch
+#   qa-render -- node qa-foo.cjs           # explicit end-of-options
+#   qa-render -n 3 node qa-foo.cjs         # override max concurrency for this call
+#   qa-render --env                        # print `export ...` lines for manual sourcing (advanced)
+#   qa-render -h | --help
+#
+# Environment (all optional, with defaults):
+#   QA_RENDER_MAX_CONCURRENCY  max simultaneous renders (default 2)
+#   QA_RENDER_WAIT_TIMEOUT     seconds to wait for a slot, 0 = forever (default 0)
+#   QA_RENDER_SHM              tmpfs root for scratch (default /dev/shm)
+#   QA_RENDER_LIBDIR           libs for Chromium (default /home/linuxbrew/.linuxbrew/lib)
+#   QA_RENDER_CHROME           Chrome executable (default: newest ~/.cache/puppeteer chrome)
+#   QA_RENDER_MIN_SHM_MB       refuse to start if tmpfs free < this (default 200)
+#
+# Exit codes: the wrapped command's own code, or 75 (EX_TEMPFAIL) if it timed
+# out waiting for a slot, or 64 (EX_USAGE) for bad arguments.
+
+set -uo pipefail
+
+PROG="qa-render"
+
+# ---- config ---------------------------------------------------------------
+MAXC="${QA_RENDER_MAX_CONCURRENCY:-2}"
+TIMEOUT="${QA_RENDER_WAIT_TIMEOUT:-0}"
+SHM="${QA_RENDER_SHM:-/dev/shm}"
+LIBDIR="${QA_RENDER_LIBDIR:-/home/linuxbrew/.linuxbrew/lib}"
+MIN_SHM_MB="${QA_RENDER_MIN_SHM_MB:-200}"
+PRINT_ENV=0
+
+log() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+die() { log "$*"; exit 64; }
+
+usage() { sed -n '2,40p' "$0" | sed 's/^#\{0,1\} \{0,1\}//'; exit 0; }
+
+# ---- arg parsing ----------------------------------------------------------
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage ;;
+    -n|--max) shift; MAXC="${1:?-n needs a value}"; shift ;;
+    --max=*) MAXC="${1#*=}"; shift ;;
+    --timeout) shift; TIMEOUT="${1:?--timeout needs a value}"; shift ;;
+    --timeout=*) TIMEOUT="${1#*=}"; shift ;;
+    --env) PRINT_ENV=1; shift ;;
+    --) shift; break ;;
+    -*) die "unknown option: $1" ;;
+    *) break ;;
+  esac
+done
+
+case "$MAXC" in ''|*[!0-9]*) die "max concurrency must be an integer, got '$MAXC'";; esac
+[ "$MAXC" -lt 1 ] && MAXC=1
+
+if [ "$PRINT_ENV" -eq 0 ] && [ $# -eq 0 ]; then
+  die "no command given (try: $PROG node qa-foo.cjs). See -h."
+fi
+
+# ---- resolve chrome -------------------------------------------------------
+resolve_chrome() {
+  if [ -n "${QA_RENDER_CHROME:-}" ] && [ -x "$QA_RENDER_CHROME" ]; then
+    printf '%s' "$QA_RENDER_CHROME"; return 0
+  fi
+  local base="${HOME:-/home/clawdbot}/.cache/puppeteer/chrome" d p
+  if [ -d "$base" ]; then
+    # newest linux-* build that actually has a chrome binary
+    for d in $(ls -1 "$base" 2>/dev/null | grep '^linux-' | sort -V -r); do
+      p="$base/$d/chrome-linux64/chrome"
+      [ -x "$p" ] && { printf '%s' "$p"; return 0; }
+    done
+  fi
+  return 1  # let the JS launcher fall back to Playwright's bundled chromium
+}
+CHROME="$(resolve_chrome || true)"
+
+# ---- shm preflight --------------------------------------------------------
+[ -d "$SHM" ] || die "tmpfs '$SHM' does not exist; set QA_RENDER_SHM"
+[ -w "$SHM" ] || die "tmpfs '$SHM' not writable"
+shm_free_mb() { df -Pm "$SHM" 2>/dev/null | awk 'NR==2{print $4}'; }
+FREE="$(shm_free_mb)"
+if [ -n "$FREE" ] && [ "$FREE" -lt "$MIN_SHM_MB" ]; then
+  log "WARNING: only ${FREE}MB free on $SHM (< ${MIN_SHM_MB}MB). Renders may fail; check 'df -h $SHM' and clean stale $SHM/qa-render/run.* dirs."
+fi
+
+# ---- per-run scratch on tmpfs --------------------------------------------
+RUNROOT="$SHM/qa-render"
+RUNDIR="$RUNROOT/run.$$.${RANDOM}${RANDOM}"
+mkdir -p "$RUNDIR/tmp" "$RUNDIR/chrome-user-data" "$RUNDIR/xdg-cache" "$RUNDIR/xdg-config" "$RUNDIR/xdg-run" \
+  || die "could not create scratch under $RUNDIR"
+chmod 700 "$RUNDIR/xdg-run" 2>/dev/null || true
+
+cleanup() { rm -rf "$RUNDIR" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
+# Everything below points scratch at tmpfs so a render can never write to `/`.
+export TMPDIR="$RUNDIR/tmp" TMP="$RUNDIR/tmp" TEMP="$RUNDIR/tmp"
+export XDG_CACHE_HOME="$RUNDIR/xdg-cache" XDG_CONFIG_HOME="$RUNDIR/xdg-config" XDG_RUNTIME_DIR="$RUNDIR/xdg-run"
+export QA_RENDER_USER_DATA_DIR="$RUNDIR/chrome-user-data"
+export QA_RENDER_RUNDIR="$RUNDIR"
+export QA_RENDER_LIBDIR="$LIBDIR"
+# Real shm available -> do NOT pass --disable-dev-shm-usage. --no-sandbox is required here.
+export QA_RENDER_CHROME_ARGS="--no-sandbox"
+[ -n "$CHROME" ] && export QA_RENDER_CHROME="$CHROME"
+# nss/nspr libs for Chromium live in linuxbrew; prepend so bundled chromium loads too.
+export LD_LIBRARY_PATH="$LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+if [ "$PRINT_ENV" -eq 1 ]; then
+  # Advanced/manual mode: emit the env for `eval "$(qa-render --env)"`.
+  # NOTE: this mode does NOT apply the concurrency gate and does NOT auto-clean
+  # $QA_RENDER_RUNDIR — the canonical path is `qa-render <command>`.
+  trap - EXIT INT TERM   # caller owns the rundir now
+  for v in TMPDIR TMP TEMP XDG_CACHE_HOME XDG_CONFIG_HOME XDG_RUNTIME_DIR \
+           QA_RENDER_USER_DATA_DIR QA_RENDER_RUNDIR QA_RENDER_LIBDIR \
+           QA_RENDER_CHROME_ARGS QA_RENDER_CHROME LD_LIBRARY_PATH; do
+    printf 'export %s=%q\n' "$v" "${!v:-}"
+  done
+  log "printed env for manual sourcing; remember to: rm -rf \"$RUNDIR\" when done (no concurrency gate applied)"
+  exit 0
+fi
+
+# ---- concurrency gate (flock counting semaphore over N slot files) --------
+LOCKDIR="$RUNROOT/locks"
+mkdir -p "$LOCKDIR" 2>/dev/null || true
+FLOCK="$(command -v flock || true)"
+
+run_command() { "$@"; }
+
+if [ -z "$FLOCK" ]; then
+  log "WARNING: flock not found; running WITHOUT the concurrency gate."
+  run_command "$@"
+  exit $?
+fi
+
+deadline=0
+[ "$TIMEOUT" -gt 0 ] && deadline=$(( SECONDS + TIMEOUT ))
+waited=0
+acq_marker_base="$RUNDIR/.acquired"
+
+while :; do
+  for slot in $(seq 1 "$MAXC"); do
+    marker="$acq_marker_base.$slot"
+    rm -f "$marker"
+    # Hold slot.$slot for the whole life of the command via fd 9. If flock -n
+    # fails the slot is busy -> exit 99 without creating the marker so we can
+    # tell "slot busy" apart from the command's own exit code.
+    (
+      flock -n 9 || exit 99
+      : > "$marker"
+      exec "$@"
+    ) 9> "$LOCKDIR/slot.$slot"
+    rc=$?
+    if [ -e "$marker" ]; then
+      rm -f "$marker"
+      exit "$rc"          # we held the slot; rc is the command's real exit code
+    fi
+    # slot was busy -> try the next one
+  done
+
+  # all slots busy -> queue
+  if [ "$deadline" -ne 0 ] && [ "$SECONDS" -ge "$deadline" ]; then
+    log "timed out after ${TIMEOUT}s waiting for a render slot (max=$MAXC); giving up."
+    exit 75
+  fi
+  if [ "$waited" -eq 0 ]; then
+    log "all $MAXC render slots busy; queueing (set QA_RENDER_MAX_CONCURRENCY to change)..."
+    waited=1
+  fi
+  sleep 1
+done
