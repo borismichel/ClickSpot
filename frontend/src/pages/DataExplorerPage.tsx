@@ -13,6 +13,8 @@ import {
   Tabs,
   Badge,
   Empty,
+  Drawer,
+  theme,
 } from "antd";
 import {
   DatabaseOutlined,
@@ -23,6 +25,7 @@ import {
 } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { AppHeader } from "../components/AppHeader";
 
 const { Sider, Content } = Layout;
@@ -54,6 +57,9 @@ function formatValue(v: unknown): string {
 // ---------- Table Browser ----------
 
 function TableBrowser({ initialTable, initialColumn }: { initialTable?: string | null; initialColumn?: string | null }) {
+  const { token } = theme.useToken();
+  const isMobile = useIsMobile();
+  const [navOpen, setNavOpen] = useState(false);
   const [tables, setTables] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<TableInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -149,46 +155,81 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
       }))
     : [];
 
+  const tableList = loading ? (
+    <div style={{ padding: 24, textAlign: "center" }}><Spin /></div>
+  ) : (
+    <>
+      <div style={{ padding: 12 }}>
+        <Input
+          allowClear
+          size="small"
+          prefix={<SearchOutlined />}
+          placeholder="Search tables"
+          value={tableQuery}
+          onChange={(event) => setTableQuery(event.target.value)}
+        />
+      </div>
+      {menuItems.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="No tables match"
+          style={{ marginTop: 40 }}
+        />
+      ) : (
+        <Menu
+          mode="inline"
+          items={menuItems}
+          defaultOpenKeys={["silver"]}
+          selectedKeys={selectedKey ? [selectedKey] : []}
+          onClick={({ key }) => {
+            const [db, ...rest] = key.split(".");
+            if (rest.length) {
+              selectTable(db, rest.join("."));
+              setNavOpen(false); // close the off-canvas list after picking a table (mobile)
+            }
+          }}
+          style={{ border: "none" }}
+        />
+      )}
+    </>
+  );
+
   return (
     <Layout style={{ height: "100%" }}>
-      <Sider width={260} style={{ background: "#fff", borderRight: "1px solid #f0f0f0", overflow: "auto" }}>
-        {loading ? (
-          <div style={{ padding: 24, textAlign: "center" }}><Spin /></div>
-        ) : (
-          <>
-            <div style={{ padding: 12 }}>
-              <Input
-                allowClear
-                size="small"
-                prefix={<SearchOutlined />}
-                placeholder="Search tables"
-                value={tableQuery}
-                onChange={(event) => setTableQuery(event.target.value)}
-              />
-            </div>
-            {menuItems.length === 0 ? (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="No tables match"
-                style={{ marginTop: 40 }}
-              />
-            ) : (
-              <Menu
-                mode="inline"
-                items={menuItems}
-                defaultOpenKeys={["silver"]}
-                selectedKeys={selectedKey ? [selectedKey] : []}
-                onClick={({ key }) => {
-                  const [db, ...rest] = key.split(".");
-                  if (rest.length) selectTable(db, rest.join("."));
-                }}
-                style={{ border: "none" }}
-              />
-            )}
-          </>
+      {!isMobile && (
+        <Sider
+          width={260}
+          style={{
+            background: token.colorBgContainer,
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
+            overflow: "auto",
+          }}
+        >
+          {tableList}
+        </Sider>
+      )}
+      {isMobile && (
+        <Drawer
+          title="Tables"
+          placement="left"
+          width={280}
+          open={navOpen}
+          onClose={() => setNavOpen(false)}
+          styles={{ body: { padding: 0 } }}
+        >
+          {tableList}
+        </Drawer>
+      )}
+      <Content style={{ padding: isMobile ? 12 : 24, overflow: "auto" }}>
+        {isMobile && (
+          <Button
+            icon={<DatabaseOutlined />}
+            onClick={() => setNavOpen(true)}
+            style={{ marginBottom: 12 }}
+          >
+            Browse tables
+          </Button>
         )}
-      </Sider>
-      <Content style={{ padding: 24, overflow: "auto" }}>
         {loadingDetail ? (
           <Spin style={{ marginTop: 48 }} />
         ) : selected ? (
@@ -378,30 +419,39 @@ function SQLEditor() {
 
 export default function DataExplorerPage() {
   usePageTitle("Data Explorer");
+  const isMobile = useIsMobile();
   const [searchParams] = useSearchParams();
   const initialTable = searchParams.get("table");
   const initialColumn = searchParams.get("column");
 
+  const tabItems = [
+    {
+      key: "browser",
+      label: <span><TableOutlined /> Table Browser</span>,
+      children: <div style={{ height: "calc(100vh - 110px)" }}><TableBrowser initialTable={initialTable} initialColumn={initialColumn} /></div>,
+    },
+    // SQL Editor is a power/designer surface — read-only mobile shows the
+    // browser only; the editor stays on ≥md where there's room for it.
+    ...(isMobile
+      ? []
+      : [
+          {
+            key: "sql",
+            label: <span><CodeOutlined /> SQL Editor</span>,
+            children: <div style={{ height: "calc(100vh - 110px)" }}><SQLEditor /></div>,
+          },
+        ]),
+  ];
+
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <AppHeader />
       <Content style={{ height: "calc(100vh - 64px)" }}>
         <Tabs
           defaultActiveKey="browser"
           style={{ height: "100%" }}
-          tabBarStyle={{ paddingLeft: 24, marginBottom: 0 }}
-          items={[
-            {
-              key: "browser",
-              label: <span><TableOutlined /> Table Browser</span>,
-              children: <div style={{ height: "calc(100vh - 110px)" }}><TableBrowser initialTable={initialTable} initialColumn={initialColumn} /></div>,
-            },
-            {
-              key: "sql",
-              label: <span><CodeOutlined /> SQL Editor</span>,
-              children: <div style={{ height: "calc(100vh - 110px)" }}><SQLEditor /></div>,
-            },
-          ]}
+          tabBarStyle={{ paddingLeft: isMobile ? 12 : 24, marginBottom: 0 }}
+          items={tabItems}
         />
       </Content>
     </Layout>

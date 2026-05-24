@@ -1,10 +1,12 @@
-import { useEffect } from "react";
-import { Layout } from "antd";
+import { useEffect, useState } from "react";
+import { Layout, Button, Drawer, theme } from "antd";
+import { UnorderedListOutlined } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
 import { useConversations } from "./hooks/useConversations";
 import { useObjectRepo } from "./hooks/useObjectRepo";
+import { useIsMobile } from "./hooks/useIsMobile";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { AppHeader } from "./components/AppHeader";
@@ -13,6 +15,9 @@ const { Sider, Content } = Layout;
 
 export default function App() {
   usePageTitle("Chat");
+  const { token } = theme.useToken();
+  const isMobile = useIsMobile();
+  const [convDrawerOpen, setConvDrawerOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { messages, isLoading, sendMessage, newChat, loadMessages } = useChat();
   const {
@@ -56,6 +61,7 @@ export default function App() {
     setSearch(""); // clear any active filter so the fresh chat is visible
     startNew();
     newChat();
+    setConvDrawerOpen(false); // no-op on desktop (drawer not mounted)
   };
 
   const handleSelectConversation = (id: string) => {
@@ -65,38 +71,55 @@ export default function App() {
     } else {
       handleNewChat();
     }
+    setConvDrawerOpen(false);
   };
 
+  // One sidebar instance, hosted either in the desktop Sider or the mobile drawer.
+  const sidebar = (
+    <ConversationSidebar
+      conversations={conversations}
+      activeId={activeId}
+      search={search}
+      onSearchChange={setSearch}
+      onSelect={handleSelectConversation}
+      onNew={handleNewChat}
+      onDelete={deleteConversation}
+    />
+  );
+
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <AppHeader />
+    <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
+      <AppHeader
+        leading={
+          <Button
+            type="text"
+            icon={<UnorderedListOutlined />}
+            aria-label="Open conversations"
+            onClick={() => setConvDrawerOpen(true)}
+          />
+        }
+      />
 
       <Layout>
-        <Sider
-          width={260}
-          style={{
-            background: "#fff",
-            borderRight: "1px solid #f0f0f0",
-            height: "calc(100vh - 64px)",
-          }}
-        >
-          <ConversationSidebar
-            conversations={conversations}
-            activeId={activeId}
-            search={search}
-            onSearchChange={setSearch}
-            onSelect={handleSelectConversation}
-            onNew={handleNewChat}
-            onDelete={deleteConversation}
-          />
-        </Sider>
+        {!isMobile && (
+          <Sider
+            width={260}
+            style={{
+              background: token.colorBgContainer,
+              borderRight: `1px solid ${token.colorBorderSecondary}`,
+              height: "calc(100vh - 64px)",
+            }}
+          >
+            {sidebar}
+          </Sider>
+        )}
 
         <Content
           style={{
             height: "calc(100vh - 64px)",
             display: "flex",
             flexDirection: "column",
-            background: "#fafafa",
+            background: "#fafafa", // matches the content surface used across the other pages
           }}
         >
           <ChatContainer
@@ -108,6 +131,18 @@ export default function App() {
         </Content>
       </Layout>
 
+      {isMobile && (
+        <Drawer
+          title="Conversations"
+          placement="left"
+          width={280}
+          open={convDrawerOpen}
+          onClose={() => setConvDrawerOpen(false)}
+          styles={{ body: { padding: 0 } }}
+        >
+          {sidebar}
+        </Drawer>
+      )}
     </Layout>
   );
 }

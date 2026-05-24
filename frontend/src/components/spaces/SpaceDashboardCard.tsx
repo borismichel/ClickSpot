@@ -13,6 +13,8 @@ interface Props {
   filters: SpaceFilter[];
   spaceView: string | undefined;
   onRemove: () => void;
+  /** Read-only view (mobile): hide the remove-from-dashboard affordance. */
+  readOnly?: boolean;
 }
 
 function buildSpaceFilterPayload(filters: SpaceFilter[]) {
@@ -21,7 +23,7 @@ function buildSpaceFilterPayload(filters: SpaceFilter[]) {
   return active.map((f) => ({ column: f.column, operator: f.operator, values: f.values }));
 }
 
-export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRemove }: Props) {
+export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRemove, readOnly }: Props) {
   const [results, setResults] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [kpis, setKpis] = useState<ContextKPI[]>([]);
@@ -125,9 +127,11 @@ export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRem
           <Tooltip title="Refresh">
             <Button type="text" size="small" icon={<ReloadOutlined />} onClick={fetchData} />
           </Tooltip>
-          <Tooltip title="Remove from dashboard">
-            <Button type="text" size="small" icon={<CloseOutlined />} onClick={onRemove} danger />
-          </Tooltip>
+          {!readOnly && (
+            <Tooltip title="Remove from dashboard">
+              <Button type="text" size="small" icon={<CloseOutlined />} onClick={onRemove} danger />
+            </Tooltip>
+          )}
         </>
       }
       style={{ height: "100%", display: "flex", flexDirection: "column" }}

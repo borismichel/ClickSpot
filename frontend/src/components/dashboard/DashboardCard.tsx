@@ -12,6 +12,8 @@ interface Props {
   refreshKey: number;
   filters: DashboardFilters;
   onRemove: () => void;
+  /** Read-only view (mobile): hide the remove-from-dashboard affordance. */
+  readOnly?: boolean;
 }
 
 function buildFilterPayload(filters: DashboardFilters) {
@@ -28,7 +30,7 @@ function buildFilterPayload(filters: DashboardFilters) {
   };
 }
 
-export function DashboardCard({ object, refreshKey, filters, onRemove }: Props) {
+export function DashboardCard({ object, refreshKey, filters, onRemove, readOnly }: Props) {
   const [results, setResults] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [kpis, setKpis] = useState<ContextKPI[]>([]);
@@ -120,9 +122,11 @@ export function DashboardCard({ object, refreshKey, filters, onRemove }: Props) 
           <Tooltip title="Refresh">
             <Button type="text" size="small" icon={<ReloadOutlined />} onClick={fetchData} />
           </Tooltip>
-          <Tooltip title="Remove from dashboard">
-            <Button type="text" size="small" icon={<CloseOutlined />} onClick={onRemove} danger />
-          </Tooltip>
+          {!readOnly && (
+            <Tooltip title="Remove from dashboard">
+              <Button type="text" size="small" icon={<CloseOutlined />} onClick={onRemove} danger />
+            </Tooltip>
+          )}
         </>
       }
       style={{ height: "100%", display: "flex", flexDirection: "column" }}

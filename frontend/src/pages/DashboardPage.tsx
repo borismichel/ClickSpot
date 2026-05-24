@@ -16,6 +16,7 @@ import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useDashboards } from "../hooks/useDashboards";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import { useSpaceChat } from "../hooks/useSpaceChat";
@@ -85,6 +86,7 @@ function hasSpaceFilters(filters: SpaceFilter[]) {
 
 export default function DashboardPage() {
   const { token } = theme.useToken();
+  const isMobile = useIsMobile();
   usePageTitle("Dashboard");
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
@@ -605,7 +607,7 @@ export default function DashboardPage() {
     <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <AppHeader
         context={
-          editing ? (
+          editing && !isMobile ? (
             <Space.Compact>
               <Input
                 value={editTitle}
@@ -617,9 +619,17 @@ export default function DashboardPage() {
               <Button icon={<CheckOutlined />} onClick={finishRename} />
             </Space.Compact>
           ) : (
-            <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
+            <Typography.Title
+              level={5}
+              style={{
+                margin: 0,
+                whiteSpace: "nowrap",
+                ...(isMobile ? { overflow: "hidden", textOverflow: "ellipsis" } : {}),
+              }}
+            >
               {activeTitle}
-              {active && (
+              {/* Rename is an edit affordance — hidden in the read-only mobile view. */}
+              {active && !isMobile && (
                 <Button
                   type="text"
                   size="small"
@@ -641,7 +651,7 @@ export default function DashboardPage() {
             <Select
               value={activeSelectValue}
               onChange={handleSelectChange}
-              style={{ width: 260 }}
+              style={{ width: isMobile ? "100%" : 260 }}
               placeholder="Select dashboard"
               options={selectorOptions}
               popupRender={(menu) => (
@@ -659,7 +669,8 @@ export default function DashboardPage() {
                 </>
               )}
             />
-            {active && (
+            {/* Delete + Add are edit/designer affordances — hidden on mobile (read-only). */}
+            {active && !isMobile && (
               <Popconfirm title="Delete this dashboard?" onConfirm={handleDelete}>
                 <Button icon={<DeleteOutlined />} danger type="text" />
               </Popconfirm>
@@ -669,16 +680,17 @@ export default function DashboardPage() {
                 icon={<MessageOutlined />}
                 type={chatOpen ? "primary" : "default"}
                 onClick={() => setChatOpen(!chatOpen)}
+                block={isMobile}
               >
                 Chat
               </Button>
             )}
-            {!isSpace && active && (
+            {!isSpace && active && !isMobile && (
               <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
                 Add
               </Button>
             )}
-            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
+            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)} block={isMobile}>
               Refresh
             </Button>
           </>
@@ -740,6 +752,41 @@ export default function DashboardPage() {
                   </Button>
                 )}
               </Empty>
+            </div>
+          ) : isMobile ? (
+            /* Read-only single-column stack: no drag/resize/remove affordances,
+               each card scrolls its own table/chart within a contained height. */
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {!isSpace && activeLibDash
+                ? activeLibDash.items.map((item) => {
+                    const obj = getObject(item.objectId);
+                    if (!obj) return null;
+                    return (
+                      <div key={item.objectId} style={{ height: Math.max(item.layout.h * 80, 220) }}>
+                        <DashboardCard
+                          object={obj}
+                          refreshKey={refreshKey}
+                          filters={activeLibDash.filters ?? EMPTY_FILTERS}
+                          onRemove={() => removeLibItem(active!.id, item.objectId)}
+                          readOnly
+                        />
+                      </div>
+                    );
+                  })
+                : activeSpaceDash
+                ? activeSpaceDash.items.map((item) => (
+                    <div key={item.id} style={{ height: Math.max(item.layout.h * 80, 220) }}>
+                      <SpaceDashboardCard
+                        item={item}
+                        refreshKey={refreshKey}
+                        filters={activeSpaceDash.filters}
+                        spaceView={spaceConfig?.id ? `gold.ds_${spaceConfig.id}` : undefined}
+                        onRemove={() => handleSpaceRemoveItem(item.id)}
+                        readOnly
+                      />
+                    </div>
+                  ))
+                : null}
             </div>
           ) : mounted ? (
             /* Library dashboard grid */
