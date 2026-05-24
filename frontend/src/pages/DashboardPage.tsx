@@ -17,6 +17,7 @@ import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useDashboards } from "../hooks/useDashboards";
 import { useObjectRepo } from "../hooks/useObjectRepo";
 import { useSpaceChat } from "../hooks/useSpaceChat";
@@ -87,6 +88,7 @@ function hasSpaceFilters(filters: SpaceFilter[]) {
 export default function DashboardPage() {
   const { token } = theme.useToken();
   usePageTitle("Dashboard");
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
   const {
@@ -672,7 +674,7 @@ export default function DashboardPage() {
             <Select
               value={activeSelectValue}
               onChange={handleSelectChange}
-              style={{ width: 260 }}
+              style={{ width: isMobile ? 140 : 260 }}
               placeholder="Select dashboard"
               options={selectorOptions}
               popupRender={(menu) => (
@@ -696,26 +698,33 @@ export default function DashboardPage() {
               </Popconfirm>
             )}
             {isSpace && (
-              <Button
-                icon={<MessageOutlined />}
-                type={chatOpen ? "primary" : "default"}
-                onClick={() => setChatOpen(!chatOpen)}
-              >
-                Chat
-              </Button>
+              <Tooltip title={isMobile ? "Chat" : ""}>
+                <Button
+                  icon={<MessageOutlined />}
+                  type={chatOpen ? "primary" : "default"}
+                  onClick={() => setChatOpen(!chatOpen)}
+                  aria-label="Chat"
+                >
+                  {!isMobile && "Chat"}
+                </Button>
+              </Tooltip>
             )}
             {!isSpace && active && (
-              <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
-                Add
-              </Button>
+              <Tooltip title={isMobile ? "Add objects" : ""}>
+                <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)} aria-label="Add objects">
+                  {!isMobile && "Add"}
+                </Button>
+              </Tooltip>
             )}
-            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
-              Refresh
-            </Button>
+            <Tooltip title={isMobile ? "Refresh" : ""}>
+              <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)} aria-label="Refresh">
+                {!isMobile && "Refresh"}
+              </Button>
+            </Tooltip>
             {active && (
               <Tooltip title="Copy a link to this dashboard with its current filters">
-                <Button icon={<ShareAltOutlined />} onClick={handleShare}>
-                  Share
+                <Button icon={<ShareAltOutlined />} onClick={handleShare} aria-label="Share">
+                  {!isMobile && "Share"}
                 </Button>
               </Tooltip>
             )}

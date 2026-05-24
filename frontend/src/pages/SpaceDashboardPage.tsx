@@ -16,6 +16,7 @@ import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useSpaceDashboards } from "../hooks/useSpaceDashboards";
 import { useSpaceChat } from "../hooks/useSpaceChat";
 import { UnifiedFilterBar } from "../components/filters/UnifiedFilterBar";
@@ -32,6 +33,7 @@ const { Header, Content } = Layout;
 export default function SpaceDashboardPage() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [spaceConfig, setSpaceConfig] = useState<DataSpaceConfig | null>(null);
@@ -276,29 +278,34 @@ export default function SpaceDashboardPage() {
             <Select
               value={activeId}
               onChange={handleSelectDashboard}
-              style={{ width: 180 }}
+              style={{ width: isMobile ? 130 : 180 }}
               options={dashboards.map((d) => ({ label: d.title, value: d.id }))}
             />
           )}
           {activeId && (
             <Popconfirm title="Delete this dashboard?" onConfirm={() => deleteDashboard(activeId)}>
-              <Button icon={<DeleteOutlined />} danger type="text" />
+              <Button icon={<DeleteOutlined />} danger type="text" aria-label="Delete dashboard" />
             </Popconfirm>
           )}
-          <Button
-            icon={<MessageOutlined />}
-            type={chatOpen ? "primary" : "default"}
-            onClick={() => setChatOpen(!chatOpen)}
-          >
-            Chat
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
-            Refresh
-          </Button>
+          <Tooltip title={isMobile ? "Chat" : ""}>
+            <Button
+              icon={<MessageOutlined />}
+              type={chatOpen ? "primary" : "default"}
+              onClick={() => setChatOpen(!chatOpen)}
+              aria-label="Chat"
+            >
+              {!isMobile && "Chat"}
+            </Button>
+          </Tooltip>
+          <Tooltip title={isMobile ? "Refresh" : ""}>
+            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)} aria-label="Refresh">
+              {!isMobile && "Refresh"}
+            </Button>
+          </Tooltip>
           {activeId && (
             <Tooltip title="Copy a link to this dashboard with its current filters">
-              <Button icon={<ShareAltOutlined />} onClick={handleShare}>
-                Share
+              <Button icon={<ShareAltOutlined />} onClick={handleShare} aria-label="Share">
+                {!isMobile && "Share"}
               </Button>
             </Tooltip>
           )}
