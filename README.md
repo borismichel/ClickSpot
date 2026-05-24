@@ -49,7 +49,8 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 
 - 💬 **NL → SQL chat** — ask in plain English; an LLM writes the ClickHouse SQL and returns a chart, table, or number. The LLM only sees schema, never your data.
 - 📊 **Dashboards** — pin chat results and apply global filters (date, owner, pipeline) via rule-based SQL rewriting — no AI at query time.
-- 🗂️ **Data Spaces** — scoped, configured views over the warehouse, each with its own chat, dashboards, and filters.
+- 🗂️ **Data Spaces** — scoped views over the warehouse, built with a no-SQL designer (visual filter builder + computed-column presets), each with its own chat, dashboards, and filters.
+- 🔎 **Command palette** — ⌘K to jump to any conversation, saved object, data space, or table, with in-list search throughout.
 - 🕸️ **Linked selections** — pick a value anywhere and connected tables filter automatically through the relationship graph.
 - 🔌 **MCP server** — exposes the anonymized warehouse to Claude Desktop / other MCP clients with the same guardrails as in-app chat.
 - 🏗️ **Medallion ELT** — bronze → silver → gold → anon, orchestrated by Dagster with atomic rebuilds.
@@ -60,6 +61,8 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 |:---:|:---:|:---:|
 | <a href="docs/assets/screenshots/dashboard-deals.png"><img src="docs/assets/screenshots/dashboard-deals.png" alt="Deals dashboard — deal count and amount by stage with year-to-date KPIs" width="270" /></a> | <a href="docs/assets/screenshots/explorer-associative.png"><img src="docs/assets/screenshots/explorer-associative.png" alt="Data explorer — deals linked to contacts, companies, owners, and pipeline stages" width="270" /></a> | <a href="docs/assets/screenshots/explorer-schema.png"><img src="docs/assets/screenshots/explorer-schema.png" alt="Schema browser — bronze and silver tables with typed columns" width="270" /></a> |
 | **Dashboards** — pinned results, global filters | **Linked selections** — pick one, connected tables filter | **Medallion schema** — bronze → silver, typed |
+
+> 🎨 The UI was recently overhauled — see the full **[before/after walkthrough → docs/ui-overhaul.md](docs/ui-overhaul.md)**.
 
 ---
 
@@ -430,6 +433,8 @@ ClickSpot/
 | [Data Pipeline](docs/data-pipeline.md) | Bronze/silver/gold/anon layers, Dagster jobs, sensor chain |
 | [Backend](docs/backend.md) | Analytics engine, chat API, LLM providers, spaces, MCP, SQL validation |
 | [Frontend](docs/frontend.md) | Chat UI, visualization components, hooks, types |
+| [UI Overhaul](docs/ui-overhaul.md) | Before/after of the design-system + UX overhaul, with screenshots |
+| [Changelog](CHANGELOG.md) | Notable changes per release |
 | [ClickHouse Evaluation](docs/clickhouse-evaluation.md) | ClickHouse design notes — what shipped, what's still open |
 | [Security Audit](SECURITY_AUDIT.md) | Findings + priority fixes (last run 2026-04-06; stale — see backend.md additions) |
 | [CLAUDE.md](CLAUDE.md) | Development commands and codebase conventions |
