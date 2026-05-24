@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal } from "antd";
+import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, theme } from "antd";
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -40,6 +40,7 @@ const { Header, Content } = Layout;
 type ActiveSelection = { kind: "library"; id: string } | { kind: "space"; id: string };
 
 export default function DashboardPage() {
+  const { token } = theme.useToken();
   usePageTitle("Dashboard");
   const navigate = useNavigate();
   const { objects, getObject } = useObjectRepo();
@@ -154,7 +155,7 @@ export default function DashboardPage() {
     ...spaceDashboards.map((d) => ({
       label: (
         <Space size={4}>
-          <DatabaseOutlined style={{ color: "#1890ff", fontSize: 11 }} />
+          <DatabaseOutlined style={{ color: token.colorPrimary, fontSize: 11 }} />
           <span>{d.title}</span>
           <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", margin: 0 }}>
             {d.space_name ?? d.space_id}

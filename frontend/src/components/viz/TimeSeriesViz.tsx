@@ -9,17 +9,13 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { chartPalette as COLORS } from "../../theme/chartPalette";
 
 interface Props {
   results: Record<string, unknown>[];
   columns: string[];
   title: string;
 }
-
-const COLORS = [
-  "#1677ff", "#52c41a", "#fa8c16", "#eb2f96", "#722ed1",
-  "#13c2c2", "#faad14", "#f5222d", "#2f54eb", "#a0d911",
-];
 
 /**
  * Detect multi-series pattern: [date, category_string, numeric_value].

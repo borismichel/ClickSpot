@@ -2,7 +2,10 @@
  * SVG diagram: HubSpot → Dagster → ClickHouse medallion layers.
  * Horizontal flow with vertical medallion stack.
  */
+import { theme } from "antd";
+
 export function PipelineDiagram() {
+  const { token } = theme.useToken();
   const W = 900;
   const H = 520;
 
@@ -19,7 +22,7 @@ export function PipelineDiagram() {
         </marker>
         <marker id="arrow-blue" viewBox="0 0 10 6" refX="10" refY="3"
           markerWidth="10" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0,0 L10,3 L0,6 Z" fill="#1677ff" />
+          <path d="M0,0 L10,3 L0,6 Z" fill={token.colorPrimary} />
         </marker>
         <filter id="shadow" x="-4%" y="-4%" width="108%" height="108%">
           <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.08" />
@@ -62,7 +65,7 @@ export function PipelineDiagram() {
       {/* ---- ClickHouse medallion container ---- */}
       <g filter="url(#shadow)">
         <rect x="420" y="20" width="460" height="480" rx="12" fill="#fff" stroke="#d9d9d9" strokeWidth="1.5" />
-        <text x="650" y="48" textAnchor="middle" fontWeight="600" fontSize="14" fill="#1677ff">ClickHouse</text>
+        <text x="650" y="48" textAnchor="middle" fontWeight="600" fontSize="14" fill={token.colorPrimary}>ClickHouse</text>
 
         {/* Bronze */}
         <rect x="440" y="62" width="420" height="90" rx="8" fill="#fff7e6" stroke="#ffa940" strokeWidth="1" />
@@ -84,7 +87,7 @@ export function PipelineDiagram() {
 
         {/* Silver */}
         <rect x="440" y="170" width="420" height="110" rx="8" fill="#e6f4ff" stroke="#69b1ff" strokeWidth="1" />
-        <rect x="440" y="170" width="72" height="24" rx="6" fill="#1677ff" />
+        <rect x="440" y="170" width="72" height="24" rx="6" fill={token.colorPrimary} />
         <text x="476" y="186" textAnchor="middle" fontSize="11" fill="#fff" fontWeight="600">Silver</text>
         <text x="660" y="186" textAnchor="middle" fontSize="11" fill="#8c8c8c">Clean, typed, config-driven</text>
 

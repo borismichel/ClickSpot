@@ -1,4 +1,4 @@
-import { Card, Spin, Typography, Tag } from "antd";
+import { Card, Spin, Typography, Tag, theme } from "antd";
 import { DatabaseOutlined } from "@ant-design/icons";
 import type { GrainEntity } from "../../hooks/useDataSpaces";
 
@@ -20,6 +20,7 @@ interface Props {
 }
 
 export function GrainSelector({ entities, loading, selected, onSelect }: Props) {
+  const { token } = theme.useToken();
   if (loading) return <div style={{ textAlign: "center", padding: 48 }}><Spin /></div>;
 
   return (
@@ -37,12 +38,12 @@ export function GrainSelector({ entities, loading, selected, onSelect }: Props) 
             size="small"
             onClick={() => onSelect(e.entity)}
             style={{
-              borderColor: selected === e.entity ? "#1677ff" : undefined,
-              background: selected === e.entity ? "#e6f4ff" : undefined,
+              borderColor: selected === e.entity ? token.colorPrimary : undefined,
+              background: selected === e.entity ? token.colorPrimaryBg : undefined,
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <DatabaseOutlined style={{ fontSize: 20, color: selected === e.entity ? "#1677ff" : "#999" }} />
+              <DatabaseOutlined style={{ fontSize: 20, color: selected === e.entity ? token.colorPrimary : "#999" }} />
               <div>
                 <div style={{ fontWeight: 600 }}>{ENTITY_ICONS[e.entity] ?? e.display_name}</div>
                 <div>

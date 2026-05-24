@@ -1,4 +1,4 @@
-import { Card, Spin } from "antd";
+import { Card, Spin, theme } from "antd";
 import {
   BarChart,
   Bar,
@@ -9,13 +9,7 @@ import {
   Cell,
   LabelList,
 } from "recharts";
-
-const DEFAULT_COLORS = [
-  "#52c41a", // Closed Won — green
-  "#1677ff", // Commit — blue
-  "#faad14", // Best Case — gold
-  "#d9d9d9", // Pipeline — grey
-];
+import { chartPalette } from "../../theme/chartPalette";
 
 interface WaterfallDatum {
   label: string;
@@ -36,6 +30,16 @@ export function WaterfallChart({
   loading = false,
   valuePrefix = "",
 }: WaterfallChartProps) {
+  const { token } = theme.useToken();
+  // Semantic waterfall stages: won (success) · commit (palette accent) ·
+  // best case (warning) · pipeline (neutral border).
+  const DEFAULT_COLORS = [
+    token.colorSuccess,
+    chartPalette[1],
+    token.colorWarning,
+    token.colorBorder,
+  ];
+
   // Build cumulative stacked data: each bar starts where the previous ended
   let cumulative = 0;
   const stackedData = data.map((d, i) => {

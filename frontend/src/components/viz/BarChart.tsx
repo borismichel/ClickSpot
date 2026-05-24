@@ -8,11 +8,7 @@ import {
   LabelList,
   ResponsiveContainer,
 } from "recharts";
-
-const COLORS = [
-  "#1677ff", "#36cfc9", "#597ef7", "#73d13d",
-  "#ffc53d", "#ff7a45", "#f759ab", "#9254de",
-];
+import { chartPalette as COLORS } from "../../theme/chartPalette";
 
 interface Props {
   results: Record<string, unknown>[];

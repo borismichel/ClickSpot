@@ -2,7 +2,10 @@
  * SVG diagram: User question → Schema Prompt → LLM → Validator → ClickHouse → Frontend render.
  * Horizontal flow with branching for the schema prompt assembly.
  */
+import { theme } from "antd";
+
 export function QueryFlowDiagram() {
+  const { token } = theme.useToken();
   const W = 900;
   const H = 440;
 
@@ -37,7 +40,7 @@ export function QueryFlowDiagram() {
       {/* config.py */}
       <g filter="url(#qshadow)">
         <rect x="20" y="20" width="130" height="60" rx="8" fill="#e6f4ff" stroke="#69b1ff" strokeWidth="1" />
-        <text x="85" y="44" textAnchor="middle" fontWeight="600" fontSize="11" fill="#1677ff">app/config.py</text>
+        <text x="85" y="44" textAnchor="middle" fontWeight="600" fontSize="11" fill={token.colorPrimary}>app/config.py</text>
         <text x="85" y="60" textAnchor="middle" fontSize="10" fill="#8c8c8c">Tables, columns, types</text>
       </g>
 
@@ -122,8 +125,8 @@ export function QueryFlowDiagram() {
 
       {/* ClickHouse */}
       <g filter="url(#qshadow)">
-        <rect x="500" y="235" width="120" height="80" rx="8" fill="#e6f4ff" stroke="#1677ff" strokeWidth="1.5" />
-        <text x="560" y="262" textAnchor="middle" fontWeight="600" fontSize="12" fill="#1677ff">ClickHouse</text>
+        <rect x="500" y="235" width="120" height="80" rx="8" fill="#e6f4ff" stroke={token.colorPrimary} strokeWidth="1.5" />
+        <text x="560" y="262" textAnchor="middle" fontWeight="600" fontSize="12" fill={token.colorPrimary}>ClickHouse</text>
         <text x="560" y="280" textAnchor="middle" fontSize="10" fill="#595959">Execute SQL</text>
         <text x="560" y="296" textAnchor="middle" fontSize="10" fill="#8c8c8c">10-100ms typical</text>
         <text x="560" y="308" textAnchor="middle" fontSize="9" fill="#bbb">+ context KPI queries</text>
@@ -171,7 +174,7 @@ export function QueryFlowDiagram() {
       </text>
 
       {/* To ClickHouse */}
-      <rect x="460" y="415" width="10" height="10" rx="2" fill="#e6f4ff" stroke="#1677ff" />
+      <rect x="460" y="415" width="10" height="10" rx="2" fill="#e6f4ff" stroke={token.colorPrimary} />
       <text x="476" y="424" fontSize="10" fill="#595959">
         To ClickHouse: validated SELECT query only
       </text>

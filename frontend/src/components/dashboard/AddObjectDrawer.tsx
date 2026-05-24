@@ -1,14 +1,7 @@
 import { Drawer, Button, Tag, Typography, Empty } from "antd";
 import { PlusOutlined, CheckOutlined } from "@ant-design/icons";
 import type { SavedObject, DashboardItem } from "../../types/dashboard";
-
-const VIZ_COLORS: Record<string, string> = {
-  number: "blue",
-  table: "default",
-  bar: "green",
-  line: "purple",
-  funnel: "orange",
-};
+import { VIZ_TAG_COLORS } from "../../theme/tagColors";
 
 interface Props {
   open: boolean;
@@ -51,7 +44,7 @@ export function AddObjectDrawer({ open, onClose, objects, dashboardItems, onAdd 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div>
                     {obj.title}{" "}
-                    <Tag color={VIZ_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
+                    <Tag color={VIZ_TAG_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
                   </div>
                   <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
                     {obj.sql.slice(0, 80)}...

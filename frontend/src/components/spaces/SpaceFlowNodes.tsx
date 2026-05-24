@@ -7,6 +7,7 @@
  * dimensions in a ring around it.
  */
 
+import { theme } from "antd";
 import { Handle, Position, type Node, type Edge, type NodeProps } from "@xyflow/react";
 
 import {
@@ -19,17 +20,18 @@ import {
 
 
 function GrainNode({ data }: NodeProps<Node<GrainNodeData>>) {
+  const { token } = theme.useToken();
   return (
     <div
       style={{
         padding: "16px 22px",
         borderRadius: 14,
-        background: "linear-gradient(135deg, #1677ff 0%, #0958d9 100%)",
+        background: `linear-gradient(135deg, ${token.colorPrimary} 0%, ${token.colorPrimaryActive} 100%)`,
         color: "#fff",
         minWidth: 180,
         textAlign: "center",
         boxShadow: data.selected
-          ? "0 0 0 4px rgba(22,119,255,0.35), 0 8px 24px rgba(0,0,0,0.15)"
+          ? "0 0 0 4px rgba(231,102,54,0.35), 0 8px 24px rgba(0,0,0,0.15)"
           : "0 4px 16px rgba(0,0,0,0.12)",
         border: data.selected ? "2px solid #fff" : "2px solid transparent",
         transition: "all 0.18s ease",
