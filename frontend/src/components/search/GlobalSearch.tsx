@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Empty, Input, Modal, Spin, Tag, Typography, theme } from "antd";
+import { Empty, Input, Modal, Spin, Typography, theme } from "antd";
 import {
   AppstoreOutlined,
   ClusterOutlined,
@@ -171,6 +171,7 @@ export function GlobalSearch() {
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const inputRef = useRef<InputRef>(null);
+  const activeRowRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<SearchItem[]>(SETTINGS_ITEMS);
@@ -263,11 +264,30 @@ export function GlobalSearch() {
       .slice(0, 60);
   }, [items, query]);
 
-  const activeItem = results[activeIndex];
+  const groupedResults = useMemo(
+    () =>
+      GROUP_ORDER.map((group) => ({
+        group,
+        items: results.filter((item) => item.group === group),
+      })).filter(({ items: groupItems }) => groupItems.length > 0),
+    [results],
+  );
+
+  const displayResults = useMemo(() => groupedResults.flatMap(({ items: groupItems }) => groupItems), [groupedResults]);
+  const activeItem = displayResults[activeIndex];
 
   useEffect(() => {
     setActiveIndex(0);
   }, [query, open]);
+
+  useEffect(() => {
+    setActiveIndex((idx) => Math.min(idx, Math.max(displayResults.length - 1, 0)));
+  }, [displayResults.length]);
+
+  useEffect(() => {
+    if (!open || !activeItem) return;
+    activeRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, activeItem, open]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -281,11 +301,6 @@ export function GlobalSearch() {
     },
     [close, navigate],
   );
-
-  const groupedResults = GROUP_ORDER.map((group) => ({
-    group,
-    items: results.filter((item) => item.group === group),
-  })).filter(({ items: groupItems }) => groupItems.length > 0);
 
   return (
     <Modal
@@ -301,7 +316,7 @@ export function GlobalSearch() {
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
-            setActiveIndex((idx) => Math.min(idx + 1, results.length - 1));
+            setActiveIndex((idx) => Math.min(idx + 1, Math.max(displayResults.length - 1, 0)));
           } else if (event.key === "ArrowUp") {
             event.preventDefault();
             setActiveIndex((idx) => Math.max(idx - 1, 0));
@@ -339,11 +354,12 @@ export function GlobalSearch() {
                   {group}
                 </Typography.Text>
                 {groupItems.map((item) => {
-                  const index = results.indexOf(item);
+                  const index = displayResults.indexOf(item);
                   const active = index === activeIndex;
                   return (
                     <button
                       key={item.id}
+                      ref={active ? activeRowRef : undefined}
                       type="button"
                       onMouseEnter={() => setActiveIndex(index)}
                       onClick={() => choose(item)}
@@ -374,7 +390,6 @@ export function GlobalSearch() {
                           </Typography.Text>
                         )}
                       </span>
-                      <Tag>{item.group}</Tag>
                     </button>
                   );
                 })}
