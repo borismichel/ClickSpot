@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
-import { Layout, Button, Steps, Input, Space, Typography, Collapse, Tooltip, message, theme } from "antd";
-import { ArrowLeftOutlined, SaveOutlined } from "@ant-design/icons";
+import { Layout, Button, Steps, Input, Space, Typography, Collapse, Tooltip, Alert, message, theme } from "antd";
+import { ArrowLeftOutlined, SaveOutlined, ExclamationCircleFilled } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import {
@@ -121,6 +121,15 @@ export default function DataSpaceDesignerPage() {
 
   const idCollision = isNew && !!spaceId && spaces.some((s) => s.id === spaceId);
   const idValid = !spaceId || isValidSpaceId(spaceId);
+  // The auto-derived ID lives inside "Technical details" — surface any error
+  // OUTSIDE that disclosure (under Display name, where the ID derives from), so
+  // a colliding/invalid ID is never a silent dead-end while the panel is collapsed.
+  const hasIdError = !!spaceId && (idCollision || !idValid);
+  const idErrorMessage = idCollision
+    ? `This name makes an ID that already exists (${spaceId}). Open “Technical details” below to choose a different ID.`
+    : !idValid
+      ? `This name makes an invalid ID (${spaceId}). IDs must start with a letter — open “Technical details” below to adjust it.`
+      : "";
 
   const canProceed = () => {
     switch (step) {
@@ -290,17 +299,34 @@ export default function DataSpaceDesignerPage() {
                   placeholder="Lead Pipeline Analysis"
                   style={{ marginTop: spacing.xs }}
                   size="large"
+                  status={hasIdError ? "error" : undefined}
                 />
+                {hasIdError && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    style={{ marginTop: spacing.sm }}
+                    message={idErrorMessage}
+                  />
+                )}
               </div>
 
-              {/* Technical details — ID + physical view name, collapsed by default */}
+              {/* Technical details — ID + physical view name, collapsed by default.
+                  The header flags an error so the fix is discoverable while collapsed. */}
               <Collapse
                 size="small"
                 style={{ marginBottom: spacing.xl }}
                 items={[
                   {
                     key: "tech",
-                    label: "Technical details",
+                    label: hasIdError ? (
+                      <Space size={spacing.xs}>
+                        <ExclamationCircleFilled style={{ color: token.colorError }} />
+                        <span>Technical details — needs attention</span>
+                      </Space>
+                    ) : (
+                      "Technical details"
+                    ),
                     children: (
                       <div>
                         <Typography.Text strong>Data Space ID</Typography.Text>

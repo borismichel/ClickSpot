@@ -391,9 +391,14 @@ export function ComputedPresetPicker({ entity, grainColumns, value, onChange }: 
                 key={def.kind}
                 block
                 onClick={() => openAdd(def.kind)}
-                style={{ height: "auto", textAlign: "left", padding: `${spacing.sm}px ${spacing.md}px` }}
+                style={{
+                  height: "auto",
+                  textAlign: "left",
+                  justifyContent: "flex-start",
+                  padding: `${spacing.sm}px ${spacing.md}px`,
+                }}
               >
-                <div>
+                <div style={{ width: "100%" }}>
                   <Typography.Text strong>{def.name}</Typography.Text>
                   <Typography.Text
                     type="secondary"
