@@ -1934,7 +1934,7 @@ urllib3==2.7.0 \
     #   clickhouse-connect
     #   hubspot-api-client
     #   requests
-uvicorn==0.47.0 \
+uvicorn[standard]==0.47.0 \
     --hash=sha256:2c5715bc12d1892d84752049f400cd1c3cb018514967fdfeb97640443a6a9432 \
     --hash=sha256:7c9a0ea1a9414106bbab7324609c162d8fa0cdcdcb703060987269d77c7bb533
     # via
