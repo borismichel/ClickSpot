@@ -57,7 +57,7 @@ export function AppHeader({ context, actions }: Props) {
   return (
     <Header
       style={{
-        background: "#fff",
+        background: token.colorBgContainer,
         borderBottom: `1px solid ${token.colorBorderSecondary}`,
         padding: "0 24px",
         display: "flex",
@@ -100,8 +100,12 @@ export function AppHeader({ context, actions }: Props) {
                 icon={item.icon}
                 onClick={() => navigate(item.path)}
                 aria-current={active ? "page" : undefined}
+                // Active label stays high-contrast colorText (coral #e76636 is
+                // only 3.30:1 on white — below WCAG AA for 14px). The 2px coral
+                // underline + bold weight carry the active state instead, so it
+                // isn't colour-dependent (UX review, matches CLI-38's AA bar).
                 style={{
-                  color: active ? token.colorPrimary : token.colorText,
+                  color: token.colorText,
                   fontWeight: active ? 600 : 400,
                 }}
               >
