@@ -31,9 +31,15 @@ body {
 }
 
 /* Touch devices have no hover — keep the delete affordance visible there so
-   it stays reachable (verified at 390x844). */
+   it stays reachable (verified at 390x844). It's also the always-on
+   destructive action on touch, so give the antd Button a >=44px thumb target
+   (WCAG 2.5.5) while leaving the icon size and desktop layout untouched. */
 @media (hover: none) {
   .conv-item__delete {
     opacity: 1;
+  }
+  .conv-item__delete .ant-btn {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
