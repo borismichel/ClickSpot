@@ -7,15 +7,17 @@ const STORAGE_KEY = "clickspot.tableDensity";
 const SYNC_EVENT = "clickspot:table-density";
 
 function readDensity(): TableDensity {
-  if (typeof localStorage === "undefined") return "middle";
-  return localStorage.getItem(STORAGE_KEY) === "small" ? "small" : "middle";
+  if (typeof localStorage === "undefined") return "small";
+  return localStorage.getItem(STORAGE_KEY) === "middle" ? "middle" : "small";
 }
 
 /**
  * Row-density preference for the explorer's schema/data tables, persisted to
- * localStorage and shared across every table on the page. `middle` is the
- * comfortable default; `small` compacts rows. A window event keeps multiple
- * mounted instances (e.g. the Table Browser and SQL Editor tabs) in sync.
+ * localStorage and shared across every table on the page. Defaults to `small`
+ * (compact) — the explorer is the densest surface in the app, so compact scans
+ * faster and preserves the prior behaviour (UX review, CLI-57); `middle` is the
+ * opt-in comfortable density. A window event keeps multiple mounted instances
+ * (e.g. the Table Browser and SQL Editor tabs) in sync.
  */
 export function useTableDensity(): [TableDensity, (density: TableDensity) => void] {
   const [density, setDensity] = useState<TableDensity>(readDensity);
