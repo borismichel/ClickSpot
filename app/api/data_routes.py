@@ -3,7 +3,7 @@
 import logging
 import re
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.db import async_query_rows, async_query_value
@@ -21,6 +21,10 @@ _FORBIDDEN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|SYSTEM|ATTACH|DETACH|RENAME)\b",
     re.IGNORECASE,
 )
+
+
+def _escape_clickhouse_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 # ------------------------------------------------------------------
@@ -230,3 +234,61 @@ async def filter_options():
         log.warning(f"Failed to fetch pipelines for filter options: {e}")
 
     return {"owners": owners, "pipelines": pipelines}
+
+
+@router.get("/filters/values/{filter_name}")
+async def filter_values(
+    filter_name: str,
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Return typeahead values for dashboard global filters."""
+    search = _escape_clickhouse_string((q or "").strip())
+    search_owner = (
+        f"AND positionCaseInsensitive(concat(toString(owner_id), ' ', ifNull(first_name, ''), ' ', ifNull(last_name, '')), '{search}') > 0 "
+        if search
+        else ""
+    )
+    search_pipeline = (
+        f"AND positionCaseInsensitive(concat(toString(pipeline_id), ' ', ifNull(label, '')), '{search}') > 0 "
+        if search
+        else ""
+    )
+
+    if filter_name == "owner":
+        try:
+            rows = await async_query_rows(
+                "SELECT owner_id AS value, trim(concat(ifNull(first_name, ''), ' ', ifNull(last_name, ''))) AS label "
+                "FROM silver.dim_owners WHERE archived = 0 "
+                f"{search_owner}"
+                "AND toString(owner_id) != '' "
+                f"ORDER BY label LIMIT {limit}"
+            )
+            return [
+                {"value": str(row["value"]), "label": row.get("label") or str(row["value"])}
+                for row in rows
+                if row.get("value") is not None
+            ]
+        except Exception as e:
+            log.warning(f"Failed to fetch owner filter values: {e}")
+            return []
+
+    if filter_name == "pipeline":
+        try:
+            rows = await async_query_rows(
+                "SELECT pipeline_id AS value, label "
+                "FROM silver.dim_pipelines WHERE archived = 0 "
+                f"{search_pipeline}"
+                "AND toString(pipeline_id) != '' "
+                f"ORDER BY label LIMIT {limit}"
+            )
+            return [
+                {"value": str(row["value"]), "label": row.get("label") or str(row["value"])}
+                for row in rows
+                if row.get("value") is not None
+            ]
+        except Exception as e:
+            log.warning(f"Failed to fetch pipeline filter values: {e}")
+            return []
+
+    raise HTTPException(404, f"Unknown filter '{filter_name}'")
