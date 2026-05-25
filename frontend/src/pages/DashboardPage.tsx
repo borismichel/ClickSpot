@@ -93,7 +93,6 @@ export default function DashboardPage() {
   const { token } = theme.useToken();
   const isMobile = useIsMobile();
   usePageTitle("Dashboard");
-  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
   const {
