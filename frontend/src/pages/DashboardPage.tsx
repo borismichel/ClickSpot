@@ -626,7 +626,10 @@ export default function DashboardPage() {
     <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <AppHeader
         context={
-          <Space size={isMobile ? 2 : 4} style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+          // Plain flex row (not <Space>, whose item wrappers block flex-shrink)
+          // so each child controls its own flex: the back path, rename and
+          // quick-switch stay flexShrink:0 while only the title ellipsises.
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 4, minWidth: 0 }}>
             {/* "← Dashboards" back path to the index, mirroring Space Overview's
                 back affordance. Always present on the detail view so the section
                 is identifiable and escapable (icon-only on mobile to save room). */}
@@ -659,7 +662,13 @@ export default function DashboardPage() {
                 <Typography.Title
                   level={5}
                   ellipsis={{ tooltip: activeTitle }}
-                  style={{ margin: 0, minWidth: 0, maxWidth: isMobile ? 150 : 320 }}
+                  // Flexible, never-disappearing title (CLI-89): sized to its own
+                  // natural width (flexShrink:1 + minWidth:80 let it shrink and
+                  // ellipsis — with a tooltip — only when space is tight, e.g.
+                  // mobile; flexGrow:0 keeps rename/switcher snug, no float right).
+                  // Replaces the old hard maxWidth (150/320) that truncated short
+                  // titles next to empty header space.
+                  style={{ margin: 0, flex: "0 1 auto", minWidth: 80 }}
                 >
                   {activeTitle}
                 </Typography.Title>
@@ -702,7 +711,7 @@ export default function DashboardPage() {
                 </Tooltip>
               </>
             ) : null}
-          </Space>
+          </div>
         }
         actions={
           <>

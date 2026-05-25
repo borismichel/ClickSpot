@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Layout, Button, Grid, theme } from "antd";
+import { Layout, Button, theme } from "antd";
 import {
   MessageOutlined,
   AppstoreOutlined,
@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import brandMark from "../assets/clickspot-mark.png";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 const { Header } = Layout;
 
@@ -51,8 +52,8 @@ export function AppHeader({ context, actions }: Props) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { token } = theme.useToken();
-  const screens = Grid.useBreakpoint();
-  const showLabels = screens.md !== false; // labels on ≥md, icons-only on mobile
+  const isMobile = useIsMobile(); // matchMedia-based; reliable in headless renders
+  const showLabels = !isMobile; // labels on ≥md, icons-only on mobile
 
   return (
     <Header
@@ -62,11 +63,17 @@ export function AppHeader({ context, actions }: Props) {
         padding: "0 24px",
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
         gap: 16,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflowX: "auto" }}>
+      {/* Primary nav is the ONLY region allowed to collapse/scroll. Brand + the
+          six nav items live here; the page context and actions to its right keep
+          their layout priority and never get clipped by this scroller (CLI-89).
+          The high flex-shrink makes the nav yield (and scroll) width *before* the
+          page context does when the header is over-subscribed — so the dashboard
+          title stays full on desktop and only ellipsises once the nav has fully
+          collapsed on mobile. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflowX: "auto", flex: "0 1000 auto" }}>
         <button
           onClick={() => navigate("/")}
           aria-label="ClickSpot home"
@@ -127,24 +134,32 @@ export function AppHeader({ context, actions }: Props) {
             </div>
           );
         })}
+      </div>
 
-        {context && (
-          // A 1px divider + secondary-text weight so the per-page context reads
-          // as metadata, never as another nav item (CLI-57).
-          <div
-            style={{
-              marginLeft: 12,
-              paddingLeft: 12,
-              borderLeft: `1px solid ${token.colorSplit}`,
-              color: token.colorTextSecondary,
-              minWidth: 0,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            {context}
-          </div>
-        )}
+      {/* Page context (e.g. dashboard back-path + title + quick-switch) gets its
+          own flexible region, so it is never trapped/clipped inside the nav
+          scroller (CLI-89). The back path + switcher inside stay flexShrink:0;
+          only the title ellipsises. When no page supplies context this stays an
+          empty spacer that pins the actions to the right (it replaces the old
+          justify-content: space-between). A 1px divider + secondary-text weight
+          read it as metadata, never as another nav item (CLI-57). */}
+      <div
+        style={{
+          flex: "1 1 auto",
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+          ...(context
+            ? {
+                marginLeft: 12,
+                paddingLeft: 12,
+                borderLeft: `1px solid ${token.colorSplit}`,
+                color: token.colorTextSecondary,
+              }
+            : null),
+        }}
+      >
+        {context}
       </div>
 
       {actions && <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>{actions}</div>}
