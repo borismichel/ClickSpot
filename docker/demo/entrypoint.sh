@@ -26,6 +26,15 @@ for _ in $(seq 1 60); do
 done
 
 cd /app
+
+# The in-app key form PUTs to a settings endpoint that accepts loopback only.
+# Docker maps the host's loopback-bound port in via the bridge, so uvicorn sees
+# the request from the bridge gateway rather than 127.0.0.1 — trust the private
+# bridge range so the form works out of the box. The published port stays
+# loopback-bound, so this doesn't expose key writes beyond the host. An operator
+# value (e.g. for a custom network) is respected.
+export CLICKSPOT_TRUSTED_HOSTS="${CLICKSPOT_TRUSTED_HOSTS:-172.16.0.0/12}"
+
 echo "[clickspot] starting ClickSpot on http://localhost:${PORT}"
 echo "[clickspot] clicking works with no key; set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable chat."
 /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" &
