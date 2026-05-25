@@ -69,7 +69,7 @@ export default function SettingsPage() {
       <AppHeader
         actions={headerSummary ? <span style={{ color: token.colorTextTertiary, fontSize: 13 }}>{headerSummary}</span> : undefined}
       />
-      <Content style={{ padding: "24px 32px", background: "#fafafa" }}>
+      <Content style={{ padding: "24px 32px", background: token.colorBgLayout }}>
         {pendingReload && (
           <Alert
             type="warning"

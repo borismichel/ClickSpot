@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space, Input } from "antd";
+import { Layout, Button, Tag, Typography, Empty, Modal, Popconfirm, Space, Input, theme } from "antd";
 import { DeleteOutlined, EyeOutlined, SearchOutlined } from "@ant-design/icons";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -13,6 +13,7 @@ const { Content } = Layout;
 
 export default function ObjectLibraryPage() {
   usePageTitle("Library");
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, removeObject } = useObjectRepo();
@@ -70,7 +71,7 @@ export default function ObjectLibraryPage() {
     <Layout style={{ minHeight: "100vh" }}>
       <AppHeader actions={<Tag>{objects.length} objects</Tag>} />
 
-      <Content style={{ padding: 24, background: "#fafafa", maxWidth: 900, margin: "0 auto", width: "100%" }}>
+      <Content style={{ padding: 24, background: token.colorBgLayout, maxWidth: 900, margin: "0 auto", width: "100%" }}>
         {objects.length === 0 ? (
           <div style={{ textAlign: "center", paddingTop: 120 }}>
             <Empty
