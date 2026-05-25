@@ -8,6 +8,8 @@ import type { SavedObject } from "../types/dashboard";
 import { VizRouter } from "../components/viz/VizRouter";
 import { VIZ_TAG_COLORS } from "../theme/tagColors";
 import { AppHeader } from "../components/AppHeader";
+import { useIsMobile } from "../hooks/useIsMobile";
+import { spacing, radius } from "../theme/tokens";
 
 const { Content } = Layout;
 
@@ -15,6 +17,7 @@ export default function ObjectLibraryPage() {
   usePageTitle("Library");
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const isMobile = useIsMobile(); // matchMedia-based; reliable in headless renders
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, removeObject } = useObjectRepo();
   const [query, setQuery] = useState("");
@@ -103,16 +106,20 @@ export default function ObjectLibraryPage() {
                 key={obj.id}
                 style={{
                   background: "#fff",
-                  padding: "12px 16px",
-                  marginBottom: 8,
-                  borderRadius: 8,
+                  padding: `${spacing.md}px ${spacing.lg}px`,
+                  marginBottom: spacing.sm,
+                  borderRadius: radius.card,
                   display: "flex",
-                  alignItems: "center",
+                  // Stack the action buttons below the content on mobile so they
+                  // never overlap the title/SQL at narrow widths.
+                  flexDirection: isMobile ? "column" : "row",
+                  alignItems: isMobile ? "stretch" : "flex-start",
+                  gap: spacing.sm,
                   justifyContent: "space-between",
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div>
+                  <div style={{ overflowWrap: "anywhere" }}>
                     {obj.title}{" "}
                     <Tag color={VIZ_TAG_COLORS[obj.viz] ?? "default"}>{obj.viz}</Tag>
                   </div>
@@ -120,13 +127,29 @@ export default function ObjectLibraryPage() {
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       Saved {new Date(obj.savedAt).toLocaleDateString()}
                     </Typography.Text>
-                    <br />
-                    <Typography.Text code ellipsis style={{ maxWidth: 500, fontSize: 11 }}>
+                    <Typography.Text
+                      code
+                      // Wrap (instead of single-line ellipsis) so a long SQL
+                      // string can never widen the card past the viewport.
+                      style={{
+                        display: "block",
+                        marginTop: spacing.xs,
+                        fontSize: 11,
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
                       {obj.sql.slice(0, 120)}
+                      {obj.sql.length > 120 ? "…" : ""}
                     </Typography.Text>
                   </div>
                 </div>
-                <Space>
+                <Space
+                  style={{
+                    flexShrink: 0,
+                    ...(isMobile ? { width: "100%", justifyContent: "flex-end" } : {}),
+                  }}
+                >
                   <Button
                     type="text"
                     icon={<EyeOutlined />}
