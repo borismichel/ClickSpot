@@ -385,6 +385,8 @@ export default function SpaceDashboardPage() {
         onSend={sendMessage}
         onAddToDashboard={handleAddToDashboard}
         onClear={clearMessages}
+        filters={activeDashboard?.filters ?? []}
+        spaceView={spaceConfig?.id ? `gold.ds_${spaceConfig.id}` : undefined}
       />
     </Layout>
   );
