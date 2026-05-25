@@ -125,7 +125,9 @@ install_binary() {
 
   if [ "$(uname -s)" != "Linux" ]; then
     err "Automatic ClickHouse download is only supported on Linux."
-    err "Install ClickHouse with your package manager, or set CLICKHOUSE_BIN=/path/to/clickhouse."
+    err "On macOS/Windows, run against the container instead: set"
+    err "CLICKSPOT_CLICKHOUSE_MODE=docker in .env (already the default there)."
+    err "Or install ClickHouse yourself and set CLICKHOUSE_BIN=/path/to/clickhouse."
     return 1
   fi
 
