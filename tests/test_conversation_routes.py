@@ -89,3 +89,63 @@ def test_search_escapes_like_wildcards(client):
     _new_conv(client, "Revenue by region")
     res = client.get("/api/v1/conversations", params={"q": "%"})
     assert res.json() == []
+
+
+# --- Idempotent message persistence (CLI-84: "history populates 4x") ---------
+
+
+def _add_msg_with_id(client: TestClient, conv_id: str, msg_id: str, role: str, content: str):
+    return client.post(
+        f"/api/v1/conversations/{conv_id}/messages",
+        json={"id": msg_id, "role": role, "content": content},
+    )
+
+
+def test_add_message_preserves_client_id(client):
+    """The server must store the id the client sent, not mint its own.
+
+    The sidebar re-saves a conversation by diffing the ids it holds against the
+    stored ones; if the server rewrites the id, that diff never matches.
+    """
+    conv = _new_conv(client, "Untitled chat")
+    res = _add_msg_with_id(client, conv, "msg-1-abc", "user", "Show revenue by owner")
+    assert res.status_code in (200, 201), res.text
+    assert res.json()["id"] == "msg-1-abc"
+
+    fetched = client.get(f"/api/v1/conversations/{conv}").json()
+    assert [m["id"] for m in fetched["messages"]] == ["msg-1-abc"]
+
+
+def test_resaving_same_ids_does_not_duplicate(client):
+    """Re-posting messages with ids that already exist is a no-op.
+
+    Reproduces the 4x bug: the App-level save effect fires repeatedly, so the
+    same client messages get POSTed more than once. With stable ids that must
+    not grow the conversation.
+    """
+    conv = _new_conv(client, "Untitled chat")
+    pair = [("msg-1-aaa", "user", "Show me activity trends by type"),
+            ("msg-2-bbb", "assistant", "Here are your activity trends.")]
+
+    # Save the pair three times over (simulating repeated save cycles).
+    for _ in range(3):
+        for mid, role, content in pair:
+            res = _add_msg_with_id(client, conv, mid, role, content)
+            assert res.status_code in (200, 201), res.text
+
+    fetched = client.get(f"/api/v1/conversations/{conv}").json()
+    assert [m["id"] for m in fetched["messages"]] == ["msg-1-aaa", "msg-2-bbb"]
+    assert len(fetched["messages"]) == 2  # not 6
+
+
+def test_add_message_without_id_still_works(client):
+    """Backward compat: a caller that omits the id gets a server-minted one."""
+    conv = _new_conv(client, "Untitled chat")
+    res = client.post(
+        f"/api/v1/conversations/{conv}/messages",
+        json={"role": "user", "content": "no id supplied"},
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["id"].startswith("msg-")
+    fetched = client.get(f"/api/v1/conversations/{conv}").json()
+    assert len(fetched["messages"]) == 1
