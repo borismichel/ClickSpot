@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="HubSpot Analytics Engine",
     description="Qlik-like associative model on ClickHouse",
-    version="0.1.3",
+    version="0.1.4",
     lifespan=lifespan,
 )
 
