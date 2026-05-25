@@ -126,6 +126,8 @@ Got a HubSpot portal? Add `HUBSPOT_TOKEN=...` to load your own data instead of t
 
 All ports bind to `127.0.0.1` only — ClickSpot has no auth, and the frontend is the entry point to chat-driven SQL over your CRM data, so it stays on the local host by default. To reach it from another machine (LAN, VPN), make that opt-in yourself: change the frontend's port in `docker-compose.yml` from `"127.0.0.1:8193:80"` to `"0.0.0.0:8193:80"` (or a specific host IP), and put it behind your own auth/reverse proxy.
 
+The Settings drawer writes (LLM keys, Claude OAuth token) are restricted further: the endpoint accepts loopback only. Behind Docker the backend sees those requests from the bridge gateway rather than `127.0.0.1`, so the bundled demo trusts the private bridge range (`172.16.0.0/12`) via `CLICKSPOT_TRUSTED_HOSTS` — that's why the in-app key form works against the loopback-bound demo without any extra setup. Note the guard can't distinguish a host request from a LAN one once both arrive through the same bridge/proxy, so if you opt into LAN exposure above, treat key writes as exposed too and gate them with your own auth. Set `CLICKSPOT_TRUSTED_HOSTS` (comma-separated IPs or CIDRs) yourself for custom networks or a non-default reverse proxy.
+
 ### Run from source
 
 Prefer running without containers? You'll need:
@@ -310,6 +312,7 @@ Select a value in any table and all connected tables filter automatically throug
 | `DAGSTER_HOME` | Recommended | Persistent Dagster storage directory |
 | `ANTHROPIC_API_KEY` | Optional | Anthropic API key for Claude |
 | `OPENAI_API_KEY` | Optional | OpenAI API key for GPT-4o |
+| `CLICKSPOT_TRUSTED_HOSTS` | No | Comma-separated IPs/CIDRs allowed to write LLM keys via the Settings drawer, in addition to loopback. The bundled demo defaults this to the Docker bridge range (`172.16.0.0/12`) so the in-app key form works; set it yourself when running behind a VPN or custom reverse proxy. |
 
 ### HubSpot token scopes
 

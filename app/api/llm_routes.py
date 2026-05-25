@@ -9,6 +9,7 @@ URLs are unchanged so the frontend keeps working without coordination.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,23 +23,79 @@ from app.semantic.layer import load_cache
 router = APIRouter(prefix="/api/v1")
 
 
-_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+# Hostnames/IPs always treated as local, regardless of configuration.
+_LOOPBACK_NAMES = {"localhost"}
+_LOOPBACK_NETS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+)
+
+
+def _parse_trusted_hosts(raw: str) -> tuple[set[str], list]:
+    """Split CLICKSPOT_TRUSTED_HOSTS into literal names and IP networks.
+
+    Each comma-separated entry is parsed as an IP or CIDR when possible — so
+    both "172.16.0.0/12" and a bare "10.0.0.5" work — and anything that isn't a
+    valid address (e.g. a hostname) is kept for a literal match.
+    """
+    names: set[str] = set()
+    nets: list = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            names.add(token)
+    return names, nets
+
+
+def _host_is_trusted(host: str | None) -> bool:
+    """True if `host` is loopback or listed in CLICKSPOT_TRUSTED_HOSTS."""
+    if not host:
+        return False
+    if host in _LOOPBACK_NAMES:
+        return True
+
+    names, nets = _parse_trusted_hosts(os.environ.get("CLICKSPOT_TRUSTED_HOSTS", ""))
+    if host in names:
+        return True
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    # Normalise IPv4-mapped IPv6 (e.g. "::ffff:127.0.0.1") to its v4 form.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    if any(ip in net for net in _LOOPBACK_NETS):
+        return True
+    return any(ip in net for net in nets)
 
 
 def _require_localhost(request: Request) -> None:
-    """Raise 403 if the request didn't come from the loopback interface.
+    """Raise 403 unless the request came from the local host (or a trusted one).
 
-    These endpoints store LLM API keys and OAuth tokens; they must only be
-    reachable from the same host. Combined with the docker bind on 127.0.0.1
-    and the CORS allowlist, this is defense-in-depth against a malicious
-    process on the local network being able to read/overwrite keys.
+    These endpoints store LLM API keys and OAuth tokens, so they must only be
+    reachable from the same host. Loopback is always allowed. Behind Docker's
+    port-forwarding or a reverse proxy the peer address is the bridge gateway or
+    proxy container — never 127.0.0.1 — so extra hosts (or CIDR ranges) can be
+    allowed via CLICKSPOT_TRUSTED_HOSTS; the bundled demo sets this to the
+    Docker bridge range so the in-app key form works out of the box. Combined
+    with the default loopback port bind and the CORS allowlist, this is
+    defense-in-depth against a process elsewhere on the network reading or
+    overwriting keys.
     """
     host = request.client.host if request.client else None
-    if host not in _LOOPBACK:
+    if not _host_is_trusted(host):
         raise HTTPException(
             status_code=403,
-            detail="Settings endpoints accept only loopback connections; "
-            "set CLICKSPOT_TRUSTED_HOSTS to override for VPN setups.",
+            detail=(
+                f"Settings endpoints accept only loopback connections "
+                f"(got {host or 'unknown'}); set CLICKSPOT_TRUSTED_HOSTS "
+                f"(comma-separated IPs or CIDRs) to allow this host."
+            ),
         )
 
 

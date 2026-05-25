@@ -17,6 +17,12 @@ x-app-env: &app-env
   HUBSPOT_HUB_ID: ${HUBSPOT_HUB_ID:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  # The in-app Settings drawer (LLM key / OAuth token writes) accepts loopback
+  # only. Behind the frontend nginx the backend sees the request from the
+  # compose bridge gateway, not 127.0.0.1, so trust the private bridge range.
+  # The frontend port stays loopback-bound (see frontend.ports), so this does
+  # not expose key writes beyond the host. Override for non-default networks.
+  CLICKSPOT_TRUSTED_HOSTS: ${CLICKSPOT_TRUSTED_HOSTS:-172.16.0.0/12}
 
 services:
   clickhouse:
