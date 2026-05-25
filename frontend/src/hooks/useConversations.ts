@@ -107,13 +107,17 @@ export function useConversations() {
             (existing.messages ?? []).map((m: { id: string }) => m.id)
           );
 
-          // Add only new messages
+          // Add only new messages. The id is sent so the server stores it
+          // verbatim — otherwise it mints a fresh one, our `existingIds` diff
+          // never matches on the next re-save, and the whole conversation gets
+          // re-inserted each time (the "history shows 4x" bug, CLI-84).
           for (const msg of messages) {
             if (!existingIds.has(msg.id)) {
               await fetch(`/api/v1/conversations/${activeId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                  id: msg.id,
                   role: msg.role,
                   content: msg.content,
                   sql: msg.sql ?? null,
@@ -140,12 +144,14 @@ export function useConversations() {
           const newConvo = await res.json();
           const convId = newConvo.id;
 
-          // Add all messages
+          // Add all messages — send the id so a later re-save recognises them
+          // as already-stored (see the dedup note in the update path, CLI-84).
           for (const msg of messages) {
             await fetch(`/api/v1/conversations/${convId}/messages`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                id: msg.id,
                 role: msg.role,
                 content: msg.content,
                 sql: msg.sql ?? null,

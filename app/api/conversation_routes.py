@@ -28,6 +28,12 @@ class UpdateConversationRequest(BaseModel):
 
 
 class AddMessageRequest(BaseModel):
+    # Client-stable id. The sidebar re-saves a conversation by diffing the
+    # messages it holds against the ones already stored (by id), so the id the
+    # client assigned must survive the round-trip — otherwise every re-save
+    # looks "new" and re-inserts the whole conversation (CLI-84). Optional so
+    # older callers still work; we mint one when it's absent.
+    id: str | None = None
     role: str  # "user" or "assistant"
     content: str
     sql: str | None = None
@@ -215,6 +221,19 @@ async def add_message(conv_id: str, req: AddMessageRequest):
         if not await cursor.fetchone():
             raise HTTPException(404, "Conversation not found")
 
+        msg_id = req.id or f"msg-{uuid4().hex[:12]}"
+
+        # Idempotent on the message id: a re-save of an already-stored message
+        # must be a no-op, not a duplicate row. We check first (rather than
+        # INSERT OR IGNORE) so a no-op skips the sort_order bump and just
+        # returns the existing row — the client's diff can then settle. (CLI-84)
+        cursor = await db.execute(
+            "SELECT * FROM conversation_messages WHERE id = ?", (msg_id,)
+        )
+        existing = await cursor.fetchone()
+        if existing is not None:
+            return _msg_to_dict(existing)
+
         # Get next sort_order
         cursor = await db.execute(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order "
@@ -225,7 +244,6 @@ async def add_message(conv_id: str, req: AddMessageRequest):
         sort_order = row["next_order"]
 
         now = _now()
-        msg_id = f"msg-{uuid4().hex[:12]}"
         await db.execute(
             "INSERT INTO conversation_messages "
             "(id, conversation_id, role, content, sql, viz, title, context_kpis, created_at, sort_order) "
