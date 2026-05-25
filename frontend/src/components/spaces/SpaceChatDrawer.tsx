@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { Drawer, Input, Button, Typography, Space, Spin, Alert, Tag, Collapse, theme } from "antd";
-import { SendOutlined, PlusCircleOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Drawer, Input, Button, Typography, Space, Spin, Tag, theme } from "antd";
+import { SendOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ChatMessage } from "../../types/chat";
-import { VizRouter } from "../viz/VizRouter";
-import { ContextBar } from "../viz/ContextBar";
-import { spacing, radius } from "../../theme/tokens";
+import type { SpaceFilter } from "../../types/dashboard";
+import { SpaceChatMessage } from "./SpaceChatMessage";
+import { spacing } from "../../theme/tokens";
 
 interface Props {
   open: boolean;
@@ -15,9 +15,13 @@ interface Props {
   onSend: (text: string) => void;
   onAddToDashboard: (msg: ChatMessage) => void;
   onClear?: () => void;
+  /** Active dashboard filters — scope reopened answers like the cards do (CLI-83). */
+  filters: SpaceFilter[];
+  /** Fully-qualified space VIEW name, e.g. `gold.ds_<id>`. */
+  spaceView: string | undefined;
 }
 
-export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading, onSend, onAddToDashboard, onClear }: Props) {
+export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading, onSend, onAddToDashboard, onClear, filters, spaceView }: Props) {
   const { token } = theme.useToken();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -72,67 +76,13 @@ export function SpaceChatDrawer({ open, onClose, spaceName, messages, isLoading,
         )}
 
         {messages.map((msg) => (
-          <div
+          <SpaceChatMessage
             key={msg.id}
-            style={{
-              marginBottom: spacing.lg,
-              padding: `${spacing.sm}px ${spacing.md}px`,
-              borderRadius: radius.card,
-              background: msg.role === "user" ? token.colorPrimaryBg : token.colorFillQuaternary,
-              border: `1px solid ${msg.role === "user" ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
-            }}
-          >
-            <Typography.Text strong style={{ fontSize: token.fontSizeSM, color: token.colorTextTertiary }}>
-              {msg.role === "user" ? "You" : "Assistant"}
-            </Typography.Text>
-            <div style={{ marginTop: 4 }}>{msg.content}</div>
-
-            {msg.error && (
-              <Alert type="error" message={msg.error} showIcon style={{ marginTop: 8 }} />
-            )}
-
-            {msg.role === "assistant" && msg.sql && !msg.error && (
-              <div style={{ marginTop: 8 }}>
-                {msg.context && msg.context.length > 0 && msg.viz !== "comparison" && (
-                  <ContextBar kpis={msg.context} />
-                )}
-                {msg.results && msg.columns && (
-                  <div style={{ maxHeight: 300, overflow: "auto", marginTop: 4 }}>
-                    <VizRouter
-                      viz={msg.viz ?? "table"}
-                      results={msg.results}
-                      columns={msg.columns}
-                      title=""
-                      context={msg.context}
-                    />
-                  </div>
-                )}
-                <Collapse
-                  size="small"
-                  items={[{
-                    key: "sql",
-                    label: <Typography.Text type="secondary" style={{ fontSize: 11 }}>SQL</Typography.Text>,
-                    children: (
-                      <pre style={{ fontSize: 11, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                        {msg.sql}
-                      </pre>
-                    ),
-                  }]}
-                  style={{ marginTop: 8 }}
-                />
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<PlusCircleOutlined />}
-                  onClick={() => onAddToDashboard(msg)}
-                  style={{ marginTop: 8 }}
-                  block
-                >
-                  Add to Dashboard
-                </Button>
-              </div>
-            )}
-          </div>
+            msg={msg}
+            filters={filters}
+            spaceView={spaceView}
+            onAddToDashboard={onAddToDashboard}
+          />
         ))}
 
         {isLoading && (

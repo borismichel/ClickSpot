@@ -394,6 +394,8 @@ export default function SpaceOverviewPage() {
         onSend={sendMessage}
         onAddToDashboard={handleAddToDashboard}
         onClear={clearMessages}
+        filters={[]}
+        spaceView={stats.view_name}
       />
     </Layout>
   );
