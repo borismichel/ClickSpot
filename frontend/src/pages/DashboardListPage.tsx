@@ -265,16 +265,20 @@ export default function DashboardListPage() {
       styles={{ body: { padding: spacing.lg } }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.sm }}>
-        <Space size={spacing.sm} align="center" style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, minWidth: 0, flex: 1 }}>
           {card.kind === "library" ? (
-            <AppstoreOutlined style={{ color: token.colorTextTertiary }} />
+            <AppstoreOutlined style={{ color: token.colorTextTertiary, flexShrink: 0 }} />
           ) : (
-            <DatabaseOutlined style={{ color: token.colorPrimary }} />
+            <DatabaseOutlined style={{ color: token.colorPrimary, flexShrink: 0 }} />
           )}
-          <Typography.Text strong ellipsis style={{ fontSize: token.fontSizeLG }}>
+          <Typography.Text
+            strong
+            ellipsis={{ tooltip: card.title }}
+            style={{ fontSize: token.fontSizeLG, minWidth: 0 }}
+          >
             {card.title}
           </Typography.Text>
-        </Space>
+        </div>
         <Dropdown menu={overflowMenu(card)} trigger={["click"]} placement="bottomRight">
           <Button
             type="text"
@@ -282,6 +286,7 @@ export default function DashboardListPage() {
             icon={<MoreOutlined />}
             aria-label="Dashboard actions"
             onClick={(e) => e.stopPropagation()}
+            style={{ flexShrink: 0 }}
           />
         </Dropdown>
       </div>
