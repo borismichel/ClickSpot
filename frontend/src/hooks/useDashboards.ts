@@ -7,6 +7,7 @@ export function useDashboards() {
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const migrated = useRef(false);
 
   // Fetch from API on mount + migrate localStorage
@@ -44,6 +45,7 @@ export function useDashboards() {
         }
 
         const res = await fetch("/api/v1/dashboards");
+        if (!res.ok) throw new Error(`GET /api/v1/dashboards -> ${res.status}`);
         const json = await res.json();
         const data: Dashboard[] = Array.isArray(json) ? json : [];
         setDashboards(data);
@@ -51,7 +53,9 @@ export function useDashboards() {
           setActiveId(data[0].id);
         }
       } catch {
-        // silent
+        // Surface load failures so callers (e.g. the Dashboards index) can show
+        // a designed error state instead of an empty list (CLI-86).
+        setError(true);
       }
       setLoading(false);
     })();
@@ -219,6 +223,7 @@ export function useDashboards() {
     activeId,
     activeDashboard,
     loading,
+    error,
     setActiveId,
     createDashboard,
     deleteDashboard,

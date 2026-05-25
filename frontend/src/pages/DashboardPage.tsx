@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, Tooltip, message, theme } from "antd";
+import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Tooltip, message, theme } from "antd";
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -11,7 +11,7 @@ import {
   AppstoreOutlined,
   ShareAltOutlined,
 } from "@ant-design/icons";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
@@ -37,6 +37,8 @@ import { EMPTY_FILTERS } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
 import { decodeFilterUrlState, encodeFilterUrlState } from "../utils/filterUrlState";
 import { AppHeader } from "../components/AppHeader";
+import { NewDashboardModal } from "../components/dashboard/NewDashboardModal";
+import { setLastDashboardKey } from "../utils/lastDashboard";
 import { spacing } from "../theme/tokens";
 
 /** Single source for the dashboard grid gutter (react-grid-layout margin). */
@@ -93,6 +95,8 @@ export default function DashboardPage() {
   const { token } = theme.useToken();
   usePageTitle("Dashboard");
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const { key: routeKey } = useParams<{ key: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
   const {
@@ -113,9 +117,8 @@ export default function DashboardPage() {
   const [spaceColumns, setSpaceColumns] = useState<SpaceColumnMeta[]>([]);
   const [spaceConfig, setSpaceConfig] = useState<{ id: string; name: string } | null>(null);
 
-  // Unified selection
+  // Unified selection — driven by the /dashboard/:key route param.
   const [active, setActive] = useState<ActiveSelection | null>(null);
-  const [initialized, setInitialized] = useState(false);
 
   // UI state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -124,7 +127,6 @@ export default function DashboardPage() {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [availableSpaces, setAvailableSpaces] = useState<{ id: string; name: string }[]>([]);
   const [dashboardValueLabels, setDashboardValueLabels] = useState<Record<string, Record<string, string>>>({
     owner: {},
     pipeline: {},
@@ -143,6 +145,7 @@ export default function DashboardPage() {
 
   // Fetch all space dashboards
   const fetchSpaceDashboards = useCallback(async () => {
+    setSpaceDashboardsLoaded(false);
     try {
       const res = await fetch("/api/v1/spaces/dashboards/all");
       const data = await res.json();
@@ -155,26 +158,33 @@ export default function DashboardPage() {
     fetchSpaceDashboards();
   }, [fetchSpaceDashboards]);
 
-  // Auto-select first dashboard once both types are loaded
+  // Select the dashboard named by the /dashboard/:key route param (the index
+  // sends users here; the in-nav switcher navigates between keys). Persist it
+  // as the last-opened dashboard so the index can offer "Jump back in".
+  // A malformed key bounces back to the index.
   useEffect(() => {
-    if (initialized) return;
-    if (libraryDashboards.length > 0 || spaceDashboards.length > 0) {
-      const dashboardKey = searchParams.get("dashboard");
-      const [kind, id] = dashboardKey?.split(":", 2) ?? [];
-      if (kind === "lib" && libraryDashboards.some((dash) => dash.id === id)) {
-        setActive({ kind: "library", id });
-      } else if (kind === "space" && spaceDashboards.some((dash) => dash.id === id)) {
-        setActive({ kind: "space", id });
-      } else if ((kind === "lib" && libraryDashboardsLoading) || (kind === "space" && !spaceDashboardsLoaded)) {
-        return;
-      } else if (libraryDashboards.length > 0) {
-        setActive({ kind: "library", id: libraryDashboards[0].id });
-      } else if (spaceDashboards.length > 0) {
-        setActive({ kind: "space", id: spaceDashboards[0].id });
-      }
-      setInitialized(true);
+    if (!routeKey) return;
+    const [kind, id] = routeKey.split(":", 2);
+    if ((kind !== "lib" && kind !== "space") || !id) {
+      navigate("/dashboard", { replace: true });
+      return;
     }
-  }, [initialized, libraryDashboards, libraryDashboardsLoading, searchParams, spaceDashboards, spaceDashboardsLoaded]);
+    setActive({ kind: kind === "lib" ? "library" : "space", id });
+    setLastDashboardKey(routeKey);
+  }, [routeKey, navigate]);
+
+  // Once both lists have loaded, redirect unknown/deleted keys back to the
+  // index so stale shared links resolve gracefully instead of showing a
+  // phantom empty dashboard.
+  const dashboardsLoaded = !libraryDashboardsLoading && spaceDashboardsLoaded;
+  useEffect(() => {
+    if (!active || !dashboardsLoaded) return;
+    const found =
+      active.kind === "library"
+        ? libraryDashboards.some((dash) => dash.id === active.id)
+        : spaceDashboards.some((dash) => dash.id === active.id);
+    if (!found) navigate("/dashboard", { replace: true });
+  }, [active, dashboardsLoaded, libraryDashboards, spaceDashboards, navigate]);
 
   // Fetch space columns when active space dashboard changes
   useEffect(() => {
@@ -190,18 +200,6 @@ export default function DashboardPage() {
       .then((cols) => setSpaceColumns(Array.isArray(cols) ? cols : []))
       .catch(() => {});
   }, [activeSpaceDash?.space_id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch available spaces for create modal
-  const openCreateModal = useCallback(async () => {
-    try {
-      const res = await fetch("/api/v1/spaces");
-      const data = await res.json();
-      setAvailableSpaces(
-        (Array.isArray(data) ? data : []).map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }))
-      );
-    } catch { /* silent */ }
-    setCreateModalOpen(true);
-  }, []);
 
   // Derive active dashboard objects
   const activeLibDash = active?.kind === "library"
@@ -260,10 +258,11 @@ export default function DashboardPage() {
     []
   );
 
+  // The active dashboard now lives in the path (/dashboard/:key); only the
+  // filters travel in the query string.
   const writeFiltersToUrl = useCallback(
-    (dashboardKey: string, filters: DashboardFilters | SpaceFilter[]) => {
+    (filters: DashboardFilters | SpaceFilter[]) => {
       const next = new URLSearchParams(searchParams);
-      next.set("dashboard", dashboardKey);
       const hasFilters = Array.isArray(filters) ? hasSpaceFilters(filters) : hasDashboardFilters(filters);
       if (hasFilters) {
         next.set("filters", encodeFilterUrlState(filters));
@@ -305,12 +304,9 @@ export default function DashboardPage() {
     : undefined;
 
   const handleSelectChange = (value: string) => {
-    const [kind, id] = value.split(":", 2);
-    setActive({ kind: kind === "lib" ? "library" : "space", id });
-    const next = new URLSearchParams(searchParams);
-    next.set("dashboard", value);
-    next.delete("filters");
-    setSearchParams(next, { replace: true });
+    // Navigate to the new dashboard's path; the route effect re-syncs `active`
+    // and clears any inherited filter query.
+    navigate(`/dashboard/${value}`);
   };
 
   // Copy a shareable link to the current dashboard + filter view. The active
@@ -345,38 +341,20 @@ export default function DashboardPage() {
 
   // --- Handlers ---
 
-  const handleCreateLibrary = async () => {
-    const id = await createLibDashboard("New Dashboard");
-    if (id) setActive({ kind: "library", id });
-    setCreateModalOpen(false);
-  };
-
-  const handleCreateSpace = async (spaceId: string, spaceName: string) => {
-    try {
-      const res = await fetch(`/api/v1/spaces/${spaceId}/dashboards`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: `${spaceName} Dashboard` }),
-      });
-      const dash: SpaceDashboard = await res.json();
-      setSpaceDashboards((prev) => [dash, ...prev]);
-      setActive({ kind: "space", id: dash.id });
-    } catch { /* silent */ }
-    setCreateModalOpen(false);
-  };
+  // Created via NewDashboardModal; refresh the space list (covers a newly
+  // created space dashboard) and open the new one by navigating to its key.
+  const handleCreated = useCallback(
+    (newKey: string) => {
+      fetchSpaceDashboards();
+      navigate(`/dashboard/${newKey}`);
+    },
+    [fetchSpaceDashboards, navigate]
+  );
 
   const handleDelete = async () => {
     if (!active) return;
     if (active.kind === "library") {
       deleteLibDashboard(active.id);
-      const remaining = libraryDashboards.filter((d) => d.id !== active.id);
-      if (remaining.length > 0) {
-        setActive({ kind: "library", id: remaining[0].id });
-      } else if (spaceDashboards.length > 0) {
-        setActive({ kind: "space", id: spaceDashboards[0].id });
-      } else {
-        setActive(null);
-      }
     } else {
       try {
         const dash = spaceDashboards.find((d) => d.id === active.id);
@@ -387,15 +365,9 @@ export default function DashboardPage() {
         }
       } catch { /* silent */ }
       setSpaceDashboards((prev) => prev.filter((d) => d.id !== active.id));
-      const remaining = spaceDashboards.filter((d) => d.id !== active.id);
-      if (remaining.length > 0) {
-        setActive({ kind: "space", id: remaining[0].id });
-      } else if (libraryDashboards.length > 0) {
-        setActive({ kind: "library", id: libraryDashboards[0].id });
-      } else {
-        setActive(null);
-      }
     }
+    // No auto-select after delete — return to the index (CLI-86).
+    navigate("/dashboard");
   };
 
   const startRename = () => {
@@ -441,7 +413,7 @@ export default function DashboardPage() {
           dashboardValueLabels
         );
         updateLibFilters(active.id, dashboardFilters);
-        writeFiltersToUrl(`lib:${active.id}`, dashboardFilters);
+        writeFiltersToUrl(dashboardFilters);
         setRefreshKey((k) => k + 1);
       }
     },
@@ -477,7 +449,7 @@ export default function DashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filters }),
       }).catch(() => {});
-      writeFiltersToUrl(`space:${activeSpaceDash.id}`, filters);
+      writeFiltersToUrl(filters);
       setRefreshKey((k) => k + 1);
     },
     [activeSpaceDash, writeFiltersToUrl]
@@ -689,7 +661,7 @@ export default function DashboardPage() {
                     type="text"
                     block
                     icon={<PlusOutlined />}
-                    onClick={openCreateModal}
+                    onClick={() => setCreateModalOpen(true)}
                     style={{ marginTop: 4 }}
                   >
                     New Dashboard
@@ -767,7 +739,7 @@ export default function DashboardPage() {
           {hasNoDashboards || !active ? (
             <div style={{ textAlign: "center", paddingTop: 120 }}>
               <Empty description="No dashboards yet" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
                   Create Dashboard
                 </Button>
               </Empty>
@@ -877,52 +849,13 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Create dashboard modal */}
-      <Modal
-        title="New Dashboard"
+      {/* Create dashboard modal (shared with the Dashboards index) */}
+      <NewDashboardModal
         open={createModalOpen}
-        onCancel={() => setCreateModalOpen(false)}
-        footer={null}
-        width={400}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Button
-            icon={<AppstoreOutlined />}
-            size="large"
-            block
-            onClick={handleCreateLibrary}
-            style={{ textAlign: "left", height: 56 }}
-          >
-            <div>
-              <div>Library Dashboard</div>
-              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                Add saved objects from the chat library
-              </Typography.Text>
-            </div>
-          </Button>
-          {availableSpaces.length > 0 && (
-            <>
-              <Typography.Text type="secondary" style={{ fontSize: 12, padding: "4px 0 0" }}>
-                Data Space Dashboard
-              </Typography.Text>
-              {availableSpaces.map((s) => (
-                <Button
-                  key={s.id}
-                  icon={<DatabaseOutlined />}
-                  block
-                  onClick={() => handleCreateSpace(s.id, s.name)}
-                  style={{ textAlign: "left", height: 44 }}
-                >
-                  <span>{s.name}</span>
-                  <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>
-                    gold.ds_{s.id}
-                  </Tag>
-                </Button>
-              ))}
-            </>
-          )}
-        </div>
-      </Modal>
+        onClose={() => setCreateModalOpen(false)}
+        createLibraryDashboard={createLibDashboard}
+        onCreated={handleCreated}
+      />
     </Layout>
   );
 }

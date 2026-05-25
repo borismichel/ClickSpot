@@ -9,6 +9,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GlobalSearch } from "./components/search/GlobalSearch";
 import ArchitecturePage from "./pages/ArchitecturePage";
 import DataExplorerPage from "./pages/DataExplorerPage";
+import DashboardListPage from "./pages/DashboardListPage";
 import DashboardPage from "./pages/DashboardPage";
 import ObjectLibraryPage from "./pages/ObjectLibraryPage";
 import DataSpaceListPage from "./pages/DataSpaceListPage";
@@ -26,7 +27,8 @@ function AppRoutes() {
         <Route path="/" element={<App />} />
         <Route path="/architecture" element={<ArchitecturePage />} />
         <Route path="/data" element={<DataExplorerPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/dashboard" element={<DashboardListPage />} />
+        <Route path="/dashboard/:key" element={<DashboardPage />} />
         <Route path="/library" element={<ObjectLibraryPage />} />
         <Route path="/spaces" element={<DataSpaceListPage />} />
         <Route path="/spaces/new" element={<DataSpaceDesignerPage />} />
