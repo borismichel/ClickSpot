@@ -63,14 +63,39 @@ def test_missing_client_rejected(monkeypatch):
 
 def test_cidr_override_allows_bridge_range(monkeypatch):
     monkeypatch.setenv("CLICKSPOT_TRUSTED_HOSTS", "172.16.0.0/12")
-    # Demo default: any address in the Docker bridge range is accepted.
+    # Any address in the Docker bridge range is accepted.
     llm_routes._require_localhost(_request("172.18.0.1"))
     llm_routes._require_localhost(_request("172.31.255.254"))
 
 
-def test_cidr_override_does_not_leak_outside_range(monkeypatch):
+# The bundled demo (docker/demo/entrypoint.sh + docker-compose.yml) sets this so
+# the in-app key form works regardless of how Docker forwards the port.
+_DEMO_DEFAULT = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+
+@pytest.mark.parametrize(
+    "gateway",
+    [
+        "172.17.0.1",    # native Linux default bridge
+        "172.18.0.1",    # compose user-defined network
+        "192.168.65.1",  # Docker Desktop (macOS/Windows) gateway
+        "10.0.0.1",      # custom bridge in the 10/8 pool
+    ],
+)
+def test_demo_default_covers_all_docker_gateways(gateway, monkeypatch):
+    monkeypatch.setenv("CLICKSPOT_TRUSTED_HOSTS", _DEMO_DEFAULT)
+    llm_routes._require_localhost(_request(gateway))
+
+
+def test_demo_default_still_blocks_public_address(monkeypatch):
+    monkeypatch.setenv("CLICKSPOT_TRUSTED_HOSTS", _DEMO_DEFAULT)
+    with pytest.raises(HTTPException):
+        llm_routes._require_localhost(_request("203.0.113.7"))
+
+
+def test_narrow_range_blocks_outside_itself(monkeypatch):
+    # A single-range config trusts only that range — nothing leaks past it.
     monkeypatch.setenv("CLICKSPOT_TRUSTED_HOSTS", "172.16.0.0/12")
-    # A common LAN range stays blocked under the demo default.
     with pytest.raises(HTTPException):
         llm_routes._require_localhost(_request("192.168.1.10"))
 

@@ -278,6 +278,16 @@ jobs:
             -H 'Content-Type: application/json' \
             -d '{"message":"deals by stage","history":[]}')
           test "$code" = "503" || { echo "demo chat: expected 503, got $code"; docker logs clickspot-demo; exit 1; }
+
+          echo "In-app key save must succeed through the forwarded port (CLI-75 regression)..."
+          # The request arrives at uvicorn from the bridge gateway, not 127.0.0.1;
+          # the demo's CLICKSPOT_TRUSTED_HOSTS default must let this through (200),
+          # not reject it as a non-loopback connection (403).
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+            http://127.0.0.1:8080/api/v1/settings \
+            -H 'Content-Type: application/json' \
+            -d '{"anthropic_api_key":"sk-ant-smoke-test"}')
+          test "$code" = "200" || { echo "demo settings: expected 200, got $code"; docker logs clickspot-demo; exit 1; }
           echo "demo smoke OK"
 
       - name: Smoke — compose stack (fresh-clone path, ${{ matrix.platform.arch }})
