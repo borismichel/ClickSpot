@@ -334,7 +334,7 @@ export default function DashboardListPage() {
         }
       />
 
-      <Content style={{ padding: spacing.xl, background: "#fafafa", maxWidth: 1100, margin: "0 auto", width: "100%" }}>
+      <Content style={{ padding: spacing.xl, background: token.colorBgLayout, maxWidth: 1100, margin: "0 auto", width: "100%" }}>
         <div style={{ marginBottom: spacing.xl }}>
           <Space align="baseline" size={spacing.sm}>
             <Typography.Title level={3} style={{ margin: 0 }}>
