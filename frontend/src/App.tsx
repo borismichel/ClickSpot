@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Layout } from "antd";
+import { Layout, theme } from "antd";
 import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "./hooks/usePageTitle";
 import { useChat } from "./hooks/useChat";
@@ -13,6 +13,7 @@ const { Sider, Content } = Layout;
 
 export default function App() {
   usePageTitle("Chat");
+  const { token } = theme.useToken();
   const [searchParams, setSearchParams] = useSearchParams();
   const { messages, isLoading, sendMessage, newChat, loadMessages } = useChat();
   const {
@@ -96,7 +97,7 @@ export default function App() {
             height: "calc(100vh - 64px)",
             display: "flex",
             flexDirection: "column",
-            background: "#fafafa",
+            background: token.colorBgLayout,
           }}
         >
           <ChatContainer

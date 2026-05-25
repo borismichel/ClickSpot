@@ -18,6 +18,8 @@ import { QueryFlowDiagram } from "./QueryFlowDiagram";
 const { Title, Text, Paragraph } = Typography;
 
 const flowSection: CSSProperties = {
+  // Diagram flow-section card fill, not a page background. Kept as neutral #fafafa: this is a
+  // static module-level style object, so the theme.useToken() hook is not in scope here.
   background: "#fafafa",
   borderRadius: 8,
   padding: 16,

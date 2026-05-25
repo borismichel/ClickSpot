@@ -71,6 +71,7 @@ function PreviewBar({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          // Mode-indicator bar, not a page background: #fafafa is the neutral "source table" counterpart to the colorPrimaryBg "composed view" highlight.
           background: isViewMode ? token.colorPrimaryBg : "#fafafa",
           borderLeft: isViewMode ? `3px solid ${modeColor}` : "3px solid transparent",
           flexShrink: 0,

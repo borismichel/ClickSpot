@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin, Tooltip, message } from "antd";
+import { Layout, Button, Space, Typography, Select, Empty, Popconfirm, Input, Spin, Tooltip, message, theme } from "antd";
 import {
   ArrowLeftOutlined,
   PlusOutlined,
@@ -34,6 +34,7 @@ export default function SpaceDashboardPage() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { token } = theme.useToken();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [spaceConfig, setSpaceConfig] = useState<DataSpaceConfig | null>(null);
@@ -312,7 +313,7 @@ export default function SpaceDashboardPage() {
         </Space>
       </Header>
 
-      <Content style={{ padding: 16, background: "#fafafa" }}>
+      <Content style={{ padding: 16, background: token.colorBgLayout }}>
         {activeDashboard && activeDashboard.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
             <UnifiedFilterBar

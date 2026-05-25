@@ -1,4 +1,4 @@
-import { Layout, Button, Card, Tag, Typography, Empty, Space, Popconfirm, Spin } from "antd";
+import { Layout, Button, Card, Tag, Typography, Empty, Space, Popconfirm, Spin, theme } from "antd";
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -16,6 +16,7 @@ const { Content } = Layout;
 
 export default function DataSpaceListPage() {
   usePageTitle("Data Spaces");
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   const { spaces, loading, deleteSpace } = useDataSpaces();
 
@@ -29,7 +30,7 @@ export default function DataSpaceListPage() {
         }
       />
 
-      <Content style={{ padding: 24, background: "#fafafa", maxWidth: 1100, margin: "0 auto", width: "100%" }}>
+      <Content style={{ padding: 24, background: token.colorBgLayout, maxWidth: 1100, margin: "0 auto", width: "100%" }}>
         {loading ? (
           <div style={{ textAlign: "center", paddingTop: 120 }}><Spin size="large" /></div>
         ) : spaces.length === 0 ? (
