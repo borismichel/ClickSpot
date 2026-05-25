@@ -28,12 +28,15 @@ done
 cd /app
 
 # The in-app key form PUTs to a settings endpoint that accepts loopback only.
-# Docker maps the host's loopback-bound port in via the bridge, so uvicorn sees
-# the request from the bridge gateway rather than 127.0.0.1 — trust the private
-# bridge range so the form works out of the box. The published port stays
-# loopback-bound, so this doesn't expose key writes beyond the host. An operator
-# value (e.g. for a custom network) is respected.
-export CLICKSPOT_TRUSTED_HOSTS="${CLICKSPOT_TRUSTED_HOSTS:-172.16.0.0/12}"
+# Docker forwards the published port in via the bridge, so uvicorn sees the
+# request from the bridge gateway rather than 127.0.0.1 — and which private
+# address that is depends on the runtime: ~172.17.0.1 on a native Linux bridge,
+# but Docker Desktop (macOS/Windows) presents a 192.168.x gateway instead. Trust
+# all RFC1918 private ranges so the form works out of the box regardless. The
+# source is always a private gateway (never the LAN client's own IP under NAT),
+# and the published port governs who can reach the container at all, so this
+# doesn't widen exposure. An operator value (e.g. for a custom network) wins.
+export CLICKSPOT_TRUSTED_HOSTS="${CLICKSPOT_TRUSTED_HOSTS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
 
 echo "[clickspot] starting ClickSpot on http://localhost:${PORT}"
 echo "[clickspot] clicking works with no key; set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable chat."

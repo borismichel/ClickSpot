@@ -18,11 +18,13 @@ x-app-env: &app-env
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   # The in-app Settings drawer (LLM key / OAuth token writes) accepts loopback
-  # only. Behind the frontend nginx the backend sees the request from the
-  # compose bridge gateway, not 127.0.0.1, so trust the private bridge range.
-  # The frontend port stays loopback-bound (see frontend.ports), so this does
-  # not expose key writes beyond the host. Override for non-default networks.
-  CLICKSPOT_TRUSTED_HOSTS: ${CLICKSPOT_TRUSTED_HOSTS:-172.16.0.0/12}
+  # only. The backend has no host port — it is reached only through the frontend
+  # nginx — so it sees requests from the compose bridge gateway, not 127.0.0.1.
+  # Trust all RFC1918 private ranges (the compose subnet varies by host, and
+  # Docker Desktop uses 192.168.x), so the key form works without tuning. The
+  # frontend port stays loopback-bound (see frontend.ports), so this does not
+  # widen who can reach key writes. Override for non-default networks.
+  CLICKSPOT_TRUSTED_HOSTS: "${CLICKSPOT_TRUSTED_HOSTS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
 
 services:
   clickhouse:
