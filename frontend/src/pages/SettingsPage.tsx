@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Layout, Tabs, Button, Alert, Space, Checkbox, message } from "antd";
+import { Layout, Tabs, Button, Alert, Space, Checkbox, message, theme } from "antd";
 import { useSearchParams } from "react-router-dom";
 import { ReloadOutlined } from "@ant-design/icons";
 import { AppHeader } from "../components/AppHeader";
@@ -17,6 +17,7 @@ const { Content } = Layout;
 
 export default function SettingsPage() {
   usePageTitle("Settings");
+  const { token } = theme.useToken();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "onboarding";
   const { config } = useCustomerConfig();
@@ -66,7 +67,7 @@ export default function SettingsPage() {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <AppHeader
-        actions={headerSummary ? <span style={{ color: "#8c8c8c", fontSize: 13 }}>{headerSummary}</span> : undefined}
+        actions={headerSummary ? <span style={{ color: token.colorTextTertiary, fontSize: 13 }}>{headerSummary}</span> : undefined}
       />
       <Content style={{ padding: "24px 32px", background: "#fafafa" }}>
         {pendingReload && (
@@ -97,7 +98,7 @@ export default function SettingsPage() {
             }
           />
         )}
-        <div style={{ background: "#fff", borderRadius: 8, padding: 24 }}>
+        <div style={{ background: token.colorBgContainer, borderRadius: token.borderRadiusLG, padding: token.paddingLG }}>
           <Tabs
             activeKey={activeTab}
             onChange={(k) => setSearchParams({ tab: k })}

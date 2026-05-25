@@ -70,7 +70,9 @@ python -m pip install --upgrade pip
 
 if [ "$INSTALL_MODE" = "locked" ] && [ -f requirements.lock ]; then
   log "Installing Python dependencies from requirements.lock..."
-  pip install -r requirements.lock
+  # --no-deps: the lockfile is the full pinned closure; don't re-resolve against
+  # PyPI (keeps locked installs reproducible — see Dockerfile / CLI-56).
+  pip install --no-deps -r requirements.lock
   pip install -e . --no-deps
 else
   log "Installing Python dependencies from pyproject.toml..."

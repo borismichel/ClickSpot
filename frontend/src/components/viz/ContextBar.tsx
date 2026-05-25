@@ -54,6 +54,7 @@ function DeltaLabel({ label }: { label: string }) {
 }
 
 export function ContextBar({ kpis, large }: Props) {
+  const { token } = theme.useToken();
   if (!kpis.length) return null;
 
   const fontSize = large ? 28 : 20;
@@ -94,7 +95,7 @@ export function ContextBar({ kpis, large }: Props) {
                   <DeltaLabel label={kpi.delta_label!} />
                 )}
                 {prevFormatted && prevFormatted.display !== "-" && (
-                  <span style={{ fontSize: 11, color: "#8c8c8c", marginLeft: 6 }}>
+                  <span style={{ fontSize: 11, color: token.colorTextTertiary, marginLeft: 6 }}>
                     vs {prevFormatted.prefix}{typeof prevFormatted.display === "number" ? prevFormatted.display.toLocaleString() : prevFormatted.display}{prevFormatted.suffix}
                   </span>
                 )}

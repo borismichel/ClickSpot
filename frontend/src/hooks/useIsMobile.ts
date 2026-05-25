@@ -1,26 +1,26 @@
 import { useEffect, useState } from "react";
 
-/** Below antd's `md` breakpoint (768px). */
-const MOBILE_QUERY = "(max-width: 767.98px)";
+// antd's `Grid.useBreakpoint()` can get stuck on the desktop branch under
+// headless rendering (md never settles), so responsive code that relies on it
+// silently stays desktop-only. Read `window.matchMedia` synchronously on the
+// first render and subscribe to changes instead — reliable in headless Chrome.
+const MOBILE_QUERY = "(max-width: 767.98px)"; // below antd's `md` breakpoint
 
-/**
- * True on viewports narrower than antd's `md` breakpoint (~768px).
- *
- * Backed by `window.matchMedia` rather than antd's `Grid.useBreakpoint` — the
- * latter reports an empty screen map on the first render and didn't settle
- * reliably under headless render, leaving responsive layouts stuck on the
- * desktop branch. matchMedia is read synchronously for the initial value (no
- * mobile-layout flash on desktop) and updated on change.
- */
+function query(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(MOBILE_QUERY).matches
+    : false;
+}
+
 export function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.matchMedia(MOBILE_QUERY).matches : false
-  );
+  const [isMobile, setIsMobile] = useState(query);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    // Initial value already came from matchMedia in useState above (correct in
+    // headless Chrome); here we only subscribe to subsequent viewport changes.
     const mql = window.matchMedia(MOBILE_QUERY);
-    const onChange = () => setIsMobile(mql.matches);
-    onChange();
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
   }, []);

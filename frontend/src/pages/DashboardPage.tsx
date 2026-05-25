@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, theme } from "antd";
+import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Modal, Tooltip, message, theme } from "antd";
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -9,6 +9,7 @@ import {
   MessageOutlined,
   DatabaseOutlined,
   AppstoreOutlined,
+  ShareAltOutlined,
 } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
@@ -36,6 +37,10 @@ import { EMPTY_FILTERS } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
 import { decodeFilterUrlState, encodeFilterUrlState } from "../utils/filterUrlState";
 import { AppHeader } from "../components/AppHeader";
+import { spacing } from "../theme/tokens";
+
+/** Single source for the dashboard grid gutter (react-grid-layout margin). */
+const GRID_GUTTER: [number, number] = [spacing.md, spacing.md];
 
 const { Content } = Layout;
 
@@ -88,6 +93,7 @@ export default function DashboardPage() {
   const { token } = theme.useToken();
   const isMobile = useIsMobile();
   usePageTitle("Dashboard");
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const { objects, getObject } = useObjectRepo();
   const {
@@ -140,8 +146,8 @@ export default function DashboardPage() {
   const fetchSpaceDashboards = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/spaces/dashboards/all");
-      const data: SpaceDashboard[] = await res.json();
-      setSpaceDashboards(data);
+      const data = await res.json();
+      setSpaceDashboards(Array.isArray(data) ? data : []);
     } catch { /* silent */ }
     setSpaceDashboardsLoaded(true);
   }, []);
@@ -182,7 +188,7 @@ export default function DashboardPage() {
     setSpaceConfig({ id: spaceId, name: activeSpaceDash.space_name ?? spaceId });
     fetch(`/api/v1/spaces/${spaceId}/columns`)
       .then((r) => r.json())
-      .then(setSpaceColumns)
+      .then((cols) => setSpaceColumns(Array.isArray(cols) ? cols : []))
       .catch(() => {});
   }, [activeSpaceDash?.space_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -191,7 +197,9 @@ export default function DashboardPage() {
     try {
       const res = await fetch("/api/v1/spaces");
       const data = await res.json();
-      setAvailableSpaces(data.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })));
+      setAvailableSpaces(
+        (Array.isArray(data) ? data : []).map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }))
+      );
     } catch { /* silent */ }
     setCreateModalOpen(true);
   }, []);
@@ -231,7 +239,8 @@ export default function DashboardPage() {
       const params = new URLSearchParams({ limit: "50" });
       if (search.trim()) params.set("q", search.trim());
       const res = await fetch(`/api/v1/filters/values/${column.name}?${params.toString()}`);
-      const options: FilterValueOption[] = await res.json();
+      const json = await res.json();
+      const options: FilterValueOption[] = Array.isArray(json) ? json : [];
       rememberValueLabels(column.name, options);
       return options;
     },
@@ -245,7 +254,8 @@ export default function DashboardPage() {
       const res = await fetch(
         `/api/v1/spaces/${spaceId}/columns/${encodeURIComponent(column.name)}/values?${params.toString()}`
       );
-      const values: Array<string | FilterValueOption> = await res.json();
+      const json = await res.json();
+      const values: Array<string | FilterValueOption> = Array.isArray(json) ? json : [];
       return values.map((value) => (typeof value === "string" ? { value, label: value } : value));
     },
     []
@@ -271,7 +281,7 @@ export default function DashboardPage() {
     ...libraryDashboards.map((d) => ({
       label: (
         <Space size={4}>
-          <AppstoreOutlined style={{ color: "#8c8c8c", fontSize: 11 }} />
+          <AppstoreOutlined style={{ color: token.colorTextTertiary, fontSize: 11 }} />
           <span>{d.title}</span>
         </Space>
       ),
@@ -304,8 +314,35 @@ export default function DashboardPage() {
     setSearchParams(next, { replace: true });
   };
 
-  // Title for display
-  const activeTitle = activeLibDash?.title ?? activeSpaceDash?.title ?? "Dashboard";
+  // Copy a shareable link to the current dashboard + filter view. The active
+  // dashboard and filters are already mirrored into the URL (see
+  // writeFiltersToUrl / handleSelectChange), so the live href is the share link.
+  const handleShare = useCallback(async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // Fallback for non-secure contexts where the async Clipboard API is unavailable.
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      message.success("Link copied — opens this dashboard with the same filters");
+    } catch {
+      message.error("Couldn't copy the link. Copy it from your browser's address bar.");
+    }
+  }, []);
+
+  // Title for display. Blank when nothing is selected so the empty state doesn't
+  // render a second "Dashboard" label next to the active nav item (CLI-57).
+  const activeTitle = activeLibDash?.title ?? activeSpaceDash?.title ?? "";
 
   // --- Handlers ---
 
@@ -618,7 +655,7 @@ export default function DashboardPage() {
               />
               <Button icon={<CheckOutlined />} onClick={finishRename} />
             </Space.Compact>
-          ) : (
+          ) : activeTitle ? (
             <Typography.Title
               level={5}
               style={{
@@ -644,7 +681,7 @@ export default function DashboardPage() {
                 </Tag>
               )}
             </Typography.Title>
-          )
+          ) : undefined
         }
         actions={
           <>
@@ -676,23 +713,34 @@ export default function DashboardPage() {
               </Popconfirm>
             )}
             {isSpace && (
-              <Button
-                icon={<MessageOutlined />}
-                type={chatOpen ? "primary" : "default"}
-                onClick={() => setChatOpen(!chatOpen)}
-                block={isMobile}
-              >
-                Chat
-              </Button>
+              <Tooltip title={isMobile ? "Chat" : ""}>
+                <Button
+                  icon={<MessageOutlined />}
+                  type={chatOpen ? "primary" : "default"}
+                  onClick={() => setChatOpen(!chatOpen)}
+                  aria-label="Chat"
+                >
+                  {!isMobile && "Chat"}
+                </Button>
+              </Tooltip>
             )}
             {!isSpace && active && !isMobile && (
               <Button icon={<PlusOutlined />} onClick={() => setDrawerOpen(true)}>
                 Add
               </Button>
             )}
-            <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)} block={isMobile}>
-              Refresh
-            </Button>
+            <Tooltip title={isMobile ? "Refresh" : ""}>
+              <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)} aria-label="Refresh">
+                {!isMobile && "Refresh"}
+              </Button>
+            </Tooltip>
+            {active && (
+              <Tooltip title="Copy a link to this dashboard with its current filters">
+                <Button icon={<ShareAltOutlined />} onClick={handleShare} aria-label="Share">
+                  {!isMobile && "Share"}
+                </Button>
+              </Tooltip>
+            )}
           </>
         }
       />
@@ -798,6 +846,7 @@ export default function DashboardPage() {
                 breakpoints={{ lg: 1200, md: 996, sm: 768 }}
                 cols={{ lg: 12, md: 8, sm: 4 }}
                 rowHeight={80}
+                margin={GRID_GUTTER}
                 onLayoutChange={handleLibLayoutChange}
                 dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
                 resizeConfig={{ enabled: true, handles: ["se"] }}
@@ -826,6 +875,7 @@ export default function DashboardPage() {
                 breakpoints={{ lg: 1200, md: 996, sm: 768 }}
                 cols={{ lg: 12, md: 8, sm: 4 }}
                 rowHeight={80}
+                margin={GRID_GUTTER}
                 onLayoutChange={handleSpaceLayoutChange}
                 dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
                 resizeConfig={{ enabled: true, handles: ["se"] }}

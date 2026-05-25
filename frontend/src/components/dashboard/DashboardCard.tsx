@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Card, Spin, Alert, Button, Tooltip } from "antd";
+import { Card, Spin, Alert, Button, Tooltip, theme } from "antd";
 import { ReloadOutlined, CloseOutlined } from "@ant-design/icons";
 import type { SavedObject, DashboardFilters } from "../../types/dashboard";
 import { VizRouter } from "../viz/VizRouter";
@@ -31,6 +31,7 @@ function buildFilterPayload(filters: DashboardFilters) {
 }
 
 export function DashboardCard({ object, refreshKey, filters, onRemove, readOnly }: Props) {
+  const { token } = theme.useToken();
   const [results, setResults] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [kpis, setKpis] = useState<ContextKPI[]>([]);
@@ -129,7 +130,17 @@ export function DashboardCard({ object, refreshKey, filters, onRemove, readOnly 
           )}
         </>
       }
-      style={{ height: "100%", display: "flex", flexDirection: "column" }}
+      // Tokenised surface: container fill, secondary border, card radius and a
+      // light elevation so cards read against the dashboard canvas (CLI-57).
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: token.colorBgContainer,
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: token.borderRadiusLG,
+        boxShadow: token.boxShadowTertiary,
+      }}
       styles={{ body: { flex: 1, overflow: "auto", padding: "8px 12px" } }}
     >
       {loading ? (

@@ -25,9 +25,12 @@ ENV PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
 COPY requirements.lock ./
-# requirements.lock carries hashes, so pip runs in --require-hashes mode and
-# installs the exact, fully transitive set CLI-6 was tested against.
-RUN pip install --no-cache-dir -r requirements.lock
+# requirements.lock is the full transitive closure with hashes (pip auto-enables
+# --require-hashes). --no-deps installs exactly those pins instead of re-resolving
+# against the live PyPI index, so a newer release of an extras-consumed dependency
+# (e.g. dagster-webserver's uvicorn[standard]) can't pull an unhashed version into
+# a cache-cold rebuild and break it (CLI-56).
+RUN pip install --no-cache-dir --no-deps -r requirements.lock
 
 # ---- runtime: slim image with just the venv + source ------------------------
 FROM python:3.10-slim-bookworm AS runtime

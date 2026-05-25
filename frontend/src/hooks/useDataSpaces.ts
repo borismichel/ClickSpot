@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import type { SpaceFilter } from "../types/dashboard";
+import type { ComputedPreset } from "../lib/computedPresets";
 
 export interface GrainEntity {
   entity: string;
@@ -30,6 +32,13 @@ export interface AvailableDict {
   columns: string[];
 }
 
+export interface ComputedColumn {
+  alias: string;
+  expr: string;
+  /** No-SQL preset (source of truth); backend re-derives `expr` from it on save. */
+  preset?: ComputedPreset | null;
+}
+
 export interface DataSpaceConfig {
   id: string;
   name: string;
@@ -38,10 +47,14 @@ export interface DataSpaceConfig {
     key: string;
     columns: string[];
     filter?: string | null;
+    /** Structured no-SQL grain filter (source of truth on edit). */
+    filter_builder?: SpaceFilter[] | null;
   };
   dimensions: DimensionJoin[];
-  computed: { alias: string; expr: string }[];
+  computed: ComputedColumn[];
   default_filter: string | null;
+  /** Structured no-SQL default filter (source of truth on edit). */
+  default_filter_builder?: SpaceFilter[] | null;
 }
 
 export type DimensionJoin = BridgeDimension | FKDimension | DictDimension;
