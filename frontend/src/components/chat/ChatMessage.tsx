@@ -1,7 +1,8 @@
-import { Typography, Alert, Tag, Space, Popover, Button, theme } from "antd";
-import { UserOutlined, RobotOutlined, ClockCircleOutlined, DatabaseOutlined, TableOutlined } from "@ant-design/icons";
+import { Typography, Alert, Tag, Space, Popover, Button, Spin, Tooltip, theme } from "antd";
+import { UserOutlined, RobotOutlined, ClockCircleOutlined, DatabaseOutlined, TableOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { ChatMessage as ChatMsg } from "../../types/chat";
 import type { VizType } from "../../types/dashboard";
+import { useSqlRehydration } from "../../hooks/useSqlRehydration";
 import { SQLPreview } from "./SQLPreview";
 import { VizRouter } from "../viz/VizRouter";
 import { ContextBar } from "../viz/ContextBar";
@@ -21,6 +22,22 @@ function formatMs(ms: number): string {
 export function ChatMessage({ message, onSaveToRepo }: Props) {
   const isUser = message.role === "user";
   const { token } = theme.useToken();
+
+  // A reopened answer carries its recipe (SQL + viz + KPI SQL) but no result
+  // rows — those are never persisted (stale/large/PII). Re-run the SQL on open
+  // so the chart comes back, same as a dashboard card does. Live answers (which
+  // already hold their results) skip this entirely. (CLI-82)
+  const needsRehydration = !isUser && !message.error && !!message.sql && !!message.viz && !message.results;
+  const rehydration = useSqlRehydration({
+    sql: message.sql,
+    context: message.context,
+    enabled: needsRehydration,
+  });
+
+  const results = needsRehydration ? rehydration.results : message.results;
+  const columns = needsRehydration ? rehydration.columns : message.columns;
+  const rowCount = needsRehydration ? rehydration.rowCount : message.rowCount;
+  const context = needsRehydration ? rehydration.kpis : message.context;
 
   return (
     <div
@@ -94,12 +111,49 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
               </Space>
             )}
 
+            {/* A reopened answer has no live-run latency tag; show row count plus
+                a hint that the numbers were just refreshed against the warehouse. */}
+            {needsRehydration && !rehydration.loading && !rehydration.error && results && (
+              <Space size={4} style={{ marginBottom: 8 }} align="center">
+                <Tag icon={<TableOutlined />} style={{ marginInlineEnd: 0 }}>
+                  {rowCount} {rowCount === 1 ? "row" : "rows"}
+                </Tag>
+                <Tooltip title="Chat history stores the query, not the rows — this answer was just re-run against current data.">
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    refreshed with current data
+                  </Typography.Text>
+                </Tooltip>
+              </Space>
+            )}
+
             {message.sql && <SQLPreview sql={message.sql} />}
 
-            {message.results && message.viz && message.columns && (
+            {needsRehydration && rehydration.loading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, color: token.colorTextSecondary }}>
+                <Spin size="small" />
+                <Typography.Text type="secondary">Re-running query against current data…</Typography.Text>
+              </div>
+            )}
+
+            {needsRehydration && rehydration.error && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 12 }}
+                message="Couldn't re-run this query"
+                description={rehydration.error}
+                action={
+                  <Button size="small" icon={<ReloadOutlined />} onClick={rehydration.refetch}>
+                    Retry
+                  </Button>
+                }
+              />
+            )}
+
+            {results && message.viz && columns && (
               <div style={{ marginTop: 12 }}>
-                {message.context && message.context.length > 0 && message.viz !== "comparison" && (
-                  <ContextBar kpis={message.context} />
+                {context && context.length > 0 && message.viz !== "comparison" && (
+                  <ContextBar kpis={context} />
                 )}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4, gap: 4 }}>
                   {onSaveToRepo && message.sql && message.viz && (
@@ -107,22 +161,22 @@ export function ChatMessage({ message, onSaveToRepo }: Props) {
                       title={message.title || "Untitled"}
                       sql={message.sql}
                       viz={message.viz}
-                      contextKPIs={(message.context || []).map((k) => ({ label: k.label, sql: k.sql, ...(k.previous_sql ? { previous_sql: k.previous_sql } : {}) }))}
+                      contextKPIs={(context || []).map((k) => ({ label: k.label, sql: k.sql, ...(k.previous_sql ? { previous_sql: k.previous_sql } : {}) }))}
                       onSave={onSaveToRepo}
                     />
                   )}
                   <ExportButtons
-                    results={message.results}
-                    columns={message.columns}
+                    results={results}
+                    columns={columns}
                     title={message.title || "export"}
                   />
                 </div>
                 <VizRouter
                   viz={message.viz}
-                  results={message.results}
-                  columns={message.columns}
+                  results={results}
+                  columns={columns}
                   title={message.title || ""}
-                  context={message.context}
+                  context={context}
                 />
               </div>
             )}
