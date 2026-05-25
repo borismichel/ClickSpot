@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clickspot"
-version = "0.1.1"
+version = "0.1.3"
 requires-python = ">=3.10"
 # Floors are the tested minimums; the upper bounds keep us inside the major
 # line the code was written against (e.g. openai 1.x — providers.py uses the
