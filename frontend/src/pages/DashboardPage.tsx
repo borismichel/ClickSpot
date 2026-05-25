@@ -755,7 +755,7 @@ export default function DashboardPage() {
         }
       />
 
-      <Content style={{ padding: 16, background: "#fafafa", overflowX: "hidden" }}>
+      <Content style={{ padding: 16, background: token.colorBgLayout, overflowX: "hidden" }}>
         {/* Filter bars */}
         {!isSpace && activeLibDash && activeLibDash.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
