@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Layout, Button, Space, Typography, Select, Input, Empty, Popconfirm, Tag, Tooltip, message, theme } from "antd";
+import { Layout, Button, Space, Typography, Dropdown, Input, Empty, Popconfirm, Tag, Tooltip, message, theme } from "antd";
+import type { MenuProps } from "antd";
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -10,6 +11,8 @@ import {
   DatabaseOutlined,
   AppstoreOutlined,
   ShareAltOutlined,
+  ArrowLeftOutlined,
+  DownOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
@@ -274,39 +277,47 @@ export default function DashboardPage() {
     [searchParams, setSearchParams]
   );
 
-  // Build unified selector options
-  const selectorOptions: { label: React.ReactNode; value: string }[] = [
+  // Quick-switch menu items. The switcher was an in-nav <Select> crammed into
+  // the toolbar (overlapped Settings on desktop, truncated on mobile); CLI-87
+  // relocates it to a compact dropdown next to the title in the header context
+  // slot. Mirrors the DashboardListPage Dropdown pattern; the trailing
+  // "New Dashboard" entry preserves the create affordance the old Select footer
+  // carried.
+  const NEW_DASHBOARD_KEY = "__new__";
+  const switcherItems: MenuProps["items"] = [
     ...libraryDashboards.map((d) => ({
-      label: (
-        <Space size={4}>
-          <AppstoreOutlined style={{ color: token.colorTextTertiary, fontSize: 11 }} />
-          <span>{d.title}</span>
-        </Space>
-      ),
-      value: `lib:${d.id}`,
+      key: `lib:${d.id}`,
+      icon: <AppstoreOutlined style={{ color: token.colorTextTertiary }} />,
+      label: d.title,
     })),
     ...spaceDashboards.map((d) => ({
+      key: `space:${d.id}`,
+      icon: <DatabaseOutlined style={{ color: token.colorPrimary }} />,
       label: (
         <Space size={4}>
-          <DatabaseOutlined style={{ color: token.colorPrimary, fontSize: 11 }} />
           <span>{d.title}</span>
           <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", margin: 0 }}>
             {d.space_name ?? d.space_id}
           </Tag>
         </Space>
       ),
-      value: `space:${d.id}`,
     })),
+    { type: "divider" as const },
+    { key: NEW_DASHBOARD_KEY, icon: <PlusOutlined />, label: "New Dashboard" },
   ];
 
   const activeSelectValue = active
     ? `${active.kind === "library" ? "lib" : "space"}:${active.id}`
     : undefined;
 
-  const handleSelectChange = (value: string) => {
-    // Navigate to the new dashboard's path; the route effect re-syncs `active`
-    // and clears any inherited filter query.
-    navigate(`/dashboard/${value}`);
+  // Switching navigates to the new dashboard's path; the route effect re-syncs
+  // `active` and clears any inherited filter query.
+  const handleSwitcherSelect: MenuProps["onClick"] = ({ key }) => {
+    if (key === NEW_DASHBOARD_KEY) {
+      setCreateModalOpen(true);
+      return;
+    }
+    navigate(`/dashboard/${key}`);
   };
 
   // Copy a shareable link to the current dashboard + filter view. The active
@@ -615,60 +626,86 @@ export default function DashboardPage() {
     <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <AppHeader
         context={
-          editing ? (
-            <Space.Compact>
-              <Input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onPressEnter={finishRename}
-                style={{ width: 200 }}
-                autoFocus
-              />
-              <Button icon={<CheckOutlined />} onClick={finishRename} />
-            </Space.Compact>
-          ) : activeTitle ? (
-            <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
-              {activeTitle}
-              {active && (
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={startRename}
-                  style={{ marginLeft: 4 }}
+          <Space size={isMobile ? 2 : 4} style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+            {/* "← Dashboards" back path to the index, mirroring Space Overview's
+                back affordance. Always present on the detail view so the section
+                is identifiable and escapable (icon-only on mobile to save room). */}
+            <Tooltip title="Back to Dashboards">
+              <Button
+                type="text"
+                size="small"
+                icon={<ArrowLeftOutlined />}
+                onClick={() => navigate("/dashboard")}
+                aria-label="Back to Dashboards"
+                style={{ flexShrink: 0, color: token.colorTextSecondary }}
+              >
+                {!isMobile && "Dashboards"}
+              </Button>
+            </Tooltip>
+
+            {editing ? (
+              <Space.Compact>
+                <Input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onPressEnter={finishRename}
+                  style={{ width: 200 }}
+                  autoFocus
                 />
-              )}
-              {isSpace && activeSpaceDash && (
-                <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>
-                  {activeSpaceDash.space_name ?? activeSpaceDash.space_id}
-                </Tag>
-              )}
-            </Typography.Title>
-          ) : undefined
+                <Button icon={<CheckOutlined />} onClick={finishRename} />
+              </Space.Compact>
+            ) : activeTitle ? (
+              <>
+                <Typography.Title
+                  level={5}
+                  ellipsis={{ tooltip: activeTitle }}
+                  style={{ margin: 0, minWidth: 0, maxWidth: isMobile ? 150 : 320 }}
+                >
+                  {activeTitle}
+                </Typography.Title>
+                {isSpace && activeSpaceDash && (
+                  <Tag color="blue" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>
+                    {activeSpaceDash.space_name ?? activeSpaceDash.space_id}
+                  </Tag>
+                )}
+                {active && (
+                  <Tooltip title="Rename dashboard">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={startRename}
+                      aria-label="Rename dashboard"
+                      style={{ flexShrink: 0 }}
+                    />
+                  </Tooltip>
+                )}
+                {/* Relocated quick-switch (was the in-nav <Select>). */}
+                <Tooltip title="Switch dashboard">
+                  <Dropdown
+                    menu={{
+                      items: switcherItems,
+                      onClick: handleSwitcherSelect,
+                      selectedKeys: activeSelectValue ? [activeSelectValue] : [],
+                    }}
+                    trigger={["click"]}
+                    placement="bottomLeft"
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DownOutlined />}
+                      aria-label="Switch dashboard"
+                      style={{ flexShrink: 0 }}
+                    />
+                  </Dropdown>
+                </Tooltip>
+              </>
+            ) : null}
+          </Space>
         }
         actions={
           <>
-            <Select
-              value={activeSelectValue}
-              onChange={handleSelectChange}
-              style={{ width: isMobile ? 140 : 260 }}
-              placeholder="Select dashboard"
-              options={selectorOptions}
-              popupRender={(menu) => (
-                <>
-                  {menu}
-                  <Button
-                    type="text"
-                    block
-                    icon={<PlusOutlined />}
-                    onClick={() => setCreateModalOpen(true)}
-                    style={{ marginTop: 4 }}
-                  >
-                    New Dashboard
-                  </Button>
-                </>
-              )}
-            />
             {active && (
               <Popconfirm title="Delete this dashboard?" onConfirm={handleDelete}>
                 <Button icon={<DeleteOutlined />} danger type="text" />
