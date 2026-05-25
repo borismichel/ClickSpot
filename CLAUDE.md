@@ -23,11 +23,11 @@ Start frontend: `cd frontend && npm run dev` → http://localhost:8193
 
 Visual QA / screenshots: this is a shared host — **always launch headless Chrome through `qa-render`** (`qa-render node my-qa.cjs`). It forces scratch onto `/dev/shm` (never the often-full `/`) and caps concurrent renders. See `docs/qa-render-runbook.md`; (re)install with `./scripts/qa-render/install.sh`.
 
-Docker-free local setup (default): `./bootstrap.sh` (Python + frontend deps + a pinned single-binary ClickHouse under `.clickhouse/`), then `./start.sh`. `start.sh` defaults to `CLICKSPOT_CLICKHOUSE_MODE=local` and manages the local ClickHouse via `scripts/clickhouse-local.sh`.
+Docker-free local setup (Linux): `./bootstrap.sh` (Python + frontend deps + a pinned single-binary ClickHouse under `.clickhouse/`), then `./start.sh`. When `CLICKSPOT_CLICKHOUSE_MODE` is unset, `start.sh` auto-picks `local` on Linux (managed via `scripts/clickhouse-local.sh`) and `docker` on macOS/Windows, where the binary can't be auto-downloaded.
 
 ClickHouse init (run once): `python scripts/init_clickhouse.py` (both `bootstrap.sh --seed` and `start.sh` run this for you).
 
-ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`): `local` (default — Docker-free single binary on port 8124), `docker` (`docker compose up -d`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
+ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`; unset = auto `local` on Linux / `docker` elsewhere): `local` (Docker-free single binary on port 8124), `docker` (`docker compose up -d clickhouse`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
 
 ## Env Vars
 

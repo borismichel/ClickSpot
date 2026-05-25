@@ -86,12 +86,17 @@ else
   warn ".env already exists; leaving it unchanged"
 fi
 
-log "Installing local ClickHouse runtime..."
-CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}" \
-  CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8124}" \
-  CLICKHOUSE_USER="${CLICKHOUSE_USER:-hs2ch}" \
-  CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-hs2ch}" \
-  scripts/clickhouse-local.sh ensure
+if [ "$(uname -s)" = "Linux" ]; then
+  log "Installing local ClickHouse runtime..."
+  CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}" \
+    CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8124}" \
+    CLICKHOUSE_USER="${CLICKHOUSE_USER:-hs2ch}" \
+    CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-hs2ch}" \
+    scripts/clickhouse-local.sh ensure
+else
+  warn "Skipping local ClickHouse binary (auto-download is Linux-only)."
+  warn "start.sh runs the ClickHouse container on macOS/Windows — Docker Desktop required."
+fi
 
 log "Installing frontend dependencies..."
 if [ -f frontend/package-lock.json ]; then

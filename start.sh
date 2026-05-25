@@ -29,7 +29,10 @@ LOCAL_CLICKHOUSE_STARTED=0
 cleanup() {
   echo
   log "Shutting down..."
-  for pid in "${PIDS[@]}"; do
+  # "${PIDS[@]:-}" plus the guard keeps cleanup safe under `set -u` on macOS's
+  # stock Bash 3.2, where expanding an empty array reads as an unbound variable.
+  for pid in "${PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
     kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null || true
   done
   if [ "$LOCAL_CLICKHOUSE_STARTED" = "1" ]; then
@@ -40,7 +43,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ---------- 1. ClickHouse ----------
-CLICKHOUSE_MODE="${CLICKSPOT_CLICKHOUSE_MODE:-local}"
+# Default per platform: the docker-free native binary on Linux (the only OS its
+# auto-download supports), the ClickHouse container everywhere else — so a fresh
+# clone runs on macOS and Windows too. Override with CLICKSPOT_CLICKHOUSE_MODE.
+if [ -n "${CLICKSPOT_CLICKHOUSE_MODE:-}" ]; then
+  CLICKHOUSE_MODE="$CLICKSPOT_CLICKHOUSE_MODE"
+elif [ "$(uname -s)" = "Linux" ]; then
+  CLICKHOUSE_MODE="local"
+else
+  CLICKHOUSE_MODE="docker"
+fi
 log "Starting ClickHouse (${CLICKHOUSE_MODE})..."
 case "$CLICKHOUSE_MODE" in
   local)
@@ -50,10 +62,17 @@ case "$CLICKHOUSE_MODE" in
     "$ROOT/scripts/clickhouse-local.sh" start
     ;;
   docker)
-    if docker compose ps --status running 2>/dev/null | grep -q clickhouse; then
-      log "ClickHouse already running"
+    if ! docker info >/dev/null 2>&1; then
+      err "Docker isn't running. Start Docker Desktop and retry, or set"
+      err "CLICKSPOT_CLICKHOUSE_MODE=external in .env to point at your own ClickHouse."
+      exit 1
+    fi
+    # Only the clickhouse service: start.sh runs FastAPI/Dagster/frontend on the
+    # host, so bringing up the full compose stack would double-bind their ports.
+    if docker compose ps --status running clickhouse 2>/dev/null | grep -q clickhouse; then
+      log "ClickHouse container already running"
     else
-      docker compose up -d
+      docker compose up -d clickhouse
     fi
     ;;
   external)

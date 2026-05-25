@@ -166,10 +166,12 @@ This starts:
 | Dagster | http://localhost:8194 | Pipeline orchestration |
 | Frontend | http://localhost:8193 | Chat, dashboards, data explorer |
 
-Docker remains available for teams that prefer it: set `CLICKSPOT_CLICKHOUSE_MODE=docker`
-in `.env` and `./start.sh` will use `docker-compose.yml`. Set
-`CLICKSPOT_CLICKHOUSE_MODE=external` when ClickHouse is already managed outside
-the repo.
+ClickHouse mode is auto-picked when `CLICKSPOT_CLICKHOUSE_MODE` is unset: the
+docker-free local binary on Linux, the ClickHouse container on macOS and Windows
+(where the binary can't be auto-downloaded — Docker Desktop required). Force a
+mode in `.env`: `CLICKSPOT_CLICKHOUSE_MODE=docker` runs the container from
+`docker-compose.yml` on any OS; `=local` uses the native binary; `=external`
+points at a ClickHouse you already manage.
 
 To regenerate the Python lockfile after editing `pyproject.toml` dependencies
 (requires `uv`):
