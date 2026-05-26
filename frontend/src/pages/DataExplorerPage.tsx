@@ -13,6 +13,7 @@ import {
   Tabs,
   Badge,
   Empty,
+  Drawer,
   theme,
 } from "antd";
 import {
@@ -24,6 +25,7 @@ import {
 } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { AppHeader } from "../components/AppHeader";
 import { DensityToggle } from "../components/DensityToggle";
 import { useTableDensity } from "../hooks/useTableDensity";
@@ -58,6 +60,7 @@ function formatValue(v: unknown): string {
 
 function TableBrowser({ initialTable, initialColumn }: { initialTable?: string | null; initialColumn?: string | null }) {
   const { token } = theme.useToken();
+  const isMobile = useIsMobile(); // matchMedia-based; reliable in headless renders
   const [density, setDensity] = useTableDensity();
   const [tables, setTables] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<TableInfo | null>(null);
@@ -66,6 +69,7 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
   const [tableQuery, setTableQuery] = useState("");
   const [columnQuery, setColumnQuery] = useState(initialColumn ?? "");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -79,6 +83,7 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
   const selectTable = useCallback((db: string, table: string) => {
     setLoadingDetail(true);
     setSelectedKey(`${db}.${table}`);
+    setDrawerOpen(false); // close the mobile table drawer on select (no-op on desktop)
     fetch(`/api/v1/tables/${db}/${table}`)
       .then((r) => r.json())
       .then((data) => setSelected(data))
@@ -154,46 +159,74 @@ function TableBrowser({ initialTable, initialColumn }: { initialTable?: string |
       }))
     : [];
 
+  // One table-list instance, hosted in the desktop Sider or — on mobile, where
+  // the 260px Sider would crush the schema content — the off-canvas Drawer
+  // toggled by the in-content "Browse tables" button (CLI-96).
+  const tableList = loading ? (
+    <div style={{ padding: 24, textAlign: "center" }}><Spin /></div>
+  ) : (
+    <>
+      <div style={{ padding: 12 }}>
+        <Input
+          allowClear
+          size="small"
+          prefix={<SearchOutlined />}
+          placeholder="Search tables"
+          value={tableQuery}
+          onChange={(event) => setTableQuery(event.target.value)}
+        />
+      </div>
+      {menuItems.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="No tables match"
+          style={{ marginTop: 40 }}
+        />
+      ) : (
+        <Menu
+          mode="inline"
+          items={menuItems}
+          defaultOpenKeys={["silver"]}
+          selectedKeys={selectedKey ? [selectedKey] : []}
+          onClick={({ key }) => {
+            const [db, ...rest] = key.split(".");
+            if (rest.length) selectTable(db, rest.join("."));
+          }}
+          style={{ border: "none" }}
+        />
+      )}
+    </>
+  );
+
   return (
     <Layout style={{ height: "100%" }}>
-      <Sider width={260} style={{ background: token.colorBgContainer, borderRight: `1px solid ${token.colorBorderSecondary}`, overflow: "auto" }}>
-        {loading ? (
-          <div style={{ padding: 24, textAlign: "center" }}><Spin /></div>
-        ) : (
-          <>
-            <div style={{ padding: 12 }}>
-              <Input
-                allowClear
-                size="small"
-                prefix={<SearchOutlined />}
-                placeholder="Search tables"
-                value={tableQuery}
-                onChange={(event) => setTableQuery(event.target.value)}
-              />
-            </div>
-            {menuItems.length === 0 ? (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="No tables match"
-                style={{ marginTop: 40 }}
-              />
-            ) : (
-              <Menu
-                mode="inline"
-                items={menuItems}
-                defaultOpenKeys={["silver"]}
-                selectedKeys={selectedKey ? [selectedKey] : []}
-                onClick={({ key }) => {
-                  const [db, ...rest] = key.split(".");
-                  if (rest.length) selectTable(db, rest.join("."));
-                }}
-                style={{ border: "none" }}
-              />
-            )}
-          </>
+      {isMobile ? (
+        <Drawer
+          placement="left"
+          width={280}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          title="Tables"
+          styles={{ body: { padding: 0 } }}
+        >
+          {tableList}
+        </Drawer>
+      ) : (
+        <Sider width={260} style={{ background: token.colorBgContainer, borderRight: `1px solid ${token.colorBorderSecondary}`, overflow: "auto" }}>
+          {tableList}
+        </Sider>
+      )}
+      <Content style={{ padding: isMobile ? 12 : 24, overflow: "auto" }}>
+        {isMobile && (
+          <Button
+            icon={<DatabaseOutlined />}
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Browse tables"
+            style={{ marginBottom: 12 }}
+          >
+            Browse tables
+          </Button>
         )}
-      </Sider>
-      <Content style={{ padding: 24, overflow: "auto" }}>
         {loadingDetail ? (
           <Spin style={{ marginTop: 48 }} />
         ) : selected ? (
@@ -399,6 +432,7 @@ function SQLEditor() {
 
 export default function DataExplorerPage() {
   usePageTitle("Data Explorer");
+  const isMobile = useIsMobile(); // matchMedia-based; reliable in headless renders
   const [searchParams] = useSearchParams();
   const initialTable = searchParams.get("table");
   const initialColumn = searchParams.get("column");
@@ -410,18 +444,24 @@ export default function DataExplorerPage() {
         <Tabs
           defaultActiveKey="browser"
           style={{ height: "100%" }}
-          tabBarStyle={{ paddingLeft: 24, marginBottom: 0 }}
+          tabBarStyle={{ paddingLeft: isMobile ? 12 : 24, marginBottom: 0 }}
           items={[
             {
               key: "browser",
               label: <span><TableOutlined /> Table Browser</span>,
               children: <div style={{ height: "calc(100vh - 110px)" }}><TableBrowser initialTable={initialTable} initialColumn={initialColumn} /></div>,
             },
-            {
-              key: "sql",
-              label: <span><CodeOutlined /> SQL Editor</span>,
-              children: <div style={{ height: "calc(100vh - 110px)" }}><SQLEditor /></div>,
-            },
+            // SQL Editor is desktop-only — read-only mobile is the Table Browser
+            // alone (CLI-96). Tab stays present at ≥768px.
+            ...(isMobile
+              ? []
+              : [
+                  {
+                    key: "sql",
+                    label: <span><CodeOutlined /> SQL Editor</span>,
+                    children: <div style={{ height: "calc(100vh - 110px)" }}><SQLEditor /></div>,
+                  },
+                ]),
           ]}
         />
       </Content>
