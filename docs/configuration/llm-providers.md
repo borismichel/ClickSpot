@@ -1,6 +1,6 @@
 # LLM providers
 
-Chat is the only part of ClickSpot that calls an LLM — to turn your question into SQL. The
+Chat is the only part of ClickSpot that calls an LLM, to turn your question into SQL. The
 model only sees your schema (see [The privacy model](../concepts/privacy.md)). Everything
 else runs against the warehouse directly and needs no key.
 
@@ -26,7 +26,7 @@ Configure a provider in the Settings drawer (top-right) or in `~/.clickspot/conf
 === "Settings drawer"
 
     Open the frontend, click **Settings** (top-right), and paste your key or Claude OAuth
-    token. The write is restricted to loopback / trusted hosts — see
+    token. The write is restricted to loopback / trusted hosts. See
     [Trusted hosts](index.md#trusted-hosts).
 
 !!! note "Docker and the Claude CLI"

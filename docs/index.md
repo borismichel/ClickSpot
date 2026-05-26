@@ -5,11 +5,11 @@ hide:
 
 # ClickSpot
 
-**Ask your HubSpot CRM questions in plain English — get back SQL, charts, and dashboards.**
+**Ask your HubSpot CRM questions in plain English. Get back SQL, charts, and dashboards.**
 
 ClickSpot pulls your HubSpot CRM into a ClickHouse warehouse every hour, then puts a
 chat box in front of it. You type a question; an LLM writes the ClickHouse SQL and hands
-back a chart, a table, or a number. The model only ever sees your schema — never a single
+back a chart, a table, or a number. The model only ever sees your schema, never a single
 row of your data.
 
 [Try it in 60 seconds](getting-started/quickstart.md){ .md-button .md-button--primary }
@@ -17,13 +17,13 @@ row of your data.
 
 <figure markdown>
   ![ClickSpot chat answering "show me activity trends by type" with the generated ClickHouse SQL and a 12-month multi-series trend chart](assets/screenshot-chat.png){ .shot }
-  <figcaption>Real UI, synthetic demo data — no customer CRM or PII.</figcaption>
+  <figcaption>Real UI, synthetic demo data, no customer CRM or PII.</figcaption>
 </figure>
 
 ## Who it's for
 
 RevOps, sales-ops, and data teams who live in HubSpot and want a queryable warehouse plus
-a natural-language layer over their CRM — without standing up the pipeline themselves.
+a natural-language layer over their CRM, without standing up the pipeline themselves.
 
 ## What you get
 
@@ -37,7 +37,7 @@ a natural-language layer over their CRM — without standing up the pipeline the
 -   :material-view-dashboard: **Dashboards**
 
     Pin chat results and apply global filters (date, owner, pipeline) through rule-based
-    SQL rewriting — no AI at query time. [Read more](guides/dashboards.md)
+    SQL rewriting, with no AI at query time. [Read more](guides/dashboards.md)
 
 -   :material-folder-multiple: **Data Spaces**
 

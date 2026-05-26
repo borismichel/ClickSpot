@@ -4,7 +4,7 @@ ClickSpot reads from HubSpot via a **private app token** (recommended) or a lega
 API key" app. Create the token in **Settings → Integrations → Private Apps → Create private
 app** and grant the read scopes below.
 
-All scopes are read-only — the pipeline never writes back to HubSpot.
+All scopes are read-only, and the pipeline never writes back to HubSpot.
 
 ## Required read scopes, per endpoint group
 
@@ -29,7 +29,7 @@ All scopes are read-only — the pipeline never writes back to HubSpot.
 
 !!! tip "Marketing scopes are optional"
     If you skip the marketing scopes (`marketing.campaigns.read`, `forms`), the
-    corresponding bronze assets fail to materialize — but the CRM pipeline still runs.
+    corresponding bronze assets fail to materialize, but the CRM pipeline still runs.
 
 See [Connect HubSpot](../getting-started/connect-hubspot.md) for the rest of the portal
 setup.

@@ -13,13 +13,13 @@ every run.
 | **Gold** | 7 aggregates | `ReplacingMergeTree` — partitioned where there's a natural date axis | Full rebuild |
 | **Anon** | Masked silver + gold mirrors in `silver_anon` / `gold_anon` | `ReplacingMergeTree` | Rebuilt after gold via sensor |
 
-- **Bronze** is the raw landing zone — the HubSpot list endpoints, loaded whole and
+- **Bronze** is the raw landing zone: the HubSpot list endpoints, loaded whole and
   deduplicated. Nothing is interpreted here.
 - **Silver** is the typed, modeled layer: dimensions (deals, contacts, companies, owners…),
   facts, and the bridge tables that connect them. This is what most queries hit. It's
   rebuilt atomically with `EXCHANGE TABLES`, so readers never see a half-built table.
 - **Gold** is pre-aggregated: rep performance, deal health, source attribution, pipeline
-  snapshots — the numbers you'd otherwise recompute on every dashboard load.
+  snapshots: the numbers you'd otherwise recompute on every dashboard load.
 - **Anon** is a masked copy of silver and gold in separate `silver_anon` / `gold_anon`
   databases. It's what the [MCP server](../guides/mcp.md) and demos read, so the warehouse
   can be shared without exposing real names, emails, or amounts. See

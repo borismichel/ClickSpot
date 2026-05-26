@@ -2,7 +2,7 @@
 
 ClickSpot has three stages: pull HubSpot CRM into ClickHouse, transform it through a
 medallion warehouse, then serve it through an AI analytics layer that answers questions in
-SQL — without ever showing raw data to the model.
+SQL, without ever showing raw data to the model.
 
 ```mermaid
 flowchart LR
@@ -71,11 +71,11 @@ User question
     -> Chart / table / number rendered inline
 ```
 
-The LLM never sees actual data — only schema metadata and property descriptions from
+The LLM never sees actual data, only schema metadata and property descriptions from
 HubSpot. Queries use relative date expressions (`today()`, `toStartOfMonth()`) so saved
 results stay current, and period-over-period comparisons show colored delta badges.
 
-That schema-only contract is the heart of the design — read
+That schema-only contract is the heart of the design. Read
 [The privacy model](privacy.md) for exactly what does and doesn't reach the LLM.
 
 ## Going deeper
@@ -83,7 +83,7 @@ That schema-only contract is the heart of the design — read
 The published docs above cover the product. For implementation detail, the engineering
 docs go further:
 
-- [Architecture overview](../architecture.md) — system design and the relationship graph
-- [Data pipeline](../data-pipeline.md) — bronze/silver/gold/anon layers and the sensor chain
-- [Backend](../backend.md) — analytics engine, chat API, SQL validation, spaces, MCP
-- [Frontend](../frontend.md) — chat UI, visualization components, hooks
+- [Architecture overview](../architecture.md): system design and the relationship graph
+- [Data pipeline](../data-pipeline.md): bronze/silver/gold/anon layers and the sensor chain
+- [Backend](../backend.md): analytics engine, chat API, SQL validation, spaces, MCP
+- [Frontend](../frontend.md): chat UI, visualization components, hooks

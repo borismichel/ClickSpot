@@ -6,7 +6,7 @@ containers at all.
 
 ## Run with Docker (recommended)
 
-Brings up the whole stack — ClickHouse, backend, Dagster, frontend — and loads the demo
+Brings up the whole stack (ClickHouse, backend, Dagster, frontend) and loads the demo
 warehouse on first boot:
 
 ```bash
@@ -34,7 +34,7 @@ set. Released images pull from GHCR (public, no login) with `docker compose pull
     To reach it from another machine, make that opt-in yourself: change the frontend port
     in `docker-compose.yml` from `"127.0.0.1:8193:80"` to `"0.0.0.0:8193:80"` (or a
     specific host IP) and put it behind your own auth/reverse proxy. If you do, treat
-    LLM-key writes as exposed too — see [Settings & environment](../configuration/index.md#trusted-hosts).
+    LLM-key writes as exposed too. See [Settings & environment](../configuration/index.md#trusted-hosts).
 
 ## Run from source
 
@@ -84,7 +84,7 @@ This starts:
 
 ClickHouse mode is auto-picked when `CLICKSPOT_CLICKHOUSE_MODE` is unset: the Docker-free
 local binary on Linux, the ClickHouse container on macOS and Windows (where the binary
-can't be auto-downloaded — Docker Desktop required). Force a mode in `.env`:
+can't be auto-downloaded; Docker Desktop required). Force a mode in `.env`:
 
 | `CLICKSPOT_CLICKHOUSE_MODE` | Behavior |
 |---|---|

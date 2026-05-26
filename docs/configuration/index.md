@@ -46,13 +46,13 @@ the loopback-bound demo on any Docker runtime without extra setup.
 
 ## Adding data
 
-**New HubSpot property** — add one tuple in `silver_config.py`:
+**New HubSpot property.** Add one tuple in `silver_config.py`:
 
 ```python
 DIM_DEALS["columns"].append(("new_field", "hs_property_name", "String"))
 ```
 
-**New computed metric** — add to `app/engine/metrics.py`:
+**New computed metric.** Add to `app/engine/metrics.py`:
 
 ```python
 COMPUTED_METRICS["new_metric"] = {

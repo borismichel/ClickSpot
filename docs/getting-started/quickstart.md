@@ -5,7 +5,7 @@ Docker and about a minute.
 
 ## Try the preloaded demo (60 seconds)
 
-The `:demo` image has a synthetic CRM baked in — no token, no setup, no portal to connect.
+The `:demo` image has a synthetic CRM baked in: no token, no setup, no portal to connect.
 
 ```bash
 docker run --rm -p 8080:8080 ghcr.io/borismichel/clickspot:demo
@@ -23,7 +23,7 @@ docker run --rm -p 8080:8080 -e ANTHROPIC_API_KEY=sk-... ghcr.io/borismichel/cli
 !!! note "Why chat needs a key but browsing doesn't"
     Everything except chat runs against the warehouse directly. Chat is the only feature
     that calls an LLM to turn your question into SQL, so it needs an Anthropic or OpenAI
-    key. The model still only sees your schema — see [The privacy model](../concepts/privacy.md).
+    key. The model still only sees your schema. See [The privacy model](../concepts/privacy.md).
 
 ## Self-host with Docker Compose
 
@@ -45,7 +45,7 @@ set. Full walkthrough: [Install & run](install.md) → [Connect HubSpot](connect
 
 ## Run from source
 
-No containers at all — `./bootstrap.sh` installs the dependencies and a pinned,
+No containers at all. `./bootstrap.sh` installs the dependencies and a pinned,
 single-binary ClickHouse.
 
 ```bash
