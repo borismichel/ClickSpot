@@ -432,4 +432,4 @@ Every INSERT into dim_deals automatically updates the materialized view. No refr
 
 ---
 
-<sub>[← README](../README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · [Frontend](frontend.md) · **ClickHouse Evaluation**</sub>
+<sub>[← README](https://github.com/borismichel/ClickSpot/blob/main/README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · [Frontend](frontend.md) · **ClickHouse Evaluation**</sub>

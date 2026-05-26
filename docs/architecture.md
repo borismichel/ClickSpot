@@ -425,4 +425,4 @@ See `SECURITY_AUDIT.md` for the full audit. Key points:
 
 ---
 
-<sub>[← README](../README.md) · **Architecture** · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>
+<sub>[← README](https://github.com/borismichel/ClickSpot/blob/main/README.md) · **Architecture** · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>

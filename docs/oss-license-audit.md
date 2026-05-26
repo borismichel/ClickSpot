@@ -27,7 +27,7 @@ change: a `THIRD_PARTY_NOTICES.md` file (see below).
 | Frontend build-only tooling | excluded from shipped artifact | Not redistributed |
 | Container tools / base images | `Dockerfile`, `Dockerfile.demo`, `docker-compose.yml` | ClickHouse Apache-2.0; OS layers = mere aggregation |
 
-Full per-package inventory: [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+Full per-package inventory: [`THIRD_PARTY_NOTICES.md`](https://github.com/borismichel/ClickSpot/blob/main/THIRD_PARTY_NOTICES.md).
 Regenerate with `python3 scripts/gen-third-party-notices.py`.
 
 ## Findings detail
@@ -75,7 +75,7 @@ single aggregated notices file.
 
 - ✅ Our own notice is correct and consistent: `LICENSE` (MIT, © 2026 Boris Michel),
   README badge + License section both say MIT © 2026 Boris Michel.
-- ⛏️ **Action taken:** added [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)
+- ⛏️ **Action taken:** added [`THIRD_PARTY_NOTICES.md`](https://github.com/borismichel/ClickSpot/blob/main/THIRD_PARTY_NOTICES.md)
   aggregating all third-party components, their versions, and licenses, plus the
   explicit dual-license elections and the container-image note. Generator committed at
   `scripts/gen-third-party-notices.py` so it can be refreshed when deps change.

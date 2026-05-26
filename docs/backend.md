@@ -573,4 +573,4 @@ Standalone process (`app/mcp/`, run via `python -m app.mcp.server`) that wraps t
 
 ---
 
-<sub>[← README](../README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · **Backend** · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>
+<sub>[← README](https://github.com/borismichel/ClickSpot/blob/main/README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · **Backend** · [Frontend](frontend.md) · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>

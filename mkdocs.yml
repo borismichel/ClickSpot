@@ -1,0 +1,122 @@
+site_name: ClickSpot
+site_description: >-
+  Ask your HubSpot CRM questions in plain English — get back SQL, charts, and dashboards.
+site_url: https://borismichel.github.io/ClickSpot/
+copyright: © 2026 Boris Michel · MIT License
+
+repo_url: https://github.com/borismichel/ClickSpot
+repo_name: borismichel/ClickSpot
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  logo: assets/clickspot-mark.png
+  favicon: assets/clickspot-mark.png
+  # ClickSpot has no brand font — use the system stack (see frontend/src/theme/tokens.ts).
+  font: false
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.footer
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+
+# Existing developer docs live in docs/ but aren't all part of the published nav.
+not_in_nav: |
+  oss-license-audit.md
+  qa-render-runbook.md
+
+validation:
+  omitted_files: warn
+  absolute_links: ignore
+  unrecognized_links: ignore
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Quickstart: getting-started/quickstart.md
+      - Install & run: getting-started/install.md
+      - Connect HubSpot: getting-started/connect-hubspot.md
+      - First run: getting-started/first-run.md
+  - Concepts:
+      - How ClickSpot works: concepts/how-it-works.md
+      - The medallion warehouse: concepts/warehouse.md
+      - The privacy model: concepts/privacy.md
+      - Data Spaces: concepts/data-spaces.md
+  - Guides:
+      - Chat (NL → SQL): guides/chat.md
+      - Dashboards: guides/dashboards.md
+      - Data Explorer: guides/data-explorer.md
+      - Working with Data Spaces: guides/data-spaces.md
+      - MCP server: guides/mcp.md
+      - Analytics API: guides/analytics-api.md
+  - Configuration:
+      - Settings & environment: configuration/index.md
+      - HubSpot token scopes: configuration/hubspot-scopes.md
+      - LLM providers: configuration/llm-providers.md
+  - Architecture:
+      - Overview: architecture.md
+      - Data pipeline: data-pipeline.md
+      - Backend: backend.md
+      - Frontend: frontend.md
+      - ClickHouse design notes: clickhouse-evaluation.md
+  - FAQ: faq.md
