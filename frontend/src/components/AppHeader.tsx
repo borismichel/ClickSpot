@@ -39,6 +39,13 @@ interface Props {
   context?: ReactNode;
   /** Page-specific actions shown on the right (e.g. buttons, a selector). */
   actions?: ReactNode;
+  /**
+   * Mobile-only slot pinned at the far-left of the header, left of the brand
+   * mark. Hosts a page's off-canvas drawer toggle (e.g. the chat conversation
+   * drawer) so it stays reachable on mobile where the desktop Sider is gone
+   * (CLI-96). Rendered only below md; ignored on desktop.
+   */
+  leading?: ReactNode;
 }
 
 /**
@@ -48,7 +55,7 @@ interface Props {
  * visible and the brand mark is always present (CLI-42). Tokenised — coral
  * (colorPrimary) drives the active state; labels collapse to icons below md.
  */
-export function AppHeader({ context, actions }: Props) {
+export function AppHeader({ context, actions, leading }: Props) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { token } = theme.useToken();
@@ -66,6 +73,13 @@ export function AppHeader({ context, actions }: Props) {
         gap: 16,
       }}
     >
+      {/* Mobile-only leading slot, pinned (never scrolls) at the far-left ahead
+          of the brand. Hosts a page's drawer toggle when the desktop Sider is
+          dropped on mobile (CLI-96). Desktop ignores it entirely. */}
+      {isMobile && leading && (
+        <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>{leading}</div>
+      )}
+
       {/* Primary nav is the ONLY region allowed to collapse/scroll. Brand + the
           six nav items live here; the page context and actions to its right keep
           their layout priority and never get clipped by this scroller (CLI-89).
