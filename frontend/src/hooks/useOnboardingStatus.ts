@@ -15,7 +15,9 @@ export interface OnboardingStatus {
 
 export function useOnboardingStatus() {
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Starts true because the effect below fetches immediately on mount; callers
+  // can hold their UI until the first probe resolves (see OnboardingChecklistPanel).
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
