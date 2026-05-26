@@ -32,6 +32,11 @@ Each dashboard has a global filter bar across the top with three controls: **dat
 **owner**, and **pipeline**. Set a filter and every card updates together, so you can read a
 KPI tile and its supporting breakdowns through the same lens.
 
+<figure markdown>
+  ![A dashboard with the global filter bar expanded and engaged: a date range, an owner (Sarah Chen), and a pipeline (Sales Pipeline) applied; the KPI tiles and bar charts below reflect the filtered slice](../assets/screenshots/dashboard-filters.png){ .shot }
+  <figcaption>The filter bar in use — date, owner, and pipeline applied at once. Every card re-runs through the same lens.</figcaption>
+</figure>
+
 There's no AI at query time. Filters are applied by rewriting the SQL of each card directly:
 
 ```
