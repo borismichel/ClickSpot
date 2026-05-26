@@ -46,8 +46,11 @@ demo stack already running (so ClickHouse is up) and add a server entry to your
 
 A few notes on the fields:
 
-- **`command`** points at the Python interpreter from the repo's virtual environment, so the
-  `app.mcp.server` module and its dependencies resolve. Run it from the repo root.
+- **`command`** points at the Python interpreter from the repo's virtual environment. The
+  source install (`./bootstrap.sh` / `pip install -e .`) registers ClickSpot as an editable
+  package in that venv, so `python -m app.mcp.server` and the top-level `silver_config` module
+  resolve no matter which directory Claude Desktop launches the process from — you don't need a
+  `cwd` field (Claude Desktop doesn't reliably honor it) or `PYTHONPATH`.
 - **`CLICKHOUSE_*`** match your running warehouse; the values above are the demo defaults
   (`make seed` / the Compose stack). The server connects read-only (`readonly=2`), so it
   can't write even if asked.
