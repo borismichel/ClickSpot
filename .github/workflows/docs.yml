@@ -1,10 +1,18 @@
 name: docs
 
 # Build the MkDocs Material site and publish it to GitHub Pages.
+# Pull requests run the build (mkdocs build --strict) as a check; only pushes to
+# main (and manual dispatch) deploy.
 # One-time setup by the repo owner: Settings → Pages → Source: "GitHub Actions".
 on:
   push:
     branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "requirements-docs.txt"
+      - ".github/workflows/docs.yml"
+  pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
@@ -39,6 +47,8 @@ jobs:
 
   deploy:
     needs: build
+    # Deploy only on pushes to main / manual dispatch — never on pull requests.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
