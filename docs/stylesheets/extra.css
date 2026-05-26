@@ -1,0 +1,89 @@
+/*
+ * ClickSpot docs theme overrides for Material for MkDocs.
+ *
+ * Mirrors the locked app design tokens in frontend/src/theme/tokens.ts:
+ *   coral #e76636 is an ACCENT only (links, focus, active, the mark) — neutrals
+ *   dominate surfaces. Link/label text uses the deepened #b4471e / #cb4e26
+ *   shades so they clear WCAG AA. ClickSpot has no brand font (system stack).
+ *
+ * ClickSpot is not vibeSpot: do not introduce #e8613a, Space Grotesk/DM Sans,
+ * or the four-pointed star anywhere in this site.
+ */
+
+:root {
+  --cs-coral: #e76636;        /* brand accent */
+  --cs-coral-link: #b4471e;   /* AA link/text on light */
+  --cs-coral-button: #cb4e26; /* AA button fill */
+  --cs-page: #edebe9;         /* off-white page */
+  --cs-ink: #0e1015;          /* near-black ink */
+
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --md-code-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* ---- Custom primary: neutral ink header/nav (coral stays an accent) ---- */
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color: var(--cs-ink);
+  --md-primary-fg-color--light: #2a2d35;
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.7);
+}
+
+/* ---- Custom accent: deepened coral for hover/active/links ---- */
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: var(--cs-coral-link);
+  --md-accent-fg-color--transparent: rgba(231, 102, 54, 0.1);
+}
+
+/* ---- Light scheme surfaces: off-white page, deep-coral links ---- */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: var(--cs-page);
+  --md-typeset-a-color: var(--cs-coral-link);
+  --md-footer-bg-color: var(--cs-ink);
+  --md-footer-bg-color--dark: #07080b;
+}
+
+/* ---- Dark scheme: keep coral as the accent, brighter for contrast ---- */
+[data-md-color-scheme="slate"] {
+  --md-hue: 232;
+  --md-typeset-a-color: #f08a5d;
+  --md-accent-fg-color: #f08a5d;
+}
+
+/* Corner radii match the app (controls 6, cards 8). */
+.md-typeset .admonition,
+.md-typeset details,
+.md-typeset pre > code,
+.md-typeset .tabbed-set > .tabbed-content {
+  border-radius: 8px;
+}
+.md-typeset code {
+  border-radius: 6px;
+}
+
+/* Primary call-to-action buttons use the AA coral fill. */
+.md-typeset .md-button--primary {
+  background-color: var(--cs-coral-button);
+  border-color: var(--cs-coral-button);
+  color: #ffffff;
+}
+.md-typeset .md-button--primary:hover {
+  background-color: var(--cs-coral-link);
+  border-color: var(--cs-coral-link);
+}
+
+/* The mark keeps its own coral edge — don't let the header tint it. */
+.md-header__button.md-logo img {
+  height: 1.4rem;
+  width: auto;
+}
+
+/* Tighten screenshots so they read as product shots, not full-bleed. */
+.md-typeset img.shot {
+  border: 1px solid rgba(14, 16, 21, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(14, 16, 21, 0.08);
+}

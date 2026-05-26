@@ -488,4 +488,4 @@ This heuristic-based approach means the LLM doesn't need to specify formatting �
 
 ---
 
-<sub>[← README](../README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · **Frontend** · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>
+<sub>[← README](https://github.com/borismichel/ClickSpot/blob/main/README.md) · [Architecture](architecture.md) · [Data Pipeline](data-pipeline.md) · [Backend](backend.md) · **Frontend** · [ClickHouse Evaluation](clickhouse-evaluation.md)</sub>

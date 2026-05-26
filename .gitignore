@@ -17,3 +17,6 @@ silver_config_custom.py
 # Local README render scratch (visual-truth gate; not for the public repo)
 .readme-render/
 .render-*.cjs
+
+# MkDocs build output (published to GitHub Pages by CI, not committed)
+site/

@@ -1,0 +1,6 @@
+# Documentation site dependencies (MkDocs Material → GitHub Pages).
+# Pinned for reproducible builds in CI and locally:
+#   python -m pip install -r requirements-docs.txt
+#   mkdocs serve     # local preview at http://127.0.0.1:8000
+#   mkdocs build     # static HTML into ./site
+mkdocs-material==9.7.6
