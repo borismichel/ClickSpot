@@ -40,12 +40,22 @@ way by default.
 
 Once saved, a space behaves like a focused copy of ClickSpot:
 
+<figure markdown>
+  ![The Sales Pipeline space overview: a scope graph linking the Deals grain (244 rows) to a Contacts dimension, a side panel listing the grain's columns and types, and a preview of the underlying source table](../assets/screenshots/space-overview.png){ .shot }
+  <figcaption>A saved space's overview — its grain, related data, and live row counts in one view.</figcaption>
+</figure>
+
 - **Chat** answers questions within the space's scope, against the columns and related data
   you exposed.
 - **Dashboards** belong to the space and respect its filters; pin space chat answers the
   same way you would on a top-level dashboard.
 - **Filters** (date, owner, pipeline) refine the slice further, on top of the space's
   default.
+
+<figure markdown>
+  ![A dashboard inside the Sales Pipeline space: KPI tiles for total pipeline value, open deals, and closed-won value above horizontal bar charts of pipeline value and open deals by stage](../assets/screenshots/space-dashboard.png){ .shot }
+  <figcaption>A dashboard inside a space. The cards are scoped to the space and respect its filters.</figcaption>
+</figure>
 
 Switch between the full warehouse and any space from the app navigation. Each space keeps
 its own conversation history and dashboards, so two teams can work in parallel without
