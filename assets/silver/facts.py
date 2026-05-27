@@ -67,9 +67,17 @@ ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
 """.strip()
     ch_silver.execute_sql(ddl)
 
-    # Build UNION ALL — only across activity types whose bronze is enabled
+    # Insert one activity type at a time rather than a single UNION ALL of
+    # SELECT ... FROM bronze.X FINAL across every enabled type. A single union
+    # pipelines N concurrent FINAL scans of the bronze activity tables, and those
+    # tables carry the full raw-event JSON in `_raw`. On portals with multi-GiB
+    # email volume the combined working set blows past max_memory_usage and the
+    # rebuild dies with MEMORY_LIMIT_EXCEEDED. Per-type inserts bound peak memory
+    # to the single largest activity type, so the rebuild scales with the biggest
+    # type rather than the sum of all of them — no need to raise the hard cap.
+    # Same tactic fact_stage_history already uses for its per-stage inserts. (CLI-123)
     enabled_activity_map = _enabled_activity_bronze_map()
-    union_parts = []
+    types_inserted = 0
     for act_key, mapping in FACT_ACTIVITIES.items():
         if act_key not in enabled_activity_map:
             continue
@@ -83,7 +91,8 @@ ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
         disposition_expr = f"properties['{disposition_prop}']" if disposition_prop else "''"
         duration_expr = f"toInt64OrNull(properties['{duration_prop}'])" if duration_prop else "NULL"
 
-        part = f"""SELECT
+        insert_sql = f"""INSERT INTO silver.{tmp}
+SELECT
     _record_id AS activity_id,
     '{type_literal}' AS activity_type,
     parseDateTimeBestEffortOrZero(properties['hs_timestamp']) AS hs_timestamp,
@@ -96,12 +105,12 @@ ORDER BY (activity_type, toDate(hs_timestamp), activity_id)
     parseDateTimeBestEffortOrZero(properties['hs_lastmodifieddate']) AS lastmodifieddate,
     JSONExtractBool(_raw, 'archived') AS archived,
     now() AS _silver_loaded_at
-FROM bronze.{bronze_table} FINAL"""
-        union_parts.append(part)
+FROM bronze.{bronze_table} FINAL""".strip()
+        context.log.info(f"Loading {type_literal} activities from bronze.{bronze_table}")
+        ch_silver.execute_sql(insert_sql)
+        types_inserted += 1
 
-    insert_sql = f"INSERT INTO silver.{tmp}\n" + "\nUNION ALL\n".join(union_parts)
-    context.log.info(f"INSERT: {insert_sql}")
-    ch_silver.execute_sql(insert_sql)
+    context.log.info(f"fact_activities: inserted {types_inserted} activity type(s)")
 
     # Atomic swap
     _swap_table(ch_silver, target, context.log)

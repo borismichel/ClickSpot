@@ -320,6 +320,8 @@ LAYOUT(HASHED())
 
 **Status: ◐ Partially applied.** `docker-compose.yml` now sets `memory: 6g` (recommendation was 4G — pragma choice). Image is still `clickhouse/clickhouse-server:latest` (pinning still open). No custom `config.xml` profile applied.
 
+**Memory-cap vs. scalability decision (CLI-123).** Big portals carry multi-GiB activity volume (even a small portal delivers 2+ GiB of email activities, stored with full raw-event JSON in the bronze `_raw` column). The question was whether to raise the per-query `max_memory_usage` cap or to chunk processing. **Decision: keep the hard 2 GB per-query cap and make the heavy operations chunk.** Raising the cap only moves the cliff — a bigger portal hits it again — and pushing it toward the 6 GB container limit removes the headroom that lets several queries plus background merges run at once, trading a *graceful* `MEMORY_LIMIT_EXCEEDED` for an OOM-kill of the whole server. Scalability instead comes from bounding the per-query working set: the silver `fact_activities` rebuild now inserts **one activity type at a time** instead of a single `UNION ALL` of `SELECT … FROM bronze.X FINAL` across every type (which pipelined N concurrent FINAL scans of the `_raw`-heavy bronze tables). Peak memory now scales with the *largest single activity type* rather than the *sum* of them, independent of how many types are enabled. `fact_stage_history` already used the same per-stage chunking. GROUP BY / SORT spill to disk at 500 MB. Open follow-up: friendlier client message for `MEMORY_LIMIT_EXCEEDED` on the user query path + an optional per-query `max_execution_time`.
+
 **Original observation:** Bare `clickhouse/clickhouse-server:latest` with zero config.
 
 **Recommendations:**
