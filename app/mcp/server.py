@@ -20,6 +20,7 @@ import clickhouse_connect
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+from app.ch_errors import safe_clickhouse_error
 from app.config import TABLES
 from app.llm.schema_prompt import build_schema_prompt
 from app.llm.sql_validator import ensure_limit
@@ -52,14 +53,22 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
+        # readonly=2 blocks writes but still allows read-query settings.
+        settings = {"readonly": "2"}
+        # Per-query wall-clock cap so a runaway query fails fast with
+        # TIMEOUT_EXCEEDED instead of holding the 2 GB memory cap (CLI-124).
+        # Mirrors the app read client; set CLICKHOUSE_MAX_EXECUTION_TIME=0 to
+        # disable. Default 60s, comfortably under send_receive_timeout.
+        max_exec = os.environ.get("CLICKHOUSE_MAX_EXECUTION_TIME", "60").strip()
+        if max_exec and max_exec != "0":
+            settings["max_execution_time"] = max_exec
         _client = clickhouse_connect.create_client(
             host=os.environ["CLICKHOUSE_HOST"],
             port=int(os.environ.get("CLICKHOUSE_PORT", "8123")),
             username=os.environ["CLICKHOUSE_USER"],
             password=os.environ["CLICKHOUSE_PASSWORD"],
             send_receive_timeout=120,
-            # readonly=2 blocks writes + disallows changing settings
-            settings={"readonly": "2"},
+            settings=settings,
         )
     return _client
 
@@ -206,7 +215,9 @@ def run_sql(sql: str) -> dict[str, Any]:
     try:
         result = _get_client().query(bounded)
     except Exception as exc:  # clickhouse_connect raises many subclasses
-        return {"error": str(exc), "sql": bounded}
+        # Sanitize: friendly text for memory/timeout guardrails, otherwise a
+        # bare code/class — never the raw exception (server version, paths).
+        return {"error": safe_clickhouse_error(exc), "sql": bounded}
 
     hub_id = os.environ.get("HUBSPOT_HUB_ID")
     _warn_once_if_hub_id_missing(hub_id)

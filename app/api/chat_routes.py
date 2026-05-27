@@ -5,38 +5,12 @@ historical reasons; they now live in app/api/llm_routes.py.
 """
 
 import logging
-import re
 import time
 
 from fastapi import APIRouter, HTTPException
 
-
-# ClickHouse error messages look like:
-#   "Code: 60. DB::Exception: Received from localhost:9000. DB::Exception: Table
-#    silver.dim_foo doesn't exist. (UNKNOWN_TABLE) (version 26.2.5.45 ...)"
-# We surface the user-meaningful error class (UNKNOWN_TABLE) and Code: N, but
-# strip the full message (which can leak server version, file paths, internal
-# table names) before returning to the client.
-_CH_ERROR_CODE_RE = re.compile(r"Code:\s*(\d+)")
-_CH_ERROR_CLASS_RE = re.compile(r"\(([A-Z_][A-Z0-9_]*)\)")
-
-
-def _safe_clickhouse_error(exc: Exception) -> str:
-    """Convert a clickhouse_connect exception into a short client-safe message.
-
-    Falls back to a generic message if nothing useful can be extracted —
-    full details remain in the server-side log.
-    """
-    msg = str(exc)
-    code = _CH_ERROR_CODE_RE.search(msg)
-    klass = _CH_ERROR_CLASS_RE.search(msg)
-    if code and klass:
-        return f"ClickHouse error {code.group(1)}: {klass.group(1)}"
-    if klass:
-        return f"ClickHouse error: {klass.group(1)}"
-    return "Query execution failed"
-
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
+from app.ch_errors import safe_clickhouse_error
 from app.db import async_query_rows, async_query_value
 from app.llm.providers import get_provider
 from app.llm.sql_validator import validate_sql, ensure_limit
@@ -111,7 +85,7 @@ async def chat(req: ChatRequest):
         # Full error + SQL go to the server log; client gets a sanitized one-liner
         # so we don't leak server version / table internals / file paths.
         log.error(f"ClickHouse query failed: {e}\nSQL: {sql}")
-        raise HTTPException(status_code=422, detail=_safe_clickhouse_error(e))
+        raise HTTPException(status_code=422, detail=safe_clickhouse_error(e))
     query_ms = int((time.time() - t1) * 1000)
 
     columns = list(rows[0].keys()) if rows else []

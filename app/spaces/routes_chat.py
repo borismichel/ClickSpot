@@ -31,6 +31,7 @@ router = APIRouter()
 @router.post("/{space_id}/chat", response_model=ChatResponse)
 async def api_space_chat(space_id: str, req: ChatRequest):
     """Chat scoped to a data space — LLM sees only this VIEW's schema."""
+    from app.ch_errors import safe_clickhouse_error
     from app.db import async_query_rows, async_query_value
     from app.llm.providers import get_provider
     from app.llm.sql_validator import validate_sql, ensure_limit
@@ -75,8 +76,10 @@ async def api_space_chat(space_id: str, req: ChatRequest):
     try:
         rows = await async_query_rows(sql)
     except Exception as e:
+        # Full error + SQL go to the server log; the client gets a sanitized
+        # one-liner so we don't leak server version / table internals / paths.
         log.error(f"ClickHouse query failed: {e}\nSQL: {sql}")
-        raise HTTPException(422, f"ClickHouse error: {e}\n\nSQL: {sql}")
+        raise HTTPException(422, safe_clickhouse_error(e))
     query_ms = int((time.time() - t1) * 1000)
 
     columns = list(rows[0].keys()) if rows else []
