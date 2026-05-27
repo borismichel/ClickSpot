@@ -1,6 +1,15 @@
 <clickhouse>
     <profiles>
         <default>
+            <!-- Hard 2 GB per-query cap is a deliberate guardrail, NOT a ceiling to
+                 keep raising as portals grow (CLI-123). It sits well below the 6 GB
+                 container limit so a runaway query fails with a graceful
+                 MEMORY_LIMIT_EXCEEDED instead of letting the OOM-killer take down
+                 the whole server, and it leaves headroom for concurrent queries +
+                 background merges. Scalability comes from chunking the heavy
+                 pipeline rebuilds (per-type / per-stage inserts in assets/silver),
+                 not from a bigger number here. GROUP BY / SORT spill to disk at
+                 500 MB rather than failing. -->
             <max_memory_usage>2000000000</max_memory_usage>
             <max_bytes_before_external_group_by>500000000</max_bytes_before_external_group_by>
             <max_bytes_before_external_sort>500000000</max_bytes_before_external_sort>
