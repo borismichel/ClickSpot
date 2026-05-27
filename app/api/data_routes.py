@@ -181,7 +181,7 @@ async def execute_sql(req: SQLRequest):
         # Full error goes to the server log; client gets a sanitized message
         # so we don't leak server version / table internals / file paths.
         import logging as _log
-        from app.api.chat_routes import _safe_clickhouse_error
+        from app.ch_errors import safe_clickhouse_error
         _log.getLogger("app.data").error(f"SQL execution failed: {e}\nSQL: {sql}")
         elapsed = int((time.time() - t0) * 1000)
         return SQLResponse(
@@ -189,7 +189,7 @@ async def execute_sql(req: SQLRequest):
             rows=[],
             row_count=0,
             elapsed_ms=elapsed,
-            error=_safe_clickhouse_error(e),
+            error=safe_clickhouse_error(e),
         )
 
 

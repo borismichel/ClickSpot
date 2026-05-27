@@ -22,6 +22,24 @@ _ch_common.set_setting("autogenerate_session_id", False)
 
 _client = None
 
+# Default per-query wall-clock cap for the interactive read path, in seconds.
+# Bounds a runaway user query so it fails fast with TIMEOUT_EXCEEDED instead of
+# holding the 2 GB memory cap for minutes (CLI-124). Applies only to this app
+# client — the Dagster pipeline uses its own ClickHouse clients, so heavy
+# silver/gold rebuilds are unaffected. Set CLICKHOUSE_MAX_EXECUTION_TIME=0 to
+# disable.
+_DEFAULT_MAX_EXECUTION_TIME = "60"
+
+
+def _read_client_settings() -> dict[str, str]:
+    settings = {"cancel_http_readonly_queries_on_client_close": "0"}
+    max_exec = os.environ.get(
+        "CLICKHOUSE_MAX_EXECUTION_TIME", _DEFAULT_MAX_EXECUTION_TIME
+    ).strip()
+    if max_exec and max_exec != "0":
+        settings["max_execution_time"] = max_exec
+    return settings
+
 
 def get_client():
     global _client
@@ -46,7 +64,7 @@ def get_client():
             password=password,
             database="silver",
             autogenerate_session_id=False,
-            settings={"cancel_http_readonly_queries_on_client_close": "0"},
+            settings=_read_client_settings(),
         )
         # Verify no session leaked in — this would cause concurrent query errors
         assert "session_id" not in _client.params, f"session_id leaked: {_client.params}"
