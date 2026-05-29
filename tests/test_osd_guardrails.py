@@ -1,0 +1,458 @@
+"""OSD phase 5 — guardrail and eval tests (CLI-131).
+
+Covers three requirements:
+
+1. **Widget-cap surfacing** (guardrail): the `truncated` flag is always set when the
+   LLM over-produces, and `widget_count` always equals `len(widgets)` — no silent
+   truncation regardless of how many widgets the model returned.
+
+2. **Schema-only invariant** (guardrail): the LLM context for generation never
+   contains row-data values.  This is enforced structurally by the implementation
+   (the runner's results are used only for `columns` / `row_count`, never fed back to
+   the model), but these tests make it explicit and will catch future regressions.
+
+3. **Eval set** (regression): a small parametrised set of
+   (description → expected widget shapes / viz types) that exercises the full
+   ``generate_dashboard_spec`` pipeline with realistic-looking plans.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import pytest
+
+from app.llm.dashboard_spec import (
+    MAX_WIDGETS,
+    MIN_WIDGETS,
+    DashboardSpec,
+    build_dashboard_prompt,
+    generate_dashboard_spec,
+)
+from app.llm.providers import LLMProvider
+from app.llm.response_schema import ChatSQLResponse
+from app.spaces.config import DataSpaceConfig, GrainConfig
+
+# All test queries target this view — registered in the allow_view fixture.
+VIEW = "gold.ds_test_space"
+
+# Sentinel value that represents private row data.  If this string appears in any
+# prompt or message captured from the LLM provider, the schema-only invariant has
+# been broken.
+_SENTINEL = "PRIVATE_ROW_DATA_7a3f9b2e"
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def space() -> DataSpaceConfig:
+    return DataSpaceConfig(
+        id="test_space",
+        name="Test Space",
+        grain=GrainConfig(entity="dim_deals", key="deal_id", columns=["amount", "dealstage"]),
+    )
+
+
+@pytest.fixture(autouse=True)
+def allow_view():
+    """Register the test space VIEW with the SQL validator (mirrors prod behaviour)."""
+    from app.llm.sql_validator import ALLOWED_TABLES
+
+    added = VIEW not in ALLOWED_TABLES
+    ALLOWED_TABLES.add(VIEW)
+    yield
+    if added:
+        ALLOWED_TABLES.discard(VIEW)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _widget(title: str, sql: str, viz: str = "table") -> dict:
+    return {
+        "title": title,
+        "intent": f"answer {title}",
+        "sql": sql,
+        "viz_type": viz,
+        "encoding": {"x": "dealstage", "y": ["amount"]},
+        "suggested_filters": ["dealstage"],
+    }
+
+
+def _plan(n: int, viz: str = "table") -> dict:
+    return {
+        "dashboard_filters": ["dealstage"],
+        "widgets": [
+            _widget(f"w{i}", f"SELECT amount FROM {VIEW} WHERE deal_id = '{i}'", viz)
+            for i in range(n)
+        ],
+    }
+
+
+class FakeProvider(LLMProvider):
+    def __init__(self, plan: dict, repair_sql: str | None = None):
+        self._plan = plan
+        self._repair_sql = repair_sql
+
+    async def generate_tool(self, **kwargs: Any) -> dict:
+        return self._plan
+
+    async def generate(self, messages: list[dict], system_prompt: str | None = None) -> ChatSQLResponse:
+        return ChatSQLResponse(
+            sql=self._repair_sql or f"SELECT amount FROM {VIEW}",
+            viz="table",
+            title="repaired",
+            explanation="repaired",
+        )
+
+
+class FakeRunner:
+    def __init__(
+        self,
+        behavior: dict | None = None,
+        default: list[dict] | None = None,
+    ):
+        self.behavior = behavior or {}
+        self.default = default if default is not None else [{"amount": 1}]
+        self.calls: list[str] = []
+
+    async def __call__(self, sql: str) -> list[dict]:
+        self.calls.append(sql)
+        for needle, outcome in self.behavior.items():
+            if needle in sql:
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
+        return self.default
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+# ---------------------------------------------------------------------------
+# 1. Widget-cap surfacing
+# ---------------------------------------------------------------------------
+
+def test_cap_at_min_widgets_no_truncation(space):
+    """Exactly MIN_WIDGETS (6) returned by LLM → no truncation, correct count."""
+    spec = _run(generate_dashboard_spec(
+        space, "overview",
+        provider=FakeProvider(_plan(MIN_WIDGETS)),
+        run_query=FakeRunner(),
+    ))
+    assert spec.widget_count == MIN_WIDGETS
+    assert len(spec.widgets) == MIN_WIDGETS
+    assert spec.truncated is False
+
+
+def test_cap_at_max_widgets_no_truncation(space):
+    """Exactly MAX_WIDGETS (8) returned by LLM → no truncation, correct count."""
+    spec = _run(generate_dashboard_spec(
+        space, "overview",
+        provider=FakeProvider(_plan(MAX_WIDGETS)),
+        run_query=FakeRunner(),
+    ))
+    assert spec.widget_count == MAX_WIDGETS
+    assert spec.truncated is False
+
+
+def test_cap_over_max_truncates_and_surfaces_flag(space):
+    """LLM returns 10 widgets → capped to MAX_WIDGETS, truncated=True, count correct."""
+    spec = _run(generate_dashboard_spec(
+        space, "overview",
+        provider=FakeProvider(_plan(10)),
+        run_query=FakeRunner(),
+    ))
+    assert spec.widget_count == MAX_WIDGETS
+    assert len(spec.widgets) == MAX_WIDGETS
+    assert spec.truncated is True
+
+
+@pytest.mark.parametrize("n", [MIN_WIDGETS, 7, MAX_WIDGETS, 9, 12])
+def test_widget_count_always_consistent_with_widgets_list(space, n):
+    """widget_count == len(widgets) for any plan size — no mismatch."""
+    spec = _run(generate_dashboard_spec(
+        space, "overview",
+        provider=FakeProvider(_plan(n)),
+        run_query=FakeRunner(),
+    ))
+    assert spec.widget_count == len(spec.widgets), (
+        f"widget_count ({spec.widget_count}) != len(widgets) ({len(spec.widgets)}) for n={n}"
+    )
+    if n > MAX_WIDGETS:
+        assert spec.truncated is True, f"Expected truncated=True for n={n}"
+    else:
+        assert spec.truncated is False, f"Expected truncated=False for n={n}"
+
+
+# ---------------------------------------------------------------------------
+# 2. Schema-only invariant
+# ---------------------------------------------------------------------------
+
+class _CapturingProvider(LLMProvider):
+    """Records every prompt/message passed to generate_tool and generate."""
+
+    def __init__(self, plan: dict, repair_sql: str | None = None):
+        self._plan = plan
+        self._repair_sql = repair_sql
+        self.generate_tool_calls: list[dict] = []
+        self.generate_calls: list[dict] = []
+
+    async def generate_tool(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        **kwargs: Any,
+    ) -> dict:
+        self.generate_tool_calls.append({
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+        })
+        return self._plan
+
+    async def generate(
+        self,
+        messages: list[dict],
+        system_prompt: str | None = None,
+    ) -> ChatSQLResponse:
+        self.generate_calls.append({
+            "messages": messages,
+            "system_prompt": system_prompt,
+        })
+        return ChatSQLResponse(
+            sql=self._repair_sql or f"SELECT amount FROM {VIEW}",
+            viz="table",
+            title="repaired",
+            explanation="repaired",
+        )
+
+
+def test_schema_only_invariant_row_data_never_in_generate_tool_context(space):
+    """Row values returned by the query runner must never appear in the LLM context.
+
+    The runner returns the sentinel as a *value* in result rows.  Those rows are
+    used only for ``columns`` / ``row_count`` in the final spec; the sentinel must
+    not propagate into either the system prompt or user prompt passed to the model.
+    """
+    # Successful run: runner returns rows whose VALUES contain the sentinel.
+    runner = FakeRunner(default=[{"amount": _SENTINEL, "dealstage": _SENTINEL}])
+    provider = _CapturingProvider(_plan(6))
+
+    _run(generate_dashboard_spec(
+        space, "revenue overview",
+        provider=provider, run_query=runner,
+    ))
+
+    assert provider.generate_tool_calls, "generate_tool was never called"
+    for call in provider.generate_tool_calls:
+        assert _SENTINEL not in call["system_prompt"], (
+            "Row data appeared in generate_tool system_prompt"
+        )
+        assert _SENTINEL not in call["user_prompt"], (
+            "Row data appeared in generate_tool user_prompt"
+        )
+    # Confirm the runner was actually used (rows existed but stayed out of LLM)
+    assert runner.calls, "FakeRunner was never called — test did not exercise the query path"
+
+
+def test_schema_only_invariant_row_data_never_in_repair_context(space):
+    """Self-repair messages must never contain row-data values — only error text.
+
+    Flow: initial SQL hits a ClickHouse error → ``_repair_sql`` is called with the
+    raw error string (schema/SQL info, never row content) → the repaired SQL runs
+    and returns rows containing the sentinel.  The sentinel must not appear in the
+    messages captured during the repair call.
+    """
+    bad_sql = f"SELECT bad_col FROM {VIEW}"
+    ch_exc = Exception(
+        "Code: 47. DB::Exception: Unknown identifier 'bad_col' "
+        "(UNKNOWN_IDENTIFIER) (version 26.2)"
+    )
+    # Repaired query succeeds, runner returns sentinel as a *value*.
+    repair_sql = f"SELECT amount FROM {VIEW}"
+    runner = FakeRunner(
+        behavior={
+            "bad_col": ch_exc,
+            "amount": [{"amount": _SENTINEL}],
+        },
+    )
+
+    plan = {"dashboard_filters": [], "widgets": [_widget("revenue", bad_sql)]}
+    provider = _CapturingProvider(plan, repair_sql=repair_sql)
+
+    _run(generate_dashboard_spec(
+        space, "revenue overview",
+        provider=provider, run_query=runner,
+    ))
+
+    assert provider.generate_calls, "Self-repair generate was never called"
+    for call in provider.generate_calls:
+        sp = call.get("system_prompt") or ""
+        assert _SENTINEL not in sp, "Row data leaked into repair system_prompt"
+        for msg in call["messages"]:
+            content = str(msg.get("content", ""))
+            assert _SENTINEL not in content, (
+                f"Row data appeared in repair message: {content[:200]!r}"
+            )
+
+
+def test_schema_only_invariant_build_prompt_uses_config_metadata_only(space):
+    """build_dashboard_prompt output contains schema metadata and no data values.
+
+    This test documents the structural guarantee: the function is a pure transform
+    of the DataSpaceConfig — it never queries the database.
+    """
+    prompt = build_dashboard_prompt(space)
+
+    # Schema metadata is present
+    assert "deal_id" in prompt, "Grain key must appear in prompt"
+    assert "amount" in prompt, "Grain column must appear in prompt"
+    assert "dealstage" in prompt, "Grain column must appear in prompt"
+    assert VIEW in prompt, "Space VIEW name must appear in prompt"
+
+    # Prompt is bounded (sanity check — a runaway prompt would dwarf schema info)
+    assert len(prompt) < 20_000, f"Prompt unexpectedly large ({len(prompt)} chars)"
+
+    # No sentinel row data can appear (structural: config carries no DB values)
+    assert _SENTINEL not in prompt
+
+
+# ---------------------------------------------------------------------------
+# 3. Eval set: description → expected widget shapes / viz types
+# ---------------------------------------------------------------------------
+
+_EVAL_CASES = [
+    {
+        "id": "sales_pipeline_overview",
+        "description": "Sales pipeline health — KPIs, stage funnel, and revenue trend",
+        "plan": {
+            "dashboard_filters": ["dealstage", "pipeline"],
+            "widgets": [
+                _widget("Total ARR", f"SELECT sum(amount) FROM {VIEW}", "number"),
+                _widget("Open Deal Count", f"SELECT count(*) FROM {VIEW} WHERE dealstage != 'closedwon'", "number"),
+                _widget("Deals by Stage", f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "bar"),
+                _widget("Stage Funnel", f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage ORDER BY count(*) DESC", "funnel"),
+                _widget("Monthly ARR Trend", f"SELECT toStartOfMonth(today()) AS mo, sum(amount) FROM {VIEW} GROUP BY mo ORDER BY mo", "line"),
+                _widget("Pipeline Table", f"SELECT dealstage, sum(amount), count(*) FROM {VIEW} GROUP BY dealstage", "table"),
+            ],
+        },
+        "expected_viz_types": {"number", "bar", "funnel", "line", "table"},
+        "expected_truncated": False,
+        "min_number_widgets": 1,
+    },
+    {
+        "id": "revenue_breakdown_with_comparison",
+        "description": "Revenue breakdown by owner with won-vs-lost comparison and trend",
+        "plan": {
+            "dashboard_filters": ["dealstage"],
+            "widgets": [
+                _widget("Total Revenue", f"SELECT sum(amount) FROM {VIEW}", "number"),
+                _widget("Avg Deal Size", f"SELECT avg(amount) FROM {VIEW}", "number"),
+                _widget("Revenue by Stage", f"SELECT dealstage, sum(amount) FROM {VIEW} GROUP BY dealstage", "bar"),
+                _widget("Won vs Lost", f"SELECT dealstage, count(*) FROM {VIEW} WHERE dealstage IN ('closedwon','closedlost') GROUP BY dealstage", "comparison"),
+                _widget("Monthly Trend", f"SELECT toStartOfMonth(today()) AS mo, sum(amount) FROM {VIEW} GROUP BY mo", "line"),
+                _widget("Deal Count KPI", f"SELECT count(*) FROM {VIEW}", "number"),
+                _widget("Top Deals", f"SELECT dealstage, amount FROM {VIEW} ORDER BY amount DESC", "table"),
+                _widget("Win Rate Trend", f"SELECT toStartOfMonth(today()) AS mo, countIf(dealstage = 'closedwon') FROM {VIEW} GROUP BY mo", "line"),
+            ],
+        },
+        "expected_viz_types": {"number", "bar", "comparison", "line", "table"},
+        "expected_truncated": False,
+        "min_number_widgets": 2,
+    },
+    {
+        "id": "over_cap_plan_must_truncate",
+        "description": "Multi-angle overview that the LLM over-plans with 10 widgets",
+        "plan": {
+            "dashboard_filters": ["dealstage"],
+            "widgets": [
+                _widget(f"KPI {i}", f"SELECT count(*) FROM {VIEW} WHERE deal_id = '{i}'", "number")
+                for i in range(10)
+            ],
+        },
+        "expected_viz_types": {"number"},
+        "expected_truncated": True,
+        "min_number_widgets": MAX_WIDGETS,  # all 8 surviving widgets are numbers
+    },
+    {
+        "id": "all_six_viz_types",
+        "description": "Showcase dashboard exercising all six supported viz types",
+        "plan": {
+            "dashboard_filters": [],
+            "widgets": [
+                _widget("Headline KPI", f"SELECT sum(amount) FROM {VIEW}", "number"),
+                _widget("Stage Bar", f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "bar"),
+                _widget("Revenue Trend", f"SELECT toStartOfMonth(today()) AS mo, sum(amount) FROM {VIEW} GROUP BY mo", "line"),
+                _widget("Stage Funnel", f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "funnel"),
+                _widget("Won vs Lost", f"SELECT dealstage, count(*) FROM {VIEW} WHERE dealstage IN ('closedwon','closedlost') GROUP BY dealstage", "comparison"),
+                _widget("Detail Table", f"SELECT dealstage, amount FROM {VIEW}", "table"),
+            ],
+        },
+        "expected_viz_types": {"number", "bar", "line", "funnel", "comparison", "table"},
+        "expected_truncated": False,
+        "min_number_widgets": 1,
+    },
+]
+
+
+@pytest.mark.parametrize("case", _EVAL_CASES, ids=[c["id"] for c in _EVAL_CASES])
+def test_eval_spec_shape(space, case):
+    """Eval: for each (description, plan) pair verify the output spec is well-formed."""
+    provider = FakeProvider(case["plan"])
+    runner = FakeRunner(default=[{"amount": 42, "dealstage": "won"}])
+
+    spec = _run(generate_dashboard_spec(
+        space, case["description"],
+        provider=provider, run_query=runner,
+    ))
+
+    # Output type
+    assert isinstance(spec, DashboardSpec)
+    assert spec.description == case["description"]
+
+    # Widget count in allowed range
+    assert MIN_WIDGETS <= spec.widget_count <= MAX_WIDGETS, (
+        f"widget_count {spec.widget_count} outside [{MIN_WIDGETS}, {MAX_WIDGETS}]"
+    )
+
+    # Truncation
+    assert spec.truncated is case["expected_truncated"], (
+        f"Expected truncated={case['expected_truncated']}, got {spec.truncated}"
+    )
+
+    # viz_type coverage
+    actual_viz = {w.viz_type for w in spec.widgets}
+    for viz in case["expected_viz_types"]:
+        assert viz in actual_viz, (
+            f"[{case['id']}] Expected viz_type '{viz}' missing. Got: {actual_viz}"
+        )
+
+    # KPI (number) widget minimum
+    number_count = sum(1 for w in spec.widgets if w.viz_type == "number")
+    assert number_count >= case["min_number_widgets"], (
+        f"[{case['id']}] Expected >= {case['min_number_widgets']} 'number' widgets, got {number_count}"
+    )
+
+    # Every widget has required fields and valid viz_type
+    valid_viz = {"number", "table", "bar", "line", "funnel", "comparison"}
+    for w in spec.widgets:
+        assert w.title, f"Widget missing title in case {case['id']}"
+        assert w.intent, f"Widget missing intent in case {case['id']}"
+        assert w.sql, f"Widget missing sql in case {case['id']}"
+        assert w.viz_type in valid_viz, (
+            f"Invalid viz_type '{w.viz_type}' in case {case['id']}"
+        )
+        assert w.status in {"ok", "error"}, (
+            f"Invalid status '{w.status}' in case {case['id']}"
+        )
+        assert isinstance(w.columns, list), f"columns must be list in case {case['id']}"
+        if w.status == "ok":
+            assert w.row_count is not None, (
+                f"row_count must be set for ok widget in case {case['id']}"
+            )
