@@ -107,6 +107,7 @@ export default function OneShotDashboardPage() {
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const [widgets, setWidgets] = useState<DraftWidget[]>([]);
   const [truncated, setTruncated] = useState(false);
@@ -217,7 +218,19 @@ export default function OneShotDashboardPage() {
   }, [loadFilterColumns]);
 
   const generate = useCallback(async () => {
-    if (!spaceId || !description.trim()) return;
+    if (!spaceId) {
+      setValidationError(
+        spaces.length === 0
+          ? "No data spaces found — create a data space before generating a dashboard."
+          : "Select a data space to generate a dashboard."
+      );
+      return;
+    }
+    if (!description.trim()) {
+      setValidationError("Describe the dashboard you want before generating.");
+      return;
+    }
+    setValidationError(null);
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -270,7 +283,7 @@ export default function OneShotDashboardPage() {
       setError(String(e));
       setPhase("error");
     }
-  }, [spaceId, description, handleEvent]);
+  }, [spaceId, description, spaces.length, handleEvent]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -297,12 +310,12 @@ export default function OneShotDashboardPage() {
     setPhase("idle");
     setWidgets([]);
     setError(null);
+    setValidationError(null);
     setProgress(0);
     setStatusText("");
   };
 
   const gridLayout = widgets.map((wgt) => ({ i: wgt.id, ...wgt.layout, minW: 2, minH: 2 }));
-  const canGenerate = Boolean(spaceId && description.trim()) && phase !== "generating";
 
   return (
     <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
@@ -349,9 +362,13 @@ export default function OneShotDashboardPage() {
                   style={{ width: "100%" }}
                   placeholder="Select a data space"
                   value={spaceId}
-                  onChange={setSpaceId}
+                  onChange={(v) => {
+                    setSpaceId(v);
+                    setValidationError(null);
+                  }}
                   disabled={phase === "generating"}
                   options={spaces.map((s) => ({ label: s.name, value: s.id }))}
+                  notFoundContent="No data spaces found — create one first"
                 />
               </div>
 
@@ -361,7 +378,10 @@ export default function OneShotDashboardPage() {
                 </Typography.Text>
                 <Input.TextArea
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    if (validationError) setValidationError(null);
+                  }}
                   placeholder="e.g. Sales pipeline health overview — headline KPIs, value by stage, trend over time, and top deals."
                   autoSize={{ minRows: 3, maxRows: 8 }}
                   maxLength={2000}
@@ -375,10 +395,14 @@ export default function OneShotDashboardPage() {
                 icon={<ThunderboltOutlined />}
                 onClick={generate}
                 loading={phase === "generating"}
-                disabled={!canGenerate}
+                disabled={phase === "generating"}
               >
                 {phase === "generating" ? "Generating…" : "Generate dashboard"}
               </Button>
+
+              {validationError && (
+                <Alert type="warning" message={validationError} showIcon />
+              )}
 
               {phase === "generating" && (
                 <div>
