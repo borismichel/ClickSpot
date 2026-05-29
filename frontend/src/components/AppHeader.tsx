@@ -7,6 +7,7 @@ import {
   ClusterOutlined,
   DatabaseOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import brandMark from "../assets/clickspot-mark.png";
@@ -24,6 +25,7 @@ const NAV: NavItem[] = [
   { label: "Chat", path: "/", icon: <MessageOutlined /> },
   { label: "Library", path: "/library", icon: <AppstoreOutlined /> },
   { label: "Dashboard", path: "/dashboard", icon: <DashboardOutlined /> },
+  { label: "Generate", path: "/generate", icon: <ThunderboltOutlined /> },
   { label: "Spaces", path: "/spaces", icon: <ClusterOutlined /> },
   { label: "Data", path: "/data", icon: <DatabaseOutlined /> },
   { label: "Settings", path: "/settings", icon: <SettingOutlined /> },
