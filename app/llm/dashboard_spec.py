@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Awaitable, Callable, Literal
+from typing import AsyncIterator, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -108,6 +108,33 @@ class DashboardSpec(BaseModel):
     widget_count: int
     llm_ms: int
     truncated: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Streaming progress events (OSD phase 2)
+# ---------------------------------------------------------------------------
+
+# The generation flow is otherwise synchronous; these events let the frontend
+# render an honest progress bar instead of a fake timer. Emitted order for an
+# M-widget dashboard:
+#   planning
+#   -> generating (1/M) -> validating (1/M)
+#   -> ...
+#   -> generating (M/M) -> validating (M/M)
+#   -> done            (carries the full DashboardSpec)
+# A fatal failure mid-stream emits a single ``error`` event instead of ``done``.
+EventStage = Literal["planning", "generating", "validating", "done", "error"]
+
+
+class DashboardEvent(BaseModel):
+    """One progress event in the dashboard generation stream."""
+
+    stage: EventStage
+    index: int | None = None  # 1-based widget index (generating/validating only)
+    total: int | None = None  # total widget count, known once planning completes
+    widget_title: str | None = None
+    error: str | None = None  # per-widget sanitized error, or a fatal stream error
+    spec: DashboardSpec | None = None  # populated only on the final ``done`` event
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +298,7 @@ async def _finalize_widget(
 # Public entrypoint
 # ---------------------------------------------------------------------------
 
-async def generate_dashboard_spec(
+async def stream_dashboard_spec(
     config: DataSpaceConfig,
     description: str,
     *,
@@ -279,13 +306,18 @@ async def generate_dashboard_spec(
     run_query: QueryRunner | None = None,
     min_widgets: int = MIN_WIDGETS,
     max_widgets: int = MAX_WIDGETS,
-) -> DashboardSpec:
-    """Generate a validated multi-widget dashboard spec for one data space.
+) -> AsyncIterator[DashboardEvent]:
+    """Generate a dashboard spec, yielding progress events as the work proceeds.
 
-    Flow: one structured LLM call plans the whole dashboard, then each widget's
-    SQL is run through the existing validated query path with a single bounded
-    self-repair retry on validator/ClickHouse failure. The widget count is capped
-    at ``max_widgets``.
+    Same pipeline as :func:`generate_dashboard_spec` — one structured LLM call
+    plans the dashboard, then each widget's SQL is validated/executed with a
+    bounded self-repair retry — but emits ``DashboardEvent``s so callers can show
+    real progress. The final ``done`` event carries the complete ``DashboardSpec``.
+
+    Events are emitted *before* the slow step they describe (``planning`` before
+    the LLM plan call, ``generating`` before a widget is finalized); the
+    ``validating`` event fires *after* a widget is validated/executed and carries
+    that widget's sanitized error if it failed.
     """
     if provider is None:
         provider = get_provider()
@@ -296,6 +328,8 @@ async def generate_dashboard_spec(
 
     system_prompt = build_dashboard_prompt(config, min_widgets, max_widgets)
     user_prompt = _build_user_prompt(description, min_widgets, max_widgets)
+
+    yield DashboardEvent(stage="planning")
 
     t0 = time.time()
     raw = await provider.generate_tool(
@@ -315,12 +349,24 @@ async def generate_dashboard_spec(
         log.info("Dashboard plan returned %d widgets; capping to %d", len(widgets), max_widgets)
         widgets = widgets[:max_widgets]
         truncated = True
+    total = len(widgets)
 
-    finalized = [
-        await _finalize_widget(provider, system_prompt, w, run_query) for w in widgets
-    ]
+    finalized: list[WidgetSpec] = []
+    for index, w in enumerate(widgets, start=1):
+        yield DashboardEvent(
+            stage="generating", index=index, total=total, widget_title=w.title
+        )
+        spec_widget = await _finalize_widget(provider, system_prompt, w, run_query)
+        finalized.append(spec_widget)
+        yield DashboardEvent(
+            stage="validating",
+            index=index,
+            total=total,
+            widget_title=w.title,
+            error=spec_widget.error,
+        )
 
-    return DashboardSpec(
+    spec = DashboardSpec(
         space_id=config.id,
         description=description,
         dashboard_filters=plan.dashboard_filters,
@@ -329,3 +375,35 @@ async def generate_dashboard_spec(
         llm_ms=llm_ms,
         truncated=truncated,
     )
+    yield DashboardEvent(stage="done", total=total, spec=spec)
+
+
+async def generate_dashboard_spec(
+    config: DataSpaceConfig,
+    description: str,
+    *,
+    provider: LLMProvider | None = None,
+    run_query: QueryRunner | None = None,
+    min_widgets: int = MIN_WIDGETS,
+    max_widgets: int = MAX_WIDGETS,
+) -> DashboardSpec:
+    """Generate a validated multi-widget dashboard spec for one data space.
+
+    Flow: one structured LLM call plans the whole dashboard, then each widget's
+    SQL is run through the existing validated query path with a single bounded
+    self-repair retry on validator/ClickHouse failure. The widget count is capped
+    at ``max_widgets``. Non-streaming wrapper over :func:`stream_dashboard_spec`.
+    """
+    spec: DashboardSpec | None = None
+    async for event in stream_dashboard_spec(
+        config,
+        description,
+        provider=provider,
+        run_query=run_query,
+        min_widgets=min_widgets,
+        max_widgets=max_widgets,
+    ):
+        if event.stage == "done":
+            spec = event.spec
+    assert spec is not None, "stream_dashboard_spec must end with a 'done' event"
+    return spec

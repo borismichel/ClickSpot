@@ -8,13 +8,16 @@ are both faked, so these run with no network and no analytics backend.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
 from app.llm.dashboard_spec import (
     MAX_WIDGETS,
+    DashboardEvent,
     DashboardSpec,
     generate_dashboard_spec,
+    stream_dashboard_spec,
 )
 from app.llm.providers import LLMProvider
 from app.llm.response_schema import ChatSQLResponse
@@ -228,3 +231,130 @@ def test_clickhouse_error_surfaces_sanitized_message(space):
     assert w.error == "ClickHouse error 60: UNKNOWN_TABLE"
     assert "version" not in w.error
     assert "silver.secret" not in w.error
+
+
+# --- streaming progress events (CLI-128) ---------------------------------
+
+def _collect_events(coro_factory) -> list[DashboardEvent]:
+    async def run():
+        return [ev async for ev in coro_factory()]
+
+    return _run(run())
+
+
+def test_stream_event_sequence_three_widgets(space):
+    # Three valid widgets → planning, generating/validating per widget, done.
+    widgets = [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(3)]
+    plan = {"dashboard_filters": ["dealstage"], "widgets": widgets}
+    provider = FakeProvider(plan)
+    runner = FakeRunner(default=[{"amount": 1}])
+
+    events = _collect_events(
+        lambda: stream_dashboard_spec(space, "x", provider=provider, run_query=runner)
+    )
+
+    assert [(e.stage, e.index, e.total) for e in events] == [
+        ("planning", None, None),
+        ("generating", 1, 3),
+        ("validating", 1, 3),
+        ("generating", 2, 3),
+        ("validating", 2, 3),
+        ("generating", 3, 3),
+        ("validating", 3, 3),
+        ("done", None, 3),
+    ]
+
+    # Per-widget events carry the widget title; no errors on the happy path.
+    assert events[1].widget_title == "w0" and events[2].widget_title == "w0"
+    assert all(e.error is None for e in events)
+
+    # The terminal event carries the full validated spec.
+    done = events[-1]
+    assert done.spec is not None
+    assert done.spec.widget_count == 3
+    assert [w.status for w in done.spec.widgets] == ["ok", "ok", "ok"]
+    assert done.spec.dashboard_filters == ["dealstage"]
+
+
+def test_stream_surfaces_widget_error(space):
+    # A widget whose SQL fails validation and whose repair also fails surfaces a
+    # sanitized error on its 'validating' event (and status 'error' in the spec).
+    bad = _widget("revenue", f"SELECT * FROM {VIEW}")
+    plan = {"dashboard_filters": [], "widgets": [bad]}
+    provider = FakeProvider(plan, repair_sql=f"SELECT * FROM {VIEW}")  # still invalid
+    runner = FakeRunner()
+
+    events = _collect_events(
+        lambda: stream_dashboard_spec(space, "x", provider=provider, run_query=runner)
+    )
+
+    validating = [e for e in events if e.stage == "validating"]
+    assert len(validating) == 1
+    assert validating[0].error and "validation" in validating[0].error.lower()
+
+    done = events[-1]
+    assert done.stage == "done"
+    assert done.spec.widgets[0].status == "error"
+
+
+def test_stream_route_serializes_sse(space, monkeypatch):
+    # End-to-end SSE framing: the route streams 'data: {json}\n\n' lines with the
+    # text/event-stream content type. The engine is stubbed so no provider /
+    # ClickHouse is needed — this guards the wiring + serialization only.
+    from fastapi.testclient import TestClient
+
+    import app.spaces.routes_dashboards as routes
+
+    async def fake_stream(config, description, *, provider=None, **kwargs):
+        yield DashboardEvent(stage="planning")
+        yield DashboardEvent(stage="generating", index=1, total=1, widget_title="w0")
+        yield DashboardEvent(stage="validating", index=1, total=1, widget_title="w0")
+        yield DashboardEvent(
+            stage="done",
+            total=1,
+            spec=DashboardSpec(
+                space_id="test_space",
+                description=description,
+                dashboard_filters=[],
+                widgets=[],
+                widget_count=0,
+                llm_ms=0,
+            ),
+        )
+
+    monkeypatch.setattr(routes, "get_space", lambda sid: space)
+    monkeypatch.setattr("app.llm.providers.get_provider", lambda: object())
+    monkeypatch.setattr("app.llm.dashboard_spec.stream_dashboard_spec", fake_stream)
+
+    from app.main import app
+
+    client = TestClient(app)
+    res = client.post(
+        "/api/v1/spaces/test_space/dashboard/spec/stream",
+        json={"description": "revenue overview"},
+    )
+
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/event-stream")
+
+    frames = [f for f in res.text.split("\n\n") if f.strip()]
+    assert all(f.startswith("data: ") for f in frames)
+    stages = [json.loads(f[len("data: "):])["stage"] for f in frames]
+    assert stages == ["planning", "generating", "validating", "done"]
+
+
+def test_stream_route_404_for_unknown_space(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app.spaces.routes_dashboards as routes
+
+    monkeypatch.setattr(routes, "get_space", lambda sid: None)
+
+    from app.main import app
+
+    client = TestClient(app)
+    res = client.post(
+        "/api/v1/spaces/nope/dashboard/spec/stream",
+        json={"description": "x"},
+    )
+    assert res.status_code == 404
