@@ -11,6 +11,7 @@ import ArchitecturePage from "./pages/ArchitecturePage";
 import DataExplorerPage from "./pages/DataExplorerPage";
 import DashboardListPage from "./pages/DashboardListPage";
 import DashboardPage from "./pages/DashboardPage";
+import OneShotDashboardPage from "./pages/OneShotDashboardPage";
 import ObjectLibraryPage from "./pages/ObjectLibraryPage";
 import DataSpaceListPage from "./pages/DataSpaceListPage";
 import DataSpaceDesignerPage from "./pages/DataSpaceDesignerPage";
@@ -29,6 +30,7 @@ function AppRoutes() {
         <Route path="/data" element={<DataExplorerPage />} />
         <Route path="/dashboard" element={<DashboardListPage />} />
         <Route path="/dashboard/:key" element={<DashboardPage />} />
+        <Route path="/generate" element={<OneShotDashboardPage />} />
         <Route path="/library" element={<ObjectLibraryPage />} />
         <Route path="/spaces" element={<DataSpaceListPage />} />
         <Route path="/spaces/new" element={<DataSpaceDesignerPage />} />
