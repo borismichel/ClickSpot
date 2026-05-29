@@ -78,6 +78,26 @@ class LLMProvider(ABC):
         system_prompt: optional override for the schema prompt (used by space-scoped chat).
         """
 
+    @abstractmethod
+    async def generate_tool(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        tool_name: str,
+        tool_description: str,
+        input_schema: dict,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """Single-shot structured generation against an arbitrary tool schema.
+
+        Returns the raw tool-input dict (caller validates against its own Pydantic
+        model). Used by callers that need a structured shape other than
+        ``ChatSQLResponse`` — e.g. the One Shot Dashboard multi-widget spec
+        generator. ``system_prompt`` carries the schema-only context; the model
+        never sees row data.
+        """
+
     def _build_llm_messages(self, messages: list[dict]) -> list[dict]:
         """Convert chat messages to LLM format (no query results, just questions + SQL)."""
         llm_msgs = []
@@ -132,6 +152,41 @@ class AnthropicProvider(LLMProvider):
 
         raise ValueError("No tool_use block in Anthropic response")
 
+    async def generate_tool(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        tool_name: str,
+        tool_description: str,
+        input_schema: dict,
+        max_tokens: int = 4096,
+    ) -> dict:
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_prompt}],
+            tools=[
+                {
+                    "name": tool_name,
+                    "description": tool_description,
+                    "input_schema": input_schema,
+                }
+            ],
+            tool_choice={"type": "tool", "name": tool_name},
+        )
+        for block in response.content:
+            if block.type == "tool_use":
+                return block.input
+        raise ValueError("No tool_use block in Anthropic response")
+
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "gpt-4o"):
@@ -159,6 +214,37 @@ class OpenAIProvider(LLMProvider):
 
         content = response.choices[0].message.content
         return ChatSQLResponse.model_validate_json(content)
+
+    async def generate_tool(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        tool_name: str,
+        tool_description: str,
+        input_schema: dict,
+        max_tokens: int = 4096,
+    ) -> dict:
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": tool_name,
+                    # Nested-with-defaults schemas don't satisfy OpenAI strict
+                    # mode; we validate with Pydantic on the caller side instead.
+                    "strict": False,
+                    "schema": input_schema,
+                },
+            },
+            max_tokens=max_tokens,
+        )
+        content = response.choices[0].message.content
+        return json.loads(_extract_json_object(content))
 
 
 class ClaudeOAuthProvider(LLMProvider):
@@ -208,6 +294,49 @@ class ClaudeOAuthProvider(LLMProvider):
             if block.type == "tool_use":
                 return ChatSQLResponse.model_validate(block.input)
 
+        raise ValueError("No tool_use block in Anthropic response")
+
+    async def generate_tool(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        tool_name: str,
+        tool_description: str,
+        input_schema: dict,
+        max_tokens: int = 4096,
+    ) -> dict:
+        token = await get_valid_access_token()
+        if not token:
+            raise ValueError("Claude OAuth token expired or missing. Re-authenticate in Settings.")
+
+        client = anthropic.AsyncAnthropic(
+            auth_token=token,
+            default_headers=OAUTH_EXTRA_HEADERS,
+        )
+        response = await client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_prompt}],
+            tools=[
+                {
+                    "name": tool_name,
+                    "description": tool_description,
+                    "input_schema": input_schema,
+                }
+            ],
+            tool_choice={"type": "tool", "name": tool_name},
+        )
+        for block in response.content:
+            if block.type == "tool_use":
+                return block.input
         raise ValueError("No tool_use block in Anthropic response")
 
     @classmethod
@@ -263,6 +392,43 @@ Respond with ONLY a JSON object (no markdown, no code fences) with these exact f
         output = _extract_json_object(output)
 
         return ChatSQLResponse.model_validate_json(output)
+
+    async def generate_tool(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        tool_name: str,
+        tool_description: str,
+        input_schema: dict,
+        max_tokens: int = 4096,
+    ) -> dict:
+        prompt = f"""{system_prompt}
+
+{user_prompt}
+
+Respond with ONLY a JSON object (no markdown, no code fences) that conforms to this JSON schema:
+{json.dumps(input_schema)}"""
+
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "--print", "--model", "claude-sonnet-4-6",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate(prompt.encode())
+
+        if proc.returncode != 0:
+            raise ValueError(f"claude CLI failed: {stderr.decode()}")
+
+        output = stdout.decode().strip()
+        if output.startswith("```"):
+            lines = output.split("\n")
+            lines = [l for l in lines if not l.startswith("```")]
+            output = "\n".join(lines).strip()
+
+        output = _extract_json_object(output)
+        return json.loads(output)
 
     @classmethod
     def is_available(cls) -> bool:
