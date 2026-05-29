@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import shutil
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -344,6 +345,16 @@ class ClaudeOAuthProvider(LLMProvider):
         return has_valid_token()
 
 
+def _claude_cli_cwd() -> str:
+    """A stable, always-present working directory for the spawned `claude` CLI.
+
+    The server's own cwd can be deleted out from under it (e.g. a removed git
+    worktree), which makes `claude` abort with "current working directory was
+    deleted". The system temp dir always exists, so spawn the CLI there.
+    """
+    return tempfile.gettempdir()
+
+
 class ClaudeCLIProvider(LLMProvider):
     """Uses the `claude` CLI tool — no API key needed, CLI handles auth."""
 
@@ -375,6 +386,7 @@ Respond with ONLY a JSON object (no markdown, no code fences) with these exact f
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=_claude_cli_cwd(),
         )
         stdout, stderr = await proc.communicate(prompt.encode())
 
@@ -415,6 +427,7 @@ Respond with ONLY a JSON object (no markdown, no code fences) that conforms to t
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=_claude_cli_cwd(),
         )
         stdout, stderr = await proc.communicate(prompt.encode())
 
