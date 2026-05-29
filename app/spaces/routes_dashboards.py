@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.spaces.registry import get_space
 
@@ -22,6 +22,40 @@ router = APIRouter()
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+class GenerateDashboardSpecRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/{space_id}/dashboard/spec")
+async def api_generate_dashboard_spec(space_id: str, req: GenerateDashboardSpecRequest):
+    """One Shot Dashboard (CLI-127): generate a validated multi-widget spec.
+
+    Turns a plain-English analysis case into an ordered dashboard spec scoped to
+    this data space's schema. The LLM sees only the space's schema/semantic layer
+    (never row data); each widget's SQL is validated and run through the existing
+    query path with a bounded self-repair retry.
+    """
+    from app.llm.dashboard_spec import generate_dashboard_spec
+    from app.llm.providers import get_provider
+
+    config = get_space(space_id)
+    if not config:
+        raise HTTPException(404, f"Data space '{space_id}' not found")
+
+    try:
+        provider = get_provider()
+    except ValueError as e:
+        raise HTTPException(503, str(e))
+
+    try:
+        spec = await generate_dashboard_spec(config, req.description, provider=provider)
+    except Exception as e:  # noqa: BLE001
+        log.error(f"Dashboard spec generation failed for space '{space_id}': {e}")
+        raise HTTPException(502, f"Dashboard generation error: {e}")
+
+    return spec.model_dump()
 
 
 class CreateSpaceDashboardRequest(BaseModel):
