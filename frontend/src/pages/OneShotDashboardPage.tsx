@@ -321,13 +321,21 @@ export default function OneShotDashboardPage() {
     <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
       <AppHeader
         context={
-          <Space size={6}>
-            <ThunderboltOutlined style={{ color: token.colorPrimary }} />
-            <Typography.Text strong>One Shot Dashboard</Typography.Text>
-            <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
-              Draft
-            </Tag>
-          </Space>
+          // Plain flex row (not <Space>, whose item wrappers block flex-shrink)
+          // so the title ellipsises instead of wrapping and overflowing the 64px
+          // header on mobile (CLI-129 UX review; mirrors DashboardPage's CLI-89
+          // fix). The Draft tag only appears once an actual draft exists.
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <ThunderboltOutlined style={{ color: token.colorPrimary, flexShrink: 0 }} />
+            <Typography.Text strong ellipsis={{ tooltip: "One Shot Dashboard" }} style={{ minWidth: 0 }}>
+              One Shot Dashboard
+            </Typography.Text>
+            {phase === "ready" && (
+              <Tag color="blue" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>
+                Draft
+              </Tag>
+            )}
+          </div>
         }
         actions={
           phase === "ready" ? (
