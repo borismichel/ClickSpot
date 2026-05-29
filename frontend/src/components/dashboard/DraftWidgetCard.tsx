@@ -77,8 +77,9 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
 
   // Re-run when the persisted SQL, the dashboard filters, or a manual refresh
   // changes. Editing the SQL field alone does not re-run until "Run" is pressed.
+  // draftSql already tracks widget.sql (applySql lifts the edit before the prop
+  // updates), so it needs no resync here — keeping the effect a pure fetch sync.
   useEffect(() => {
-    setDraftSql(widget.sql);
     runSql(widget.sql);
   }, [widget.sql, runSql, refreshKey]);
 
