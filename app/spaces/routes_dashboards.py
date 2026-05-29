@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.spaces.registry import get_space
@@ -56,6 +57,49 @@ async def api_generate_dashboard_spec(space_id: str, req: GenerateDashboardSpecR
         raise HTTPException(502, f"Dashboard generation error: {e}")
 
     return spec.model_dump()
+
+
+@router.post("/{space_id}/dashboard/spec/stream")
+async def api_stream_dashboard_spec(space_id: str, req: GenerateDashboardSpecRequest):
+    """Streaming variant of the One Shot Dashboard generator (CLI-128).
+
+    Same work as ``POST .../dashboard/spec`` but returns Server-Sent Events so the
+    frontend can render an honest progress bar. Each SSE ``data:`` line is a JSON
+    ``DashboardEvent`` (``planning`` -> per-widget ``generating``/``validating``
+    -> ``done``); the terminal ``done`` event carries the full spec. A failure
+    after the stream opens is reported as an ``error`` event rather than an HTTP
+    status, since the 200 response has already started.
+    """
+    from app.llm.dashboard_spec import DashboardEvent, stream_dashboard_spec
+    from app.llm.providers import get_provider
+
+    config = get_space(space_id)
+    if not config:
+        raise HTTPException(404, f"Data space '{space_id}' not found")
+
+    try:
+        provider = get_provider()
+    except ValueError as e:
+        raise HTTPException(503, str(e))
+
+    async def event_stream():
+        try:
+            async for event in stream_dashboard_spec(config, req.description, provider=provider):
+                yield f"data: {event.model_dump_json()}\n\n"
+        except Exception as e:  # noqa: BLE001 — stream already open, can't raise HTTP
+            log.error(f"Dashboard spec stream failed for space '{space_id}': {e}")
+            err = DashboardEvent(stage="error", error=f"Dashboard generation error: {e}")
+            yield f"data: {err.model_dump_json()}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable proxy buffering so events flush live
+        },
+    )
 
 
 class CreateSpaceDashboardRequest(BaseModel):
