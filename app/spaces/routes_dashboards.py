@@ -131,6 +131,34 @@ class UpdateSpaceLayoutsRequest(BaseModel):
     layouts: list[SpaceLayoutItem]
 
 
+class DraftWidgetLayout(BaseModel):
+    x: int = 0
+    y: int = 0
+    w: int = 4
+    h: int = 4
+
+
+class SaveDraftWidget(BaseModel):
+    title: str
+    sql: str
+    viz: str
+    layout: DraftWidgetLayout = Field(default_factory=DraftWidgetLayout)
+    context_kpis: list[dict] = []
+
+
+class SaveDraftDashboardRequest(BaseModel):
+    """Promote a transient One Shot Dashboard draft into a saved space dashboard.
+
+    Carries the whole draft so the create happens in one transaction, preserving
+    each widget's (possibly user-edited) SQL, viz type, and grid layout, plus the
+    dashboard-level filters.
+    """
+
+    title: str = Field(min_length=1, max_length=200)
+    filters: list[dict] = []
+    widgets: list[SaveDraftWidget] = []
+
+
 async def _get_space_dashboard(db, dash_id: str) -> dict | None:
     cursor = await db.execute("SELECT * FROM space_dashboards WHERE id = ?", (dash_id,))
     dash = await cursor.fetchone()
@@ -206,6 +234,57 @@ async def api_create_space_dashboard(space_id: str, req: CreateSpaceDashboardReq
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (dash_id, space_id, req.title, "[]", "[]", now, now),
         )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()
+
+
+@router.post("/{space_id}/dashboards/draft", status_code=201)
+async def api_save_draft_dashboard(space_id: str, req: SaveDraftDashboardRequest):
+    """One Shot Dashboard (CLI-130): promote a transient draft to a saved dashboard.
+
+    The whole draft is persisted in a single transaction so the saved dashboard is
+    a faithful snapshot of what the user saw: widget order, each widget's
+    (generated or hand-edited) SQL and viz type, the grid layout, and the
+    dashboard-level filters all round-trip on the subsequent reload. SQL is stored
+    verbatim — it was already validated during generation and is run live in the
+    draft — matching the existing add-item path.
+    """
+    from app.store import get_db
+    config = get_space(space_id)
+    if not config:
+        raise HTTPException(404, f"Data space '{space_id}' not found")
+
+    db = await get_db()
+    try:
+        now = _now()
+        dash_id = f"sdash-{uuid4().hex[:12]}"
+        await db.execute(
+            "INSERT INTO space_dashboards (id, space_id, title, pinned_columns, filters, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (dash_id, space_id, req.title, "[]", json.dumps(req.filters), now, now),
+        )
+        for sort_order, widget in enumerate(req.widgets):
+            item_id = f"sitem-{uuid4().hex[:12]}"
+            await db.execute(
+                "INSERT INTO space_dashboard_items "
+                "(id, dashboard_id, title, sql, viz, context_kpis, layout_x, layout_y, layout_w, layout_h, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    item_id,
+                    dash_id,
+                    widget.title,
+                    widget.sql,
+                    widget.viz,
+                    json.dumps(widget.context_kpis),
+                    widget.layout.x,
+                    widget.layout.y,
+                    widget.layout.w,
+                    widget.layout.h,
+                    sort_order,
+                ),
+            )
         await db.commit()
         return await _get_space_dashboard(db, dash_id)
     finally:

@@ -10,9 +10,13 @@ import {
   Space,
   Empty,
   Tag,
+  Modal,
+  Popconfirm,
+  message,
   theme,
 } from "antd";
-import { ThunderboltOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ThunderboltOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
@@ -97,6 +101,7 @@ function autoLayout(widgets: WidgetSpec[]): Array<{ x: number; y: number; w: num
 
 export default function OneShotDashboardPage() {
   const { token } = theme.useToken();
+  const navigate = useNavigate();
   usePageTitle("One Shot Dashboard");
 
   const [spaces, setSpaces] = useState<SpaceOption[]>([]);
@@ -114,6 +119,10 @@ export default function OneShotDashboardPage() {
   const [filters, setFilters] = useState<SpaceFilter[]>([]);
   const [filterColumns, setFilterColumns] = useState<UnifiedFilterColumn[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveTitle, setSaveTitle] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
@@ -315,6 +324,59 @@ export default function OneShotDashboardPage() {
     setStatusText("");
   };
 
+  // Discarding a transient draft is zero-cost — nothing was ever persisted, so we
+  // just reset back to the entry form.
+  const discard = startOver;
+
+  const openSave = () => {
+    const firstLine = description.trim().split("\n")[0].trim();
+    setSaveTitle(firstLine ? firstLine.slice(0, 120) : "One Shot Dashboard");
+    setSaveOpen(true);
+  };
+
+  // Promote the draft to a saved space dashboard in a single call, preserving each
+  // widget's (possibly edited) SQL, viz type, and grid layout plus the filters,
+  // then jump to the saved dashboard.
+  const saveDraft = async () => {
+    if (!spaceId) return;
+    const title = saveTitle.trim();
+    if (!title) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/v1/spaces/${spaceId}/dashboards/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          filters: filters.map((f) => ({ column: f.column, operator: f.operator, values: f.values })),
+          widgets: widgets.map((w) => ({
+            title: w.title,
+            sql: w.sql,
+            viz: w.viz,
+            layout: w.layout,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        let detail = `Save failed (HTTP ${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.detail) detail = j.detail;
+        } catch { /* non-JSON body */ }
+        message.error(detail);
+        return;
+      }
+      const dash: { id: string } = await res.json();
+      message.success("Dashboard saved");
+      setSaveOpen(false);
+      navigate(`/spaces/${spaceId}/dashboard?dashboard=${dash.id}`);
+    } catch {
+      message.error("Save failed — please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const gridLayout = widgets.map((wgt) => ({ i: wgt.id, ...wgt.layout, minW: 2, minH: 2 }));
 
   return (
@@ -343,7 +405,23 @@ export default function OneShotDashboardPage() {
               <Button icon={<ReloadOutlined />} onClick={() => setRefreshKey((k) => k + 1)}>
                 Refresh
               </Button>
-              <Button onClick={startOver}>New</Button>
+              <Popconfirm
+                title="Discard this draft?"
+                description="The generated dashboard hasn't been saved and will be lost."
+                okText="Discard"
+                okButtonProps={{ danger: true }}
+                onConfirm={discard}
+              >
+                <Button>Discard</Button>
+              </Popconfirm>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={openSave}
+                disabled={widgets.length === 0}
+              >
+                Save
+              </Button>
             </>
           ) : null
         }
@@ -490,6 +568,29 @@ export default function OneShotDashboardPage() {
           </>
         )}
       </Content>
+
+      <Modal
+        title="Save dashboard"
+        open={saveOpen}
+        onCancel={() => setSaveOpen(false)}
+        onOk={saveDraft}
+        okText="Save"
+        okButtonProps={{ disabled: !saveTitle.trim(), loading: saving }}
+        confirmLoading={saving}
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          Saves the current draft — its widgets, SQL, layout, and filters — as a
+          dashboard on this data space.
+        </Typography.Paragraph>
+        <Input
+          value={saveTitle}
+          onChange={(e) => setSaveTitle(e.target.value)}
+          onPressEnter={saveDraft}
+          placeholder="Dashboard title"
+          maxLength={120}
+          autoFocus
+        />
+      </Modal>
     </Layout>
   );
 }
