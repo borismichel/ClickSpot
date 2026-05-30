@@ -9,16 +9,15 @@ Without sessions, ClickHouse treats each HTTP request independently.
 import asyncio
 import os
 
-import clickhouse_connect
-import clickhouse_connect.common as _ch_common
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Disable session IDs globally — prevents any client from ever
-# generating a session_id, which is the root cause of
-# "concurrent queries within the same session" errors.
-_ch_common.set_setting("autogenerate_session_id", False)
+# clickhouse_connect is imported lazily inside get_client(): its compiled
+# Cython buffer module pre-builds `array.array('u', [])` at import time,
+# which emits a DeprecationWarning on Python 3.14 and will hard-fail on
+# 3.16. Deferring the import keeps modules that only re-export from app.db
+# (and tests that mock the engine out entirely) free of that warning.
 
 _client = None
 
@@ -44,6 +43,14 @@ def _read_client_settings() -> dict[str, str]:
 def get_client():
     global _client
     if _client is None:
+        import clickhouse_connect
+        import clickhouse_connect.common as _ch_common
+
+        # Disable session IDs globally — prevents any client from ever
+        # generating a session_id, which is the root cause of
+        # "concurrent queries within the same session" errors.
+        _ch_common.set_setting("autogenerate_session_id", False)
+
         # Fail fast if credentials aren't explicitly set. The previous fallback
         # ("default" superuser with empty password) is a security trap — it
         # silently works against a fresh ClickHouse install and gives the app
