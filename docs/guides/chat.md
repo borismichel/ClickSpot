@@ -31,6 +31,11 @@ User question
     -> Chart / table / number rendered inline
 ```
 
+!!! note "Queries self-heal"
+    If a generated query fails validation or errors on execution, ClickSpot makes one
+    automatic repair attempt — feeding the error back to the model and re-checking — before
+    it gives up, so transient SQL slips recover silently without you re-asking.
+
 <figure markdown>
   ![Chat answering "show me activity trends by type" with a 12-month multi-series trend chart and the generated SQL](../assets/screenshots/chat-activity-trends.png){ .shot }
   <figcaption>A question answered with a multi-series trend chart and the SQL behind it.</figcaption>
