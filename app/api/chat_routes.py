@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
 from app.ch_errors import safe_clickhouse_error
 from app.db import async_query_rows, async_query_value
+from app.llm import observability as obs
 from app.llm.providers import get_provider
 from app.llm.sql_validator import validate_sql, ensure_limit
 
@@ -59,10 +60,11 @@ async def chat(req: ChatRequest):
     messages = [m.model_dump() for m in req.history]
     messages.append({"role": "user", "content": req.message})
 
-    # 3. Call LLM
+    # 3. Call LLM (grouped into a Langfuse session per conversation when tracing is on)
     t0 = time.time()
     try:
-        llm_response = await provider.generate(messages)
+        with obs.session(req.conversation_id):
+            llm_response = await provider.generate(messages)
     except Exception as e:
         log.error(f"LLM call failed: {e}")
         raise HTTPException(status_code=502, detail="LLM provider error; see server log")

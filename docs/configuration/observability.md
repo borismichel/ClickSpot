@@ -46,10 +46,18 @@ installed, ClickSpot logs a one-line warning and keeps running untraced.
 Open Langfuse and you'll see traces named `nl-to-sql` (chat) and one per dashboard tool call
 as queries come in.
 
+## Sessions
+
+Each chat conversation is grouped into a Langfuse **session**, so you can follow a multi-turn
+thread end to end in the Sessions view. Global chats use the conversation id (the frontend
+sends it per request); a data space's chat uses a stable `space:<id>` key (one conversation
+per space). Nothing extra to configure — it's on whenever tracing is.
+
 ## Good to know
 
 - **Self-hosted, fully offline** — Langfuse runs in Docker; nothing leaves your network.
 - **Best-effort** — if Langfuse is unreachable or misconfigured, tracing is skipped and query
   generation is never affected.
-- **Not yet wired:** `session_id`/`user_id` on traces and Langfuse prompt management. The
-  current scope is observability + cost/latency/prompt visibility for prompt engineering.
+- **Not yet wired:** `user_id` on traces (ClickSpot is single-tenant, no user concept) and
+  Langfuse prompt management. The current scope is observability + per-conversation sessions
+  + cost/latency/prompt visibility for prompt engineering.

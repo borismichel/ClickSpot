@@ -75,6 +75,40 @@ class _NoopGeneration:
 
 
 @contextmanager
+def session(session_id: Any) -> Iterator[None]:
+    """Group all LLM traces created inside this block under one Langfuse session.
+
+    Wrap a chat request's ``provider.generate(...)`` call in this so every turn of
+    the same conversation lands in one session in the Langfuse *Sessions* view. A
+    falsy ``session_id`` or disabled tracing makes it a transparent pass-through.
+    Must wrap span *creation* (so it propagates onto the generation span), which is
+    why it lives at the route layer rather than inside the providers.
+    """
+    if not (session_id and enabled()):
+        yield
+        return
+
+    cm = None
+    try:
+        from langfuse import propagate_attributes
+
+        cm = propagate_attributes(session_id=str(session_id))
+        cm.__enter__()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("Langfuse session propagation failed (ignored): %s", exc)
+        cm = None
+
+    try:
+        yield
+    finally:
+        if cm is not None:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception as exc:  # pragma: no cover - defensive
+                log.debug("Langfuse session exit failed (ignored): %s", exc)
+
+
+@contextmanager
 def generation(name: str, model: str, input: Any) -> Iterator[Any]:
     """Wrap an LLM call in a Langfuse *generation* span.
 

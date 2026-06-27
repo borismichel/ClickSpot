@@ -54,10 +54,13 @@ async def api_space_chat(space_id: str, req: ChatRequest):
     messages = [m.model_dump() for m in req.history]
     messages.append({"role": "user", "content": req.message})
 
-    # Call LLM with space-scoped prompt
+    # Call LLM with space-scoped prompt. One conversation per space, so the
+    # space id is a stable Langfuse session key (no-op unless tracing is on).
     t0 = time.time()
     try:
-        llm_response = await provider.generate(messages, system_prompt=prompt)
+        from app.llm import observability as obs
+        with obs.session(f"space:{space_id}"):
+            llm_response = await provider.generate(messages, system_prompt=prompt)
     except Exception as e:
         log.error(f"LLM call failed: {e}")
         raise HTTPException(502, f"LLM error: {e}")

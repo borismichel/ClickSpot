@@ -29,6 +29,18 @@ def test_noop_generation_is_safe(fresh_obs):
     fresh_obs.flush()  # must not raise
 
 
+def test_session_is_passthrough_when_disabled(fresh_obs):
+    """session() must be a transparent no-op when tracing is off (any id, or none)."""
+    with fresh_obs.session("chat-123"):
+        pass
+    with fresh_obs.session(None):
+        pass
+    # combined with a (no-op) generation, mirroring how routes use it
+    with fresh_obs.session("chat-123"):
+        with fresh_obs.generation(name="nl-to-sql", model="m", input={}) as gen:
+            fresh_obs.record(gen, output={"sql": "SELECT 1"})
+
+
 def test_anthropic_usage_mapping(fresh_obs):
     class Usage:
         input_tokens = 120

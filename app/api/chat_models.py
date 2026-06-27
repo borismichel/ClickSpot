@@ -16,6 +16,10 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(max_length=MAX_CHAT_MESSAGE_LENGTH)
     history: list[ChatMessage] = []
+    # Optional client-supplied conversation id. Used only to group this chat's
+    # turns into a single Langfuse session when LLM tracing is enabled; it has no
+    # effect on query generation. Capped to keep it a valid session key.
+    conversation_id: str | None = Field(default=None, max_length=200)
 
 
 class ContextKPIResult(BaseModel):
