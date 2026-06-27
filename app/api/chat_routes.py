@@ -4,6 +4,7 @@ LLM provider config, OAuth, and schema-cache endpoints used to live here for
 historical reasons; they now live in app/api/llm_routes.py.
 """
 
+import asyncio
 import logging
 import time
 
@@ -18,6 +19,13 @@ from app.llm.sql_validator import validate_sql, ensure_limit
 
 router = APIRouter(prefix="/api/v1")
 log = logging.getLogger("app.chat")
+
+# Cap on context-KPI queries running concurrently. The LLM emits 2-8 KPIs, each
+# with an optional previous-period query, so an unbounded gather could fire up
+# to ~16 queries at once against the single shared ClickHouse client and the
+# default asyncio thread pool. 8 keeps the common case fully parallel while
+# bounding the worst case.
+_CONTEXT_KPI_CONCURRENCY = 8
 
 
 def compute_kpi_delta(value, prev_value) -> tuple[float | None, str | None]:
@@ -46,6 +54,60 @@ def compute_kpi_delta(value, prev_value) -> tuple[float | None, str | None]:
     if cur != 0:
         return None, "New"
     return None, None
+
+
+async def _run_context_kpi(kpi, sem: asyncio.Semaphore) -> ContextKPIResult | None:
+    """Execute a single context KPI (and its optional previous-period query).
+
+    Returns a ``ContextKPIResult`` on success, or ``None`` when the KPI SQL is
+    invalid (skipped) or the query fails (swallowed with a warning). Errors here
+    must never fail the whole chat request — matches the original sequential
+    behavior, just runnable concurrently. The semaphore bounds how many KPIs hit
+    ClickHouse at once.
+    """
+    kpi_sql = kpi.sql.strip().rstrip(";")
+    is_valid_kpi, _ = validate_sql(kpi_sql)
+    if not is_valid_kpi:
+        return None
+    kpi_sql = ensure_limit(kpi_sql, max_limit=1)
+    async with sem:
+        try:
+            val = await async_query_value(kpi_sql)
+            if val is None or val == "\\N":
+                val = None
+
+            # Execute previous period SQL if provided
+            prev_val = None
+            delta_pct = None
+            delta_label = None
+            if kpi.previous_sql:
+                prev_sql = kpi.previous_sql.strip().rstrip(";")
+                is_valid_prev, _ = validate_sql(prev_sql)
+                if is_valid_prev:
+                    prev_sql = ensure_limit(prev_sql, max_limit=1)
+                    try:
+                        prev_val = await async_query_value(prev_sql)
+                        if prev_val is None or prev_val == "\\N":
+                            prev_val = None
+                    except Exception as e:
+                        log.warning(f"Previous KPI failed ({kpi.label}): {e}")
+
+                # Period-over-period delta — a label (not a bogus %) when the
+                # baseline is zero (CLI-42).
+                delta_pct, delta_label = compute_kpi_delta(val, prev_val)
+
+            return ContextKPIResult(
+                label=kpi.label,
+                value=val,
+                sql=kpi_sql,
+                previous_sql=kpi.previous_sql.strip().rstrip(";") if kpi.previous_sql else None,
+                previous_value=prev_val,
+                delta_percent=delta_pct,
+                delta_label=delta_label,
+            )
+        except Exception as e:
+            log.warning(f"Context KPI failed ({kpi.label}): {e}")
+            return None
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -92,50 +154,16 @@ async def chat(req: ChatRequest):
 
     columns = list(rows[0].keys()) if rows else []
 
-    # 6. Execute context KPIs (non-blocking, errors silently skipped)
-    context_results = []
-    for kpi in llm_response.context:
-        kpi_sql = kpi.sql.strip().rstrip(";")
-        is_valid_kpi, _ = validate_sql(kpi_sql)
-        if not is_valid_kpi:
-            continue
-        kpi_sql = ensure_limit(kpi_sql, max_limit=1)
-        try:
-            val = await async_query_value(kpi_sql)
-            if val is None or val == "\\N":
-                val = None
-
-            # Execute previous period SQL if provided
-            prev_val = None
-            delta_pct = None
-            delta_label = None
-            if kpi.previous_sql:
-                prev_sql = kpi.previous_sql.strip().rstrip(";")
-                is_valid_prev, _ = validate_sql(prev_sql)
-                if is_valid_prev:
-                    prev_sql = ensure_limit(prev_sql, max_limit=1)
-                    try:
-                        prev_val = await async_query_value(prev_sql)
-                        if prev_val is None or prev_val == "\\N":
-                            prev_val = None
-                    except Exception as e:
-                        log.warning(f"Previous KPI failed ({kpi.label}): {e}")
-
-                # Period-over-period delta — a label (not a bogus %) when the
-                # baseline is zero (CLI-42).
-                delta_pct, delta_label = compute_kpi_delta(val, prev_val)
-
-            context_results.append(ContextKPIResult(
-                label=kpi.label,
-                value=val,
-                sql=kpi_sql,
-                previous_sql=kpi.previous_sql.strip().rstrip(";") if kpi.previous_sql else None,
-                previous_value=prev_val,
-                delta_percent=delta_pct,
-                delta_label=delta_label,
-            ))
-        except Exception as e:
-            log.warning(f"Context KPI failed ({kpi.label}): {e}")
+    # 6. Execute context KPIs concurrently (non-blocking, errors silently
+    # skipped). The KPIs are independent read-only queries, so we fan them out
+    # with asyncio.gather instead of a sequential loop (CLI-143). gather
+    # preserves input order, so output order is stable; invalid/failed KPIs come
+    # back as None and are filtered out.
+    sem = asyncio.Semaphore(_CONTEXT_KPI_CONCURRENCY)
+    kpi_results = await asyncio.gather(
+        *(_run_context_kpi(kpi, sem) for kpi in llm_response.context)
+    )
+    context_results = [r for r in kpi_results if r is not None]
 
     return ChatResponse(
         explanation=llm_response.explanation,
