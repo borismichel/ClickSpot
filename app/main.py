@@ -57,6 +57,13 @@ async def lifespan(app: FastAPI):
         log.warning(f"Extraction summary skipped: {e}")
     yield
 
+    # Shutdown: flush any buffered LLM traces (no-op unless Langfuse is enabled).
+    try:
+        from app.llm import observability
+        observability.flush()
+    except Exception as e:
+        log.warning(f"Langfuse flush skipped: {e}")
+
 
 app = FastAPI(
     title="HubSpot Analytics Engine",

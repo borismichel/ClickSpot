@@ -12,6 +12,7 @@ from pathlib import Path
 import anthropic
 import openai
 
+from app.llm import observability as obs
 from app.llm.config import load_config, get_api_key
 from app.llm.oauth import get_valid_access_token, has_valid_token, OAUTH_EXTRA_HEADERS
 from app.llm.response_schema import ChatSQLResponse
@@ -125,31 +126,37 @@ class AnthropicProvider(LLMProvider):
         schema = system_prompt or _get_schema_prompt()
         llm_messages = self._build_llm_messages(messages)
 
-        response = await self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            system=[
-                {
-                    "type": "text",
-                    "text": schema,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=llm_messages,
-            tools=[
-                {
-                    "name": "generate_sql",
-                    "description": "Generate a ClickHouse SQL query for the user's question",
-                    "input_schema": ChatSQLResponse.model_json_schema(),
-                }
-            ],
-            tool_choice={"type": "tool", "name": "generate_sql"},
-        )
+        with obs.generation(
+            name="nl-to-sql", model=self.model,
+            input={"system": schema, "messages": llm_messages},
+        ) as gen:
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=[
+                    {
+                        "type": "text",
+                        "text": schema,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=llm_messages,
+                tools=[
+                    {
+                        "name": "generate_sql",
+                        "description": "Generate a ClickHouse SQL query for the user's question",
+                        "input_schema": ChatSQLResponse.model_json_schema(),
+                    }
+                ],
+                tool_choice={"type": "tool", "name": "generate_sql"},
+            )
 
-        # Extract tool use result
-        for block in response.content:
-            if block.type == "tool_use":
-                return ChatSQLResponse.model_validate(block.input)
+            # Extract tool use result
+            for block in response.content:
+                if block.type == "tool_use":
+                    result = ChatSQLResponse.model_validate(block.input)
+                    obs.record(gen, output=result.model_dump(), usage=obs.anthropic_usage(response))
+                    return result
 
         raise ValueError("No tool_use block in Anthropic response")
 
@@ -163,29 +170,34 @@ class AnthropicProvider(LLMProvider):
         input_schema: dict,
         max_tokens: int = 4096,
     ) -> dict:
-        response = await self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_prompt}],
-            tools=[
-                {
-                    "name": tool_name,
-                    "description": tool_description,
-                    "input_schema": input_schema,
-                }
-            ],
-            tool_choice={"type": "tool", "name": tool_name},
-        )
-        for block in response.content:
-            if block.type == "tool_use":
-                return block.input
+        with obs.generation(
+            name=tool_name, model=self.model,
+            input={"system": system_prompt, "user": user_prompt},
+        ) as gen:
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[{"role": "user", "content": user_prompt}],
+                tools=[
+                    {
+                        "name": tool_name,
+                        "description": tool_description,
+                        "input_schema": input_schema,
+                    }
+                ],
+                tool_choice={"type": "tool", "name": tool_name},
+            )
+            for block in response.content:
+                if block.type == "tool_use":
+                    obs.record(gen, output=block.input, usage=obs.anthropic_usage(response))
+                    return block.input
         raise ValueError("No tool_use block in Anthropic response")
 
 
@@ -199,22 +211,27 @@ class OpenAIProvider(LLMProvider):
         llm_messages = [{"role": "system", "content": schema}]
         llm_messages.extend(self._build_llm_messages(messages))
 
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=llm_messages,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "sql_response",
-                    "strict": True,
-                    "schema": ChatSQLResponse.model_json_schema(),
+        with obs.generation(
+            name="nl-to-sql", model=self.model, input=llm_messages,
+        ) as gen:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=llm_messages,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "sql_response",
+                        "strict": True,
+                        "schema": ChatSQLResponse.model_json_schema(),
+                    },
                 },
-            },
-            max_tokens=1024,
-        )
+                max_tokens=1024,
+            )
 
-        content = response.choices[0].message.content
-        return ChatSQLResponse.model_validate_json(content)
+            content = response.choices[0].message.content
+            result = ChatSQLResponse.model_validate_json(content)
+            obs.record(gen, output=result.model_dump(), usage=obs.openai_usage(response))
+            return result
 
     async def generate_tool(
         self,
@@ -226,26 +243,32 @@ class OpenAIProvider(LLMProvider):
         input_schema: dict,
         max_tokens: int = 4096,
     ) -> dict:
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": tool_name,
-                    # Nested-with-defaults schemas don't satisfy OpenAI strict
-                    # mode; we validate with Pydantic on the caller side instead.
-                    "strict": False,
-                    "schema": input_schema,
+        with obs.generation(
+            name=tool_name, model=self.model,
+            input={"system": system_prompt, "user": user_prompt},
+        ) as gen:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": tool_name,
+                        # Nested-with-defaults schemas don't satisfy OpenAI strict
+                        # mode; we validate with Pydantic on the caller side instead.
+                        "strict": False,
+                        "schema": input_schema,
+                    },
                 },
-            },
-            max_tokens=max_tokens,
-        )
-        content = response.choices[0].message.content
-        return json.loads(_extract_json_object(content))
+                max_tokens=max_tokens,
+            )
+            content = response.choices[0].message.content
+            result = json.loads(_extract_json_object(content))
+            obs.record(gen, output=result, usage=obs.openai_usage(response))
+            return result
 
 
 class ClaudeOAuthProvider(LLMProvider):
@@ -270,30 +293,36 @@ class ClaudeOAuthProvider(LLMProvider):
         schema = system_prompt or _get_schema_prompt()
         llm_messages = self._build_llm_messages(messages)
 
-        response = await client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            system=[
-                {
-                    "type": "text",
-                    "text": schema,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=llm_messages,
-            tools=[
-                {
-                    "name": "generate_sql",
-                    "description": "Generate a ClickHouse SQL query for the user's question",
-                    "input_schema": ChatSQLResponse.model_json_schema(),
-                }
-            ],
-            tool_choice={"type": "tool", "name": "generate_sql"},
-        )
+        with obs.generation(
+            name="nl-to-sql", model=self.model,
+            input={"system": schema, "messages": llm_messages},
+        ) as gen:
+            response = await client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=[
+                    {
+                        "type": "text",
+                        "text": schema,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=llm_messages,
+                tools=[
+                    {
+                        "name": "generate_sql",
+                        "description": "Generate a ClickHouse SQL query for the user's question",
+                        "input_schema": ChatSQLResponse.model_json_schema(),
+                    }
+                ],
+                tool_choice={"type": "tool", "name": "generate_sql"},
+            )
 
-        for block in response.content:
-            if block.type == "tool_use":
-                return ChatSQLResponse.model_validate(block.input)
+            for block in response.content:
+                if block.type == "tool_use":
+                    result = ChatSQLResponse.model_validate(block.input)
+                    obs.record(gen, output=result.model_dump(), usage=obs.anthropic_usage(response))
+                    return result
 
         raise ValueError("No tool_use block in Anthropic response")
 
@@ -315,29 +344,34 @@ class ClaudeOAuthProvider(LLMProvider):
             auth_token=token,
             default_headers=OAUTH_EXTRA_HEADERS,
         )
-        response = await client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_prompt}],
-            tools=[
-                {
-                    "name": tool_name,
-                    "description": tool_description,
-                    "input_schema": input_schema,
-                }
-            ],
-            tool_choice={"type": "tool", "name": tool_name},
-        )
-        for block in response.content:
-            if block.type == "tool_use":
-                return block.input
+        with obs.generation(
+            name=tool_name, model=self.model,
+            input={"system": system_prompt, "user": user_prompt},
+        ) as gen:
+            response = await client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[{"role": "user", "content": user_prompt}],
+                tools=[
+                    {
+                        "name": tool_name,
+                        "description": tool_description,
+                        "input_schema": input_schema,
+                    }
+                ],
+                tool_choice={"type": "tool", "name": tool_name},
+            )
+            for block in response.content:
+                if block.type == "tool_use":
+                    obs.record(gen, output=block.input, usage=obs.anthropic_usage(response))
+                    return block.input
         raise ValueError("No tool_use block in Anthropic response")
 
     @classmethod
@@ -381,29 +415,35 @@ Respond with ONLY a JSON object (no markdown, no code fences) with these exact f
 - "title": short chart title (max 10 words)
 - "explanation": one sentence explaining what the query shows"""
 
-        proc = await asyncio.create_subprocess_exec(
-            "claude", "--print", "--model", "claude-sonnet-4-6",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=_claude_cli_cwd(),
-        )
-        stdout, stderr = await proc.communicate(prompt.encode())
+        with obs.generation(
+            name="nl-to-sql", model="claude-sonnet-4-6",
+            input={"system": schema, "messages": llm_messages},
+        ) as gen:
+            proc = await asyncio.create_subprocess_exec(
+                "claude", "--print", "--model", "claude-sonnet-4-6",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=_claude_cli_cwd(),
+            )
+            stdout, stderr = await proc.communicate(prompt.encode())
 
-        if proc.returncode != 0:
-            raise ValueError(f"claude CLI failed: {stderr.decode()}")
+            if proc.returncode != 0:
+                raise ValueError(f"claude CLI failed: {stderr.decode()}")
 
-        output = stdout.decode().strip()
-        # Strip markdown code fences if present
-        if output.startswith("```"):
-            lines = output.split("\n")
-            lines = [l for l in lines if not l.startswith("```")]
-            output = "\n".join(lines).strip()
+            output = stdout.decode().strip()
+            # Strip markdown code fences if present
+            if output.startswith("```"):
+                lines = output.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                output = "\n".join(lines).strip()
 
-        # Extract the JSON object even if trailing text exists
-        output = _extract_json_object(output)
+            # Extract the JSON object even if trailing text exists
+            output = _extract_json_object(output)
 
-        return ChatSQLResponse.model_validate_json(output)
+            result = ChatSQLResponse.model_validate_json(output)
+            obs.record(gen, output=result.model_dump())
+            return result
 
     async def generate_tool(
         self,
@@ -422,26 +462,32 @@ Respond with ONLY a JSON object (no markdown, no code fences) with these exact f
 Respond with ONLY a JSON object (no markdown, no code fences) that conforms to this JSON schema:
 {json.dumps(input_schema)}"""
 
-        proc = await asyncio.create_subprocess_exec(
-            "claude", "--print", "--model", "claude-sonnet-4-6",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=_claude_cli_cwd(),
-        )
-        stdout, stderr = await proc.communicate(prompt.encode())
+        with obs.generation(
+            name=tool_name, model="claude-sonnet-4-6",
+            input={"system": system_prompt, "user": user_prompt},
+        ) as gen:
+            proc = await asyncio.create_subprocess_exec(
+                "claude", "--print", "--model", "claude-sonnet-4-6",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=_claude_cli_cwd(),
+            )
+            stdout, stderr = await proc.communicate(prompt.encode())
 
-        if proc.returncode != 0:
-            raise ValueError(f"claude CLI failed: {stderr.decode()}")
+            if proc.returncode != 0:
+                raise ValueError(f"claude CLI failed: {stderr.decode()}")
 
-        output = stdout.decode().strip()
-        if output.startswith("```"):
-            lines = output.split("\n")
-            lines = [l for l in lines if not l.startswith("```")]
-            output = "\n".join(lines).strip()
+            output = stdout.decode().strip()
+            if output.startswith("```"):
+                lines = output.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                output = "\n".join(lines).strip()
 
-        output = _extract_json_object(output)
-        return json.loads(output)
+            output = _extract_json_object(output)
+            result = json.loads(output)
+            obs.record(gen, output=result)
+            return result
 
     @classmethod
     def is_available(cls) -> bool:
