@@ -72,7 +72,7 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 - [Stack](#stack)
 - [Configuration](#configuration)
 - [Development](#development)
-- [Documentation](#documentation)
+- [Documentation](https://borismichel.github.io/ClickSpot/)
 - [Stats](#stats)
 - [License](#license)
 
@@ -437,7 +437,7 @@ ClickSpot/
 | [Frontend](docs/frontend.md) | Chat UI, visualization components, hooks, types |
 | [ClickHouse Evaluation](docs/clickhouse-evaluation.md) | ClickHouse design notes — what shipped, what's still open |
 | [Security Audit](SECURITY_AUDIT.md) | Findings + priority fixes (last run 2026-04-06; stale — see backend.md additions) |
-| [CLAUDE.md](CLAUDE.md) | Development commands and codebase conventions |
+| CLAUDE.md | Development commands and codebase conventions |
 
 ---
 
