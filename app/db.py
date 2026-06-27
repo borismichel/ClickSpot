@@ -100,3 +100,16 @@ async def async_query_value(sql: str):
 async def async_query_rows(sql: str) -> list[dict]:
     """Execute SQL and return rows as list of dicts (async)."""
     return await asyncio.to_thread(query_rows, sql)
+
+
+async def async_explain(sql: str) -> None:
+    """Dry-run a query through ClickHouse ``EXPLAIN`` (async).
+
+    EXPLAIN builds the query plan without scanning data, so it surfaces runtime
+    errors (unknown columns/functions, type mismatches, bad joins) that pass
+    static validation but would fail real execution — at a few ms, since no data
+    is read. Raises the underlying ClickHouse exception on a bad query; returns
+    None when the plan builds cleanly. Used as a cheap pre-flight before the real
+    query (CLI-144).
+    """
+    await asyncio.to_thread(query_rows, f"EXPLAIN {sql}")
