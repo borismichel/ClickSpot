@@ -31,6 +31,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-mock"]
+# Optional LLM observability. Install with `pip install 'clickspot[observability]'`
+# to send NL->SQL traces (prompt, generated SQL, token usage, latency) to a
+# Langfuse instance. Inert unless LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY are
+# also set — see app/llm/observability.py and docs/observability.md.
+observability = ["langfuse>=4,<5"]
 
 [tool.setuptools.packages.find]
 where = ["."]

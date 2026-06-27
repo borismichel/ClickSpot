@@ -44,7 +44,7 @@ export default function App() {
     if (!conversationId || conversationId === activeId) return;
     const loadedMessages = loadConversation(conversationId);
     if (loadedMessages.length > 0) {
-      loadMessages(loadedMessages);
+      loadMessages(loadedMessages, conversationId);
     }
     setSearchParams({}, { replace: true });
   }, [activeId, loadConversation, loadMessages, searchParams, setSearchParams]);
@@ -53,7 +53,7 @@ export default function App() {
     if (!activeId) return;
     const activeConversation = conversations.find((conversation) => conversation.id === activeId);
     if (activeConversation?.messages.length) {
-      loadMessages(activeConversation.messages);
+      loadMessages(activeConversation.messages, activeId);
     }
   }, [activeId, conversations, loadMessages]);
 
@@ -68,7 +68,7 @@ export default function App() {
     setDrawerOpen(false); // close the mobile conversation drawer (no-op on desktop)
     const msgs = loadConversation(id);
     if (msgs.length > 0) {
-      loadMessages(msgs);
+      loadMessages(msgs, id);
     } else {
       handleNewChat();
     }

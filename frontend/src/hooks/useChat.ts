@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { ChatMessage, ChatRequest, ChatResponse } from "../types/chat";
 
 let _msgId = 0;
@@ -6,10 +6,18 @@ function nextId() {
   return `msg-${++_msgId}-${Date.now()}`;
 }
 
+function newConversationId() {
+  return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Stable id for the current chat, sent so the backend can group this
+  // conversation's turns into a single Langfuse session. Reset on New chat,
+  // adopts the real conversation id when an existing chat is loaded.
+  const conversationIdRef = useRef<string>(newConversationId());
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -29,7 +37,11 @@ export function useChat() {
         ...(m.sql ? { sql: m.sql } : {}),
       }));
 
-      const body: ChatRequest = { message: text, history };
+      const body: ChatRequest = {
+        message: text,
+        history,
+        conversation_id: conversationIdRef.current,
+      };
 
       try {
         const res = await fetch("/api/v1/chat", {
@@ -85,14 +97,20 @@ export function useChat() {
     [messages]
   );
 
-  const loadMessages = useCallback((msgs: ChatMessage[]) => {
-    setMessages(msgs);
-    setError(null);
-  }, []);
+  const loadMessages = useCallback(
+    (msgs: ChatMessage[], conversationId?: string) => {
+      setMessages(msgs);
+      setError(null);
+      // Reopening a saved chat resumes its session so its turns stay grouped.
+      if (conversationId) conversationIdRef.current = conversationId;
+    },
+    []
+  );
 
   const newChat = useCallback(() => {
     setMessages([]);
     setError(null);
+    conversationIdRef.current = newConversationId();
   }, []);
 
   return { messages, isLoading, error, sendMessage, newChat, loadMessages };

@@ -113,6 +113,7 @@ nav:
       - Settings & environment: configuration/index.md
       - HubSpot token scopes: configuration/hubspot-scopes.md
       - LLM providers: configuration/llm-providers.md
+      - LLM observability: configuration/observability.md
   - Architecture:
       - Overview: architecture.md
       - Data pipeline: data-pipeline.md

@@ -17,6 +17,8 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string;
   history: { role: string; content: string; sql?: string }[];
+  // Groups this chat's turns into one Langfuse session (server-side, optional).
+  conversation_id?: string;
 }
 
 export interface ContextKPI {
