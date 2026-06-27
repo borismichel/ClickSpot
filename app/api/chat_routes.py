@@ -7,13 +7,15 @@ historical reasons; they now live in app/api/llm_routes.py.
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException
 
 from app.api.chat_models import ChatRequest, ChatResponse, ContextKPIResult
 from app.ch_errors import safe_clickhouse_error
-from app.db import async_query_rows, async_query_value
+from app.db import async_explain, async_query_rows, async_query_value
 from app.llm import observability as obs
+from app.llm import repair as sql_repair
 from app.llm.providers import get_provider
 from app.llm.sql_validator import validate_sql, ensure_limit
 
@@ -110,6 +112,128 @@ async def _run_context_kpi(kpi, sem: asyncio.Semaphore) -> ContextKPIResult | No
             return None
 
 
+class SqlPipelineError(Exception):
+    """A generated query failed at validation, EXPLAIN, or execution (CLI-144).
+
+    Carries the failing ``stage`` (see ``app.llm.repair``), the client-safe
+    ``client_message`` we 422 with (sanitized — no server internals), and the
+    fuller ``llm_detail`` fed to the repair prompt. ``llm_detail`` is SQL/schema
+    level and never contains CRM row data.
+    """
+
+    def __init__(self, stage: str, client_message: str, llm_detail: str):
+        self.stage = stage
+        self.client_message = client_message
+        self.llm_detail = llm_detail
+        super().__init__(client_message)
+
+
+@dataclass
+class _ResolvedSql:
+    """Outcome of resolving a question to runnable SQL + its rows."""
+
+    response: object  # ChatSQLResponse — original, or the repaired one
+    sql: str
+    rows: list[dict]
+    llm_ms: int
+    query_ms: int
+    repaired: bool
+
+
+async def _prepare_and_run(sql: str) -> tuple[str, list[dict]]:
+    """Validate -> EXPLAIN dry-run -> execute. Raises ``SqlPipelineError`` on failure.
+
+    Returns the (limit-enforced) SQL actually executed and its rows. The EXPLAIN
+    dry-run (CLI-144) is a few-ms plan build that catches runtime errors which
+    pass static validation but would fail real execution; gate it off with
+    ``CLICKSPOT_SQL_EXPLAIN_DRYRUN=0``.
+    """
+    is_valid, error = validate_sql(sql)
+    if not is_valid:
+        raise SqlPipelineError(
+            sql_repair.STAGE_VALIDATION,
+            f"SQL validation failed: {error}",
+            error or "SQL validation failed",
+        )
+
+    sql = ensure_limit(sql)
+
+    if sql_repair.explain_enabled():
+        try:
+            await async_explain(sql)
+        except Exception as e:
+            # Plan-build failure: log full detail, hand the client a sanitized line.
+            log.error(f"EXPLAIN dry-run failed: {e}\nSQL: {sql}")
+            raise SqlPipelineError(
+                sql_repair.STAGE_EXPLAIN, safe_clickhouse_error(e), str(e)
+            ) from e
+
+    try:
+        rows = await async_query_rows(sql)
+    except Exception as e:
+        # Full error + SQL go to the server log; client gets a sanitized one-liner
+        # so we don't leak server version / table internals / file paths.
+        log.error(f"ClickHouse query failed: {e}\nSQL: {sql}")
+        raise SqlPipelineError(
+            sql_repair.STAGE_EXECUTION, safe_clickhouse_error(e), str(e)
+        ) from e
+
+    return sql, rows
+
+
+async def resolve_sql(provider, messages: list[dict]) -> _ResolvedSql:
+    """Generate SQL, run it, and on failure attempt **one** LLM repair (CLI-144).
+
+    Happy path: generate -> validate -> EXPLAIN -> execute, no extra LLM call.
+    On any pipeline failure (and when repair is enabled), feed the failing SQL +
+    error back to the provider once, then re-validate/EXPLAIN/execute the
+    correction. A single attempt bounds latency: the cost is one extra LLM
+    round-trip, paid only on the failure path.
+
+    Emits Langfuse scores so repair rate / success rate are queryable:
+    ``sql_repair_attempted`` (0/1) always, ``sql_repair_succeeded`` (0/1) when a
+    repair was attempted. Raises ``SqlPipelineError`` if the query still fails;
+    propagates provider/transport errors unchanged (the caller maps them to 502).
+    """
+    t = time.time()
+    response = await provider.generate(messages)
+    llm_ms = int((time.time() - t) * 1000)
+    sql = response.sql.strip().rstrip(";")
+
+    try:
+        t = time.time()
+        sql, rows = await _prepare_and_run(sql)
+        obs.score("sql_repair_attempted", 0)
+        return _ResolvedSql(response, sql, rows, llm_ms, int((time.time() - t) * 1000), False)
+    except SqlPipelineError as first_err:
+        if not sql_repair.repair_enabled():
+            obs.score("sql_repair_attempted", 0)
+            raise
+        obs.score("sql_repair_attempted", 1, comment=f"stage={first_err.stage}")
+
+        repair_messages = messages + [
+            sql_repair.build_repair_message(sql, first_err.llm_detail, first_err.stage)
+        ]
+        try:
+            t = time.time()
+            repaired = await provider.generate(repair_messages)
+            llm_ms += int((time.time() - t) * 1000)
+            repaired_sql = repaired.sql.strip().rstrip(";")
+            t = time.time()
+            repaired_sql, rows = await _prepare_and_run(repaired_sql)
+            query_ms = int((time.time() - t) * 1000)
+        except Exception as repair_err:
+            # Repair didn't land — surface the *original* failure (that's the
+            # query the user asked for). Provider/transport errors during repair
+            # also fall back here rather than masking the real cause.
+            obs.score("sql_repair_succeeded", 0)
+            log.warning(f"SQL repair failed (stage={first_err.stage}): {repair_err}")
+            raise first_err
+
+        obs.score("sql_repair_succeeded", 1)
+        return _ResolvedSql(repaired, repaired_sql, rows, llm_ms, query_ms, True)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     # 1. Get LLM provider
@@ -122,39 +246,24 @@ async def chat(req: ChatRequest):
     messages = [m.model_dump() for m in req.history]
     messages.append({"role": "user", "content": req.message})
 
-    # 3. Call LLM (grouped into a Langfuse session per conversation when tracing is on)
-    t0 = time.time()
+    # 3. Generate SQL and run it, with a single EXPLAIN-guarded repair attempt on
+    #    failure (CLI-144). Grouped into a Langfuse session per conversation; the
+    #    span lets repair-rate/success-rate scores attach to the trace.
     try:
-        with obs.session(req.conversation_id):
-            llm_response = await provider.generate(messages)
+        with obs.session(req.conversation_id), obs.span("sql-pipeline"):
+            resolved = await resolve_sql(provider, messages)
+    except SqlPipelineError as e:
+        # Validation / EXPLAIN / execution failure that survived the repair attempt.
+        raise HTTPException(status_code=422, detail=e.client_message)
     except Exception as e:
         log.error(f"LLM call failed: {e}")
         raise HTTPException(status_code=502, detail="LLM provider error; see server log")
-    llm_ms = int((time.time() - t0) * 1000)
 
-    sql = llm_response.sql.strip().rstrip(";")
-
-    # 4. Validate SQL
-    is_valid, error = validate_sql(sql)
-    if not is_valid:
-        raise HTTPException(status_code=422, detail=f"SQL validation failed: {error}")
-
-    sql = ensure_limit(sql)
-
-    # 5. Execute on ClickHouse
-    t1 = time.time()
-    try:
-        rows = await async_query_rows(sql)
-    except Exception as e:
-        # Full error + SQL go to the server log; client gets a sanitized one-liner
-        # so we don't leak server version / table internals / file paths.
-        log.error(f"ClickHouse query failed: {e}\nSQL: {sql}")
-        raise HTTPException(status_code=422, detail=safe_clickhouse_error(e))
-    query_ms = int((time.time() - t1) * 1000)
-
+    llm_response = resolved.response
+    sql, rows = resolved.sql, resolved.rows
     columns = list(rows[0].keys()) if rows else []
 
-    # 6. Execute context KPIs concurrently (non-blocking, errors silently
+    # 4. Execute context KPIs concurrently (non-blocking, errors silently
     # skipped). The KPIs are independent read-only queries, so we fan them out
     # with asyncio.gather instead of a sequential loop (CLI-143). gather
     # preserves input order, so output order is stable; invalid/failed KPIs come
@@ -173,8 +282,8 @@ async def chat(req: ChatRequest):
         row_count=len(rows),
         viz=llm_response.viz,
         title=llm_response.title,
-        llm_ms=llm_ms,
-        query_ms=query_ms,
+        llm_ms=resolved.llm_ms,
+        query_ms=resolved.query_ms,
         context=context_results,
     )
 

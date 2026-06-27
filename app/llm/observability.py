@@ -134,6 +134,45 @@ def generation(name: str, model: str, input: Any) -> Iterator[Any]:
         yield gen
 
 
+@contextmanager
+def span(name: str) -> Iterator[None]:
+    """Open a Langfuse *span* so scores emitted inside it attach to its trace.
+
+    Used to wrap the SQL execution + repair pipeline (CLI-144): nested LLM
+    generations become children of this span, and :func:`score` calls inside the
+    block land on the same trace. Best-effort — a span-start error degrades to a
+    transparent pass-through, exactly like :func:`generation`.
+    """
+    if not enabled():
+        yield
+        return
+
+    try:
+        cm = _client.start_as_current_observation(as_type="span", name=name)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Langfuse span '%s' could not start; not traced: %s", name, exc)
+        yield
+        return
+
+    with cm:
+        yield
+
+
+def score(name: str, value: float, *, comment: str | None = None) -> None:
+    """Record a numeric score on the current trace, swallowing any tracing error.
+
+    Used to emit repair-loop metrics (e.g. ``sql_repair_attempted``,
+    ``sql_repair_succeeded``) so repair rate and success rate are queryable in
+    Langfuse. No-op when tracing is disabled or no trace is active.
+    """
+    if not enabled():
+        return
+    try:
+        _client.score_current_trace(name=name, value=value, comment=comment)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("Langfuse score '%s' failed (ignored): %s", name, exc)
+
+
 def record(gen: Any, *, output: Any = None, usage: dict | None = None) -> None:
     """Attach output + token usage to a generation, swallowing any tracing error."""
     try:
