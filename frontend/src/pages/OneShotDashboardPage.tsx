@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
   Layout,
   Button,
@@ -303,7 +303,32 @@ export default function OneShotDashboardPage() {
   const addSeq = useRef(0);
 
   const abortRef = useRef<AbortController | null>(null);
-  const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
+  const { width: containerWidth, containerRef: gridContainerRef, mounted, measureWidth } =
+    useContainerWidth();
+  // The grid container only mounts once a draft is ready, which is *after*
+  // useContainerWidth's own measure/observe effect has already run against a null
+  // ref. Left alone, `width` stays at the hook's 1280px default, so on a phone the
+  // grid renders at desktop column widths and wide tiles overflow the clipped
+  // container (CLI-178). Measure the container ourselves the moment it appears and
+  // keep it in sync via a ResizeObserver, so ResponsiveGridLayout reflows to the
+  // real width (~358px → `sm`) on load and across viewport changes.
+  useLayoutEffect(() => {
+    const node = gridContainerRef.current;
+    if (phase !== "ready" || !node) return;
+    measureWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measureWidth());
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [phase, measureWidth, gridContainerRef]);
+  // Track the active RGL breakpoint so layout edits are only persisted from the
+  // desktop (`lg`) grid — see handleLayoutChange. Mirrors RGL's
+  // getBreakpointFromWidth against the `breakpoints` below.
+  const gridBreakpointRef = useRef<string>("lg");
+  useEffect(() => {
+    gridBreakpointRef.current =
+      containerWidth > 1200 ? "lg" : containerWidth > 996 ? "md" : "sm";
+  }, [containerWidth]);
 
   const spaceView = spaceId ? `gold.ds_${spaceId}` : undefined;
 
@@ -581,6 +606,11 @@ export default function OneShotDashboardPage() {
   }, []);
 
   const handleLayoutChange = useCallback((layout: RGLLayout) => {
+    // Only persist geometry authored on the desktop (`lg`) grid. The `md`/`sm`
+    // layouts are derived, full-width single-column reflows (CLI-178); RGL also
+    // fires this on breakpoint change, so writing those back would clobber the
+    // stored desktop layout with the narrow mobile widths.
+    if (gridBreakpointRef.current !== "lg") return;
     setWidgets((prev) =>
       prev.map((wgt) => {
         const l = layout.find((ly) => ly.i === wgt.id);
@@ -830,6 +860,26 @@ export default function OneShotDashboardPage() {
   };
 
   const gridLayout = widgets.map((wgt) => ({ i: wgt.id, ...wgt.layout, minW: 2, minH: 2 }));
+  // Below `lg`, RGL derives positions from the lg layout, so a wide tile (w:6)
+  // stays wider than an md(8)/sm(4) container and is clipped by the grid's
+  // `overflowX: hidden` (CLI-178). Supply explicit per-breakpoint layouts that
+  // stack every widget into a single full-width column in reading order, so
+  // nothing is lost or unreachable on a phone/tablet.
+  const stackedLayout = (base: RGLLayout, cols: number): RGLLayout => {
+    let y = 0;
+    return [...base]
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+      .map((l) => {
+        const item = { ...l, x: 0, y, w: cols, minW: Math.min(l.minW ?? 2, cols) };
+        y += l.h;
+        return item;
+      });
+  };
+  const gridLayouts = {
+    lg: gridLayout,
+    md: stackedLayout(gridLayout, 8),
+    sm: stackedLayout(gridLayout, 4),
+  };
   const failedCount = widgets.filter((w) => w.status === "error").length;
 
   return (
@@ -1050,7 +1100,7 @@ export default function OneShotDashboardPage() {
                 <ResponsiveGridLayout
                   className="layout"
                   width={containerWidth}
-                  layouts={{ lg: gridLayout }}
+                  layouts={gridLayouts}
                   breakpoints={{ lg: 1200, md: 996, sm: 768 }}
                   cols={{ lg: 12, md: 8, sm: 4 }}
                   rowHeight={80}
