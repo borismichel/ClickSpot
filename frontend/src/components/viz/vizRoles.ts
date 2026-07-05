@@ -76,7 +76,12 @@ export function resolveStatCols(
     columns[0];
 
   let compareCol = present(encoding?.compare, columns) ?? null;
-  if (!compareCol) {
+  // The name-heuristic fallback is OSD-only. Non-OSD surfaces (ChatMessage,
+  // SpaceChatMessage, SpaceDashboardCard, DashboardCard, ObjectLibraryPage)
+  // render without `encoding`; there a coincidentally-named column (last_login_days,
+  // prev_*) must NOT fabricate a delta badge. Only guess a prior column when the
+  // LLM-authored `encoding` is present.
+  if (!compareCol && encoding) {
     compareCol =
       numeric.find((c) => c !== valueCol && PRIOR_HINT.test(c)) ?? null;
   }

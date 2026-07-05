@@ -72,8 +72,13 @@ export function NumberCard({ results, columns, title, encoding }: Props) {
   if (compareCol != null && typeof value === "number") {
     const priorRaw = row[compareCol];
     const priorNum = typeof priorRaw === "number" ? priorRaw : parseFloat(String(priorRaw));
-    if (!isNaN(priorNum)) {
-      delta = deltaPercent(value, priorNum);
+    // Delta must be computed from the RAW value, not the `formatValue`-formatted
+    // one: a rate is scaled ×100 (0.23 → 23) and currency is €-rounded, so using
+    // `value` against the raw `priorNum` yields absurd deltas (e.g. +12005% for a
+    // 0.23-vs-0.19 win_rate). Compare raw-against-raw.
+    const valueRaw = typeof row[valueCol] === "number" ? (row[valueCol] as number) : parseFloat(String(row[valueCol]));
+    if (!isNaN(priorNum) && !isNaN(valueRaw)) {
+      delta = deltaPercent(valueRaw, priorNum);
       const p = formatValue(priorRaw, valueCol);
       priorText = `${p.prefix}${typeof p.value === "number" ? p.value.toLocaleString() : p.value}${p.suffix}`;
     }
