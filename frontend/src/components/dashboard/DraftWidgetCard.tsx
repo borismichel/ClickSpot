@@ -12,7 +12,6 @@ export interface DraftWidget {
   sql: string;
   viz: VizType;
   encoding?: WidgetEncoding;
-  suggested_filters: string[];
   status: "ok" | "error";
   error?: string | null;
   columns: string[];
