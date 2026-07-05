@@ -46,6 +46,21 @@ type GridBreakpoint = keyof typeof GRID_BREAKPOINTS;
 const breakpointFromWidth = (width: number): GridBreakpoint =>
   width >= GRID_BREAKPOINTS.lg ? "lg" : width >= GRID_BREAKPOINTS.md ? "md" : "sm";
 
+// Derive a clean single-column stack for a narrow breakpoint (CLI-185). Every
+// widget spans the full `cols` width in emission order, so md/sm read as one tidy
+// column instead of the staggered ¾-width tiles RGL produces when it clamps the
+// lg layout. Ephemeral by construction: this is fed only as the md/sm entry of
+// `layouts`, and the persistence guard forwards `onLayoutChange` at lg only, so
+// it never overwrites the authored lg positions (CLI-179).
+const stackedLayout = (widgets: DraftWidget[], cols: number): RGLLayout => {
+  let y = 0;
+  return widgets.map((wgt) => {
+    const item = { i: wgt.id, x: 0, y, w: cols, h: wgt.layout.h, minW: 2, minH: 2 };
+    y += wgt.layout.h;
+    return item;
+  });
+};
+
 interface SpaceOption {
   id: string;
   name: string;
@@ -257,7 +272,14 @@ function OsdDraftGrid({
         <ResponsiveGridLayout
           className="layout"
           width={containerWidth}
-          layouts={{ lg: gridLayout }}
+          layouts={{
+            lg: gridLayout,
+            // Explicit single-column stacks for narrow breakpoints (CLI-185) so
+            // tablet/mobile read as a clean column rather than clamped ¾-width
+            // tiles. Derived from the lg widgets each render; never persisted.
+            md: stackedLayout(widgets, GRID_COLS.md),
+            sm: stackedLayout(widgets, GRID_COLS.sm),
+          }}
           breakpoints={GRID_BREAKPOINTS}
           cols={GRID_COLS}
           rowHeight={80}
