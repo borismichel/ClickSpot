@@ -25,6 +25,13 @@ from typing import AsyncIterator, Awaitable, Callable, Literal
 from pydantic import BaseModel, Field
 
 from app.ch_errors import safe_clickhouse_error
+from app.llm.dashboard_lint import (
+    cardinality_repair_instruction,
+    cardinality_violation,
+    composition_warnings,
+    find_duplicate_analyses,
+    viz_role_warning,
+)
 from app.llm.providers import LLMProvider, get_provider
 from app.llm.sql_validator import ensure_limit, validate_sql
 from app.spaces.config import DataSpaceConfig
@@ -144,6 +151,10 @@ class WidgetSpec(BaseModel):
     # second ClickHouse round-trip. Empty for error widgets.
     rows: list[dict] = Field(default_factory=list)
     repaired: bool = False
+    # Composition-lint warnings for this widget (CLI-161 / C2): cardinality that
+    # self-repair could not fix, viz/role incoherence, duplicate analysis. Empty
+    # for a clean widget. Surfaced on the draft card, never silently dropped.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DashboardSpec(BaseModel):
@@ -157,6 +168,10 @@ class DashboardSpec(BaseModel):
     # Set when the plan (even after a bounded re-ask) returned fewer than the
     # requested MIN_WIDGETS — the board is accepted but the shortfall is surfaced.
     note: str | None = None
+    # Board-level composition-lint warnings (CLI-161 / C2): role-count violations
+    # (missing/oversized KPI band, >1 detail table, etc.) and duplicate analyses.
+    # Per-widget issues live on each ``WidgetSpec.warnings``.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class WidgetRegenResult(BaseModel):
@@ -393,9 +408,18 @@ async def _finalize_widget(
     plan: WidgetPlan,
     run_query: QueryRunner,
 ) -> WidgetSpec:
-    """Validate + execute a widget, with a single bounded self-repair attempt."""
+    """Validate + execute a widget, with a single bounded self-repair attempt.
+
+    The one repair attempt serves whichever fires first: a SQL failure, or a C2
+    cardinality violation on an otherwise-valid result (an over-wide ``bar`` or a
+    multi-row ``number``). Anything still out of shape after that is handled
+    deterministically — an unreadable bar is demoted to a table — and surfaced as a
+    widget ``warning`` rather than rendered as a silently-bad chart (CLI-161).
+    """
     result = await _validate_and_run(plan.sql, run_query)
     repaired = False
+    viz_type = plan.viz_type
+    warnings: list[str] = []
 
     if not result.ok:
         new_sql = await _repair_sql(provider, system_prompt, plan, result.raw_error or "")
@@ -405,12 +429,46 @@ async def _finalize_widget(
             # Keep the repaired SQL regardless; adopt its outcome.
             result = retry
 
+    # C2 post-plan cardinality lint. Only meaningful once the query actually ran.
+    if result.ok:
+        instruction = cardinality_repair_instruction(viz_type, result.row_count)
+        # Feed the shape violation into the same bounded self-repair budget — but
+        # only if we haven't already spent it fixing a SQL failure.
+        if instruction and not repaired:
+            new_sql = await _regenerate_sql(
+                provider, system_prompt, plan.intent, result.sql, instruction=instruction
+            )
+            if new_sql:
+                retry = await _validate_and_run(new_sql, run_query)
+                # Only count it repaired if we actually adopt the retry — an
+                # unadopted (still-broken) retry left the original result in place.
+                if retry.ok:
+                    repaired = True
+                    result = retry
+
+        residual = cardinality_violation(viz_type, result.row_count)
+        if residual:
+            if viz_type == "bar":
+                # An over-wide bar is unreadable; a table is the honest fallback the
+                # grammar already sanctions for many-category breakdowns.
+                viz_type = "table"
+                warnings.append(f"Breakdown {residual}; shown as a table instead of a bar.")
+            else:
+                warnings.append(f"KPI {residual}.")
+
+        # Viz/role coherence — checked on the *final* viz (post-demotion). Only
+        # meaningful for a widget that renders; an errored widget shows its error,
+        # not the viz, so a coherence warning there would never surface.
+        coherence = viz_role_warning(plan.role, viz_type)
+        if coherence:
+            warnings.append(coherence)
+
     return WidgetSpec(
         title=plan.title,
         intent=plan.intent,
         sql=result.sql,
         role=plan.role,
-        viz_type=plan.viz_type,
+        viz_type=viz_type,
         encoding=plan.encoding,
         status="ok" if result.ok else "error",
         error=None if result.ok else result.safe_error,
@@ -418,6 +476,7 @@ async def _finalize_widget(
         row_count=result.row_count,
         rows=result.rows,
         repaired=repaired,
+        warnings=warnings,
     )
 
 
@@ -685,6 +744,21 @@ async def stream_dashboard_spec(
 
     ordered = [finalized[i] for i in range(1, total + 1)]
 
+    # C2 board-level composition lint (role counts + duplicate analyses). Per-widget
+    # cardinality/coherence warnings were already attached during finalization.
+    board_warnings = composition_warnings([w.role for w in ordered])
+    for group in find_duplicate_analyses([w.sql for w in ordered]):
+        titles = ", ".join(f"'{ordered[i].title}'" for i in group)
+        board_warnings.append(
+            f"Duplicate analysis: {titles} break down the same field by the same metric."
+        )
+        # Tag the redundant widgets (all but the first) so the warning is also
+        # visible on the chart itself, not just the board summary.
+        for i in group[1:]:
+            ordered[i].warnings.append(
+                "Shows the same breakdown as another widget (same grouping and metric)."
+            )
+
     spec = DashboardSpec(
         space_id=config.id,
         description=description,
@@ -694,6 +768,7 @@ async def stream_dashboard_spec(
         llm_ms=llm_ms,
         truncated=truncated,
         note=note,
+        warnings=board_warnings,
     )
     yield DashboardEvent(stage="done", total=total, spec=spec)
 

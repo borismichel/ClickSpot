@@ -17,6 +17,8 @@ export interface DraftWidget {
   columns: string[];
   /** Rows carried inline from the spec so the card renders without re-querying (CLI-148). */
   rows: Record<string, unknown>[];
+  /** Post-plan composition-lint warnings (CLI-161 / C2) — surfaced, never silent. */
+  warnings?: string[];
   layout: { x: number; y: number; w: number; h: number };
 }
 
@@ -303,7 +305,27 @@ export function DraftWidgetCard({
           }
         />
       ) : (
-        <VizRouter viz={widget.viz} results={results} columns={columns} title="" encoding={widget.encoding} />
+        <>
+          {widget.warnings && widget.warnings.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 8 }}
+              message={
+                widget.warnings.length === 1 ? (
+                  widget.warnings[0]
+                ) : (
+                  <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+                    {widget.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                )
+              }
+            />
+          )}
+          <VizRouter viz={widget.viz} results={results} columns={columns} title="" encoding={widget.encoding} />
+        </>
       )}
     </Card>
   );

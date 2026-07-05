@@ -70,6 +70,8 @@ interface WidgetSpec {
   row_count?: number | null;
   // Rows carried inline so the draft renders without a second query (CLI-148).
   rows?: Record<string, unknown>[];
+  // Post-plan composition-lint warnings for this widget (CLI-161 / C2).
+  warnings?: string[];
 }
 interface DashboardSpec {
   space_id: string;
@@ -80,6 +82,8 @@ interface DashboardSpec {
   llm_ms: number;
   truncated: boolean;
   note?: string | null;
+  // Board-level composition-lint warnings (CLI-161 / C2).
+  warnings?: string[];
 }
 interface DashboardEvent {
   stage: "planning" | "running" | "validated" | "done" | "error";
@@ -106,6 +110,10 @@ interface PersistedDraft {
   widgets: DraftWidget[];
   filters: SpaceFilter[];
   truncated: boolean;
+  // Board-level composition warnings (CLI-161 / C2). Persisted so pure role-count
+  // warnings — which have no per-widget echo — survive a draft restore rather than
+  // silently vanishing (they'd otherwise breach C2's "surfaced, never silent" rule).
+  boardWarnings: string[];
   savedAt: number;
 }
 
@@ -292,6 +300,7 @@ export default function OneShotDashboardPage() {
   const [widgets, setWidgets] = useState<DraftWidget[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [boardWarnings, setBoardWarnings] = useState<string[]>([]);
   const [filters, setFilters] = useState<SpaceFilter[]>([]);
   const [filterColumns, setFilterColumns] = useState<UnifiedFilterColumn[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -417,11 +426,13 @@ export default function OneShotDashboardPage() {
           error: w.error ?? null,
           columns: w.columns,
           rows: w.rows ?? [],
+          warnings: w.warnings ?? [],
           layout: positions[i],
         }));
         setWidgets(drafts);
         setTruncated(spec.truncated);
         setNote(spec.note ?? null);
+        setBoardWarnings(spec.warnings ?? []);
         setFilters(spec.dashboard_filters.map((c) => ({ column: c, operator: "in", values: [] })));
         loadFilterColumns(sid, spec.dashboard_filters);
         setProgress(100);
@@ -524,11 +535,12 @@ export default function OneShotDashboardPage() {
         widgets,
         filters,
         truncated,
+        boardWarnings,
         savedAt: Date.now(),
       };
       sessionStorage.setItem(draftKey(spaceId), JSON.stringify(payload));
     } catch { /* quota exceeded / storage disabled — durability is best-effort */ }
-  }, [phase, spaceId, widgets, filters, truncated, description]);
+  }, [phase, spaceId, widgets, filters, truncated, description, boardWarnings]);
 
   // On return to the entry form, surface any persisted draft for the selected space
   // as a restore banner. Only while idle, so we never clobber a live/ready draft.
@@ -573,6 +585,7 @@ export default function OneShotDashboardPage() {
     setWidgets(restorable.widgets);
     setFilters(restorable.filters);
     setTruncated(restorable.truncated);
+    setBoardWarnings(restorable.boardWarnings ?? []);
     loadFilterColumns(spaceId, restorable.filters.map((f) => f.column));
     setProgress(100);
     setStatusText("Restored draft");
@@ -1023,6 +1036,21 @@ export default function OneShotDashboardPage() {
                 showIcon
                 style={{ marginBottom: 8 }}
                 message={note}
+              />
+            )}
+            {boardWarnings.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message="Dashboard composition warnings"
+                description={
+                  <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+                    {boardWarnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                }
               />
             )}
             {failedCount > 0 && (

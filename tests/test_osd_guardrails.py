@@ -527,3 +527,215 @@ def test_eval_spec_shape(space, case):
             assert w.row_count is not None, (
                 f"row_count must be set for ok widget in case {case['id']}"
             )
+
+
+# ---------------------------------------------------------------------------
+# 4. C2 — deterministic post-plan composition lint (CLI-161)
+# ---------------------------------------------------------------------------
+
+from app.llm.dashboard_lint import (  # noqa: E402
+    MAX_BAR_ROWS,
+    analysis_signature,
+    cardinality_repair_instruction,
+    cardinality_violation,
+    composition_warnings,
+    find_duplicate_analyses,
+    viz_role_warning,
+)
+
+
+# -- pure lint functions ----------------------------------------------------
+
+@pytest.mark.parametrize(
+    "role,viz,expect_warn",
+    [
+        ("kpi", "number", False),
+        ("kpi", "bar", True),          # a headline number must be a number tile
+        ("trend", "line", False),
+        ("trend", "bar", True),
+        ("breakdown", "bar", False),
+        ("breakdown", "table", False),  # many-category fallback is legitimate
+        ("breakdown", "number", True),
+        ("flow", "funnel", False),
+        ("detail", "table", False),
+    ],
+)
+def test_viz_role_coherence(role, viz, expect_warn):
+    w = viz_role_warning(role, viz)
+    assert (w is not None) is expect_warn
+    if expect_warn:
+        # Plain-language copy (UX review): no quoted enum tokens (e.g. 'kpi',
+        # 'number') leak to the user, and the raw viz enum is humanised.
+        assert "'" not in w
+        assert f"'{role}'" not in w and f"'{viz}'" not in w
+
+
+def test_cardinality_instruction_and_violation():
+    # bar over the cap → repair instruction + residual warning
+    assert cardinality_repair_instruction("bar", MAX_BAR_ROWS + 1) is not None
+    assert cardinality_violation("bar", MAX_BAR_ROWS + 1) is not None
+    # bar exactly at the cap → fine
+    assert cardinality_repair_instruction("bar", MAX_BAR_ROWS) is None
+    assert cardinality_violation("bar", MAX_BAR_ROWS) is None
+    # number must be exactly one row
+    assert cardinality_repair_instruction("number", 3) is not None
+    assert cardinality_repair_instruction("number", 1) is None
+    assert cardinality_violation("number", 0) is not None
+    # unknown row count (query failed) → no false positive
+    assert cardinality_repair_instruction("bar", None) is None
+    assert cardinality_violation("number", None) is None
+    # other viz types are never cardinality-flagged here
+    assert cardinality_repair_instruction("table", 500) is None
+    assert cardinality_violation("line", 999) is None
+
+
+def test_analysis_signature_ignores_ungrouped_queries():
+    assert analysis_signature(f"SELECT sum(amount) FROM {VIEW}") is None
+    sig = analysis_signature(
+        f"SELECT dealstage, sum(amount) FROM {VIEW} GROUP BY dealstage ORDER BY 2 DESC LIMIT 12"
+    )
+    assert sig is not None
+    cols, measures = sig
+    assert "dealstage" in cols
+    assert any("sum(amount)" == m for m in measures)
+
+
+def test_find_duplicate_analyses():
+    sqls = [
+        f"SELECT sum(amount) FROM {VIEW}",                                            # 0: ungrouped KPI
+        f"SELECT dealstage, sum(amount) FROM {VIEW} GROUP BY dealstage",              # 1
+        f"SELECT dealstage, SUM(amount) FROM {VIEW}  GROUP  BY  dealstage LIMIT 12",  # 2: dup of 1 (norm)
+        f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage",                 # 3: different measure
+    ]
+    groups = find_duplicate_analyses(sqls)
+    assert groups == [[1, 2]], groups
+
+
+def test_composition_warnings_role_counts():
+    # healthy board: 3 KPI band + trend + 2 breakdowns + 1 detail → no warnings
+    assert composition_warnings(
+        ["kpi", "kpi", "kpi", "trend", "breakdown", "breakdown", "detail"]
+    ) == []
+    # missing KPI band
+    assert any("KPI band" in w for w in composition_warnings(["breakdown", "detail"]))
+    # oversized KPI band + too many tables + funnels + trends
+    warns = composition_warnings(
+        ["kpi"] * 5 + ["detail", "detail", "flow", "flow", "trend", "trend"]
+    )
+    assert any("KPI" in w for w in warns)
+    assert any("detail tables" in w for w in warns)
+    assert any("funnel" in w for w in warns)
+    assert any("trend" in w for w in warns)
+
+
+def test_composition_warnings_breakdown_count():
+    # A board with a KPI band but no breakdowns explains nothing → warned.
+    assert any(
+        "breakdown" in w.lower()
+        for w in composition_warnings(["kpi", "kpi", "trend"])
+    )
+    # Too many breakdowns is noise → warned.
+    assert any(
+        "breakdown" in w.lower()
+        for w in composition_warnings(["kpi", "kpi"] + ["breakdown"] * 8)
+    )
+    # 2–4 breakdowns is the sanctioned range → no breakdown warning.
+    for n in (2, 3, 4):
+        warns = composition_warnings(["kpi", "kpi", "trend"] + ["breakdown"] * n)
+        assert not any("breakdown" in w.lower() for w in warns), (n, warns)
+    # A single breakdown is under the band → warned.
+    assert any(
+        "breakdown" in w.lower()
+        for w in composition_warnings(["kpi", "kpi", "breakdown"])
+    )
+
+
+# -- integration through generate_dashboard_spec ----------------------------
+
+def _one_widget_plan(sql: str, viz: str, role: str) -> dict:
+    return {"dashboard_filters": [], "widgets": [_widget("w", sql, viz, role=role)]}
+
+
+def test_over_wide_bar_repaired_to_top_n(space):
+    """A bar returning > 12 rows is repaired via the bounded loop; the fixed SQL
+    (top-N) yields <= 12 rows, so the widget stays a bar with no residual warning."""
+    original = f"SELECT dealstage, count(*) AS c FROM {VIEW} GROUP BY dealstage"
+    repaired = original + " ORDER BY c DESC LIMIT 12"
+    provider = FakeProvider(_one_widget_plan(original, "bar", "breakdown"), repair_sql=repaired)
+    runner = FakeRunner(
+        behavior={"LIMIT 12": [{"dealstage": str(i), "c": i} for i in range(8)]},
+        default=[{"dealstage": str(i), "c": i} for i in range(20)],
+    )
+    spec = _run(generate_dashboard_spec(space, "overview", provider=provider, run_query=runner))
+    w = spec.widgets[0]
+    assert w.viz_type == "bar"
+    assert w.repaired is True
+    assert w.row_count == 8
+    assert w.warnings == []
+
+
+def test_over_wide_bar_demoted_to_table_when_unrepairable(space):
+    """When the repair still returns > 12 rows, the bar is deterministically demoted
+    to a table and the widget carries a warning — never a silently-unreadable bar."""
+    provider = FakeProvider(_one_widget_plan(f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "bar", "breakdown"))
+    runner = FakeRunner(default=[{"dealstage": str(i), "c": i} for i in range(20)])
+    spec = _run(generate_dashboard_spec(space, "overview", provider=provider, run_query=runner))
+    w = spec.widgets[0]
+    assert w.viz_type == "table", "over-wide bar should be demoted to a table"
+    assert any("table" in warn for warn in w.warnings)
+
+
+def test_multi_row_number_surfaces_warning(space):
+    """A `number` KPI whose query returns != 1 row surfaces a warning after the
+    bounded repair fails to reduce it to a single row."""
+    provider = FakeProvider(_one_widget_plan(f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "number", "kpi"))
+    runner = FakeRunner(default=[{"dealstage": "a", "c": 1}, {"dealstage": "b", "c": 2}, {"dealstage": "c", "c": 3}])
+    spec = _run(generate_dashboard_spec(space, "overview", provider=provider, run_query=runner))
+    w = spec.widgets[0]
+    assert w.viz_type == "number"
+    assert any("KPI" in warn and "3 rows" in warn for warn in w.warnings)
+
+
+def test_viz_role_incoherence_surfaces_widget_warning(space):
+    """A widget whose viz contradicts its role is flagged even when it runs fine."""
+    provider = FakeProvider(_one_widget_plan(f"SELECT sum(amount) FROM {VIEW}", "bar", "kpi"))
+    spec = _run(generate_dashboard_spec(space, "overview", provider=provider, run_query=FakeRunner()))
+    # Plain-language coherence copy — the KPI/bar mismatch is surfaced without enum tokens.
+    assert any("KPI" in warn and "bar chart" in warn for warn in spec.widgets[0].warnings)
+
+
+def test_duplicate_analysis_surfaces_board_and_widget_warning(space):
+    """Two widgets with the same GROUP BY + measure → a board warning plus a
+    per-widget tag on the redundant one."""
+    dup_sql = f"SELECT dealstage, sum(amount) FROM {VIEW} GROUP BY dealstage"
+    plan = {
+        "dashboard_filters": [],
+        "widgets": [
+            _widget("Rev by stage", dup_sql, "bar", role="breakdown"),
+            _widget("Revenue per stage", dup_sql, "bar", role="breakdown"),
+        ],
+    }
+    spec = _run(generate_dashboard_spec(space, "overview", provider=FakeProvider(plan), run_query=FakeRunner()))
+    assert any("Duplicate analysis" in w for w in spec.warnings)
+    # the second (redundant) widget is tagged; the first is left clean
+    assert any("same breakdown" in w for w in spec.widgets[1].warnings)
+    assert spec.widgets[0].warnings == []
+
+
+def test_clean_board_has_no_warnings(space):
+    """A well-composed board (KPI band + trend + breakdowns + detail) lints clean."""
+    plan = {
+        "dashboard_filters": [],
+        "widgets": [
+            _widget("Total ARR", f"SELECT sum(amount) FROM {VIEW}", "number", role="kpi"),
+            _widget("Deal Count", f"SELECT count(*) FROM {VIEW}", "number", role="kpi"),
+            _widget("Monthly Trend", f"SELECT toStartOfMonth(today()) AS mo, sum(amount) AS s FROM {VIEW} GROUP BY mo ORDER BY mo", "line", role="trend"),
+            _widget("By Stage", f"SELECT dealstage, sum(amount) AS s FROM {VIEW} GROUP BY dealstage ORDER BY s DESC LIMIT 12", "bar", role="breakdown"),
+            _widget("By Owner", f"SELECT owner, count(*) AS c FROM {VIEW} GROUP BY owner ORDER BY c DESC LIMIT 12", "bar", role="breakdown"),
+            _widget("Detail", f"SELECT dealstage, amount FROM {VIEW} LIMIT 100", "table", role="detail"),
+        ],
+    }
+    # single-row default keeps every number a valid KPI and every bar under the cap
+    spec = _run(generate_dashboard_spec(space, "overview", provider=FakeProvider(plan), run_query=FakeRunner()))
+    assert spec.warnings == [], spec.warnings
+    assert all(w.warnings == [] for w in spec.widgets), [w.warnings for w in spec.widgets]
