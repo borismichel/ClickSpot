@@ -26,8 +26,9 @@ at a time.
 - **Inside a Data Space** — the **Generate** button sits in the header of a Space overview and
   its dashboard view. Starting here pre-selects that Space, so you go straight to the prompt.
 - **From an empty state** — when a dashboards list or a Space dashboard has nothing in it yet,
-  **Generate dashboard** is the primary call to action, right next to *New Dashboard* and
-  *Open Chat*. It's the fastest way to fill a blank board.
+  **Generate dashboard** is the primary call to action, alongside that surface's manual option
+  (*New Dashboard* on the dashboards list, *Open Chat* on a Space). It's the fastest way to fill
+  a blank board.
 
 Then:
 
@@ -38,8 +39,9 @@ Then:
 3. Click **Generate dashboard**.
 
 **Watch it build.** There's no blank spinner — generation streams its progress. A bar reports
-each stage as it happens: planning the dashboard, then generating and validating each widget
-in turn (*"Generating widget 3 of 6…"*), so you can see the board taking shape. Changed your
+each stage as it happens: planning the dashboard, then building and validating the widgets
+(*Building 6 widgets…*, then *Validated 3/6 widgets…*), so you can see the board taking shape.
+Changed your
 mind mid-run? **Cancel** stops it and drops you back at the prompt.
 
 ### What ClickSpot composes
@@ -103,7 +105,7 @@ tally of what it fixed and what still needs a look), or open each one and fix th
 
 !!! tip "An unsaved draft survives a reload"
     A draft lives only in your browser until you save it, so ClickSpot warns you before you
-    close or navigate away with one unsaved. And if you do come back to the prompt for the same
+    reload or close the tab with one unsaved. And if you do come back to the prompt for the same
     Space, an **Unsaved draft found** banner offers to **Restore** the board where you left off
     (or **Dismiss** it to start fresh). One caveat: a draft that was still mid-generation can't
     be resumed — only a finished one is restorable.
@@ -200,5 +202,3 @@ saved per dashboard, so the arrangement you set is the one everyone sees.
 - Scope a dashboard (and its filters) to one team or pipeline with a
   [Data Space](../concepts/data-spaces.md).
 - Build the underlying answers in [chat](chat.md).
-</content>
-</invoke>
