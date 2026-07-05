@@ -103,10 +103,6 @@ class WidgetPlan(BaseModel):
     )
     viz_type: VizType
     encoding: WidgetEncoding = Field(default_factory=WidgetEncoding)
-    suggested_filters: list[str] = Field(
-        default_factory=list,
-        description="Column names that make good per-widget interactive filters.",
-    )
 
 
 class DashboardPlan(BaseModel):
@@ -140,7 +136,6 @@ class WidgetSpec(BaseModel):
     role: str
     viz_type: str
     encoding: WidgetEncoding
-    suggested_filters: list[str]
     status: Literal["ok", "error"]
     error: str | None = None
     columns: list[str] = Field(default_factory=list)
@@ -273,7 +268,6 @@ OTHER RULES:
   select the current value AND the prior-period value as two columns in that row,
   name the current column in encoding.value and the prior column in encoding.compare
   so the tile can show a value + delta. A plain "number" needs only encoding.value.
-- suggested_filters: VIEW column names that make good per-widget interactive filters.
 - dashboard_filters: VIEW column names that make sense as dashboard-wide filters
   applied across all widgets (e.g. a date column, owner, pipeline).
 
@@ -418,7 +412,6 @@ async def _finalize_widget(
         role=plan.role,
         viz_type=plan.viz_type,
         encoding=plan.encoding,
-        suggested_filters=plan.suggested_filters,
         status="ok" if result.ok else "error",
         error=None if result.ok else result.safe_error,
         columns=result.columns,

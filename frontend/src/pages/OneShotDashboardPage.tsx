@@ -45,7 +45,6 @@ interface WidgetSpec {
   sql: string;
   viz_type: VizType;
   encoding?: WidgetEncoding;
-  suggested_filters: string[];
   status: "ok" | "error";
   error?: string | null;
   columns: string[];
@@ -114,6 +113,33 @@ function vizForResult(r: Pick<WidgetRegenResult, "columns" | "row_count">): VizT
   const cols = r.columns?.length ?? 0;
   if ((r.row_count ?? 0) === 1 && cols > 0 && cols <= 2) return "number";
   return "table";
+}
+
+/** Max columns to show in the dashboard filter bar when we have to fall back. */
+const MAX_FALLBACK_FILTERS = 6;
+
+/**
+ * When the model's `dashboard_filters` don't map to real space columns, the
+ * filter bar used to dump *every* column (CLI-167). Cap the fallback to the
+ * handful that make the best dashboard-wide filters: date/time columns first
+ * (range filters), then low-cardinality-looking categoricals, dropping
+ * identifier and numeric-measure columns which make poor `in` filters. We have
+ * no true cardinality here, so this is a type/name heuristic capped at 6.
+ */
+function pickFallbackFilterColumns(all: SpaceColumnMeta[]): SpaceColumnMeta[] {
+  const rank = (c: SpaceColumnMeta): number => {
+    const type = (c.type || "").toLowerCase();
+    const name = (c.name || "").toLowerCase();
+    if (/date|time/.test(type)) return 0; // date ranges — best dashboard filter
+    if (/(^|_)(id|key|uuid|guid)$/.test(name)) return 3; // identifiers — high cardinality
+    if (/int|float|double|decimal/.test(type)) return 2; // numeric measures
+    return 1; // categorical / string / computed
+  };
+  return all
+    .map((c, i) => ({ c, i, r: rank(c) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .slice(0, MAX_FALLBACK_FILTERS)
+    .map((x) => x.c);
 }
 
 /** Pick a sensible default tile size per viz type for the initial auto-layout. */
@@ -212,15 +238,17 @@ export default function OneShotDashboardPage() {
       .catch(() => {});
   }, [searchParams]);
 
-  // Resolve the dashboard-wide filter columns once a spec is generated: keep the
-  // space columns the model suggested as dashboard_filters, falling back to all.
+  // Resolve the dashboard-wide filter columns once a spec is generated: honour
+  // the model's dashboard_filters when they map to real columns; otherwise fall
+  // back to a capped set of good-filter columns instead of every column (CLI-167).
   const loadFilterColumns = useCallback(async (sid: string, wanted: string[]) => {
     try {
       const res = await fetch(`/api/v1/spaces/${sid}/columns`);
       const cols: SpaceColumnMeta[] = await res.json();
       const all = Array.isArray(cols) ? cols : [];
-      const chosen = wanted.length ? all.filter((c) => wanted.includes(c.name)) : all;
-      setFilterColumns((chosen.length ? chosen : all).map((c) => ({ name: c.name, display: c.display, type: c.type })));
+      const matched = wanted.length ? all.filter((c) => wanted.includes(c.name)) : [];
+      const chosen = matched.length ? matched : pickFallbackFilterColumns(all);
+      setFilterColumns(chosen.map((c) => ({ name: c.name, display: c.display, type: c.type })));
     } catch {
       setFilterColumns([]);
     }
@@ -275,7 +303,6 @@ export default function OneShotDashboardPage() {
           sql: w.sql,
           viz: w.viz_type,
           encoding: w.encoding,
-          suggested_filters: w.suggested_filters,
           status: w.status,
           error: w.error ?? null,
           columns: w.columns,
