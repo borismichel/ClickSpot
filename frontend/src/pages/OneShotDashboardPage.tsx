@@ -15,7 +15,7 @@ import {
   message,
   theme,
 } from "antd";
-import { ThunderboltOutlined, ReloadOutlined, SaveOutlined, StopOutlined } from "@ant-design/icons";
+import { ThunderboltOutlined, ReloadOutlined, SaveOutlined, StopOutlined, PlusOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout } from "react-grid-layout";
@@ -90,6 +90,31 @@ interface PersistedDraft {
   savedAt: number;
 }
 
+// Result of the per-widget regenerate endpoint (CLI-159). Mirrors the backend
+// WidgetRegenResult: SQL + validation outcome, but no rows (the card re-queries).
+interface WidgetRegenResult {
+  intent: string;
+  sql: string;
+  status: "ok" | "error";
+  error?: string | null;
+  columns: string[];
+  row_count?: number | null;
+  repaired?: boolean;
+  llm_ms?: number;
+}
+
+/**
+ * Default viz for a widget added via the prompt box (CLI-160). The regenerate
+ * endpoint returns no rows, so we choose from the shape alone: a single scalar
+ * value reads best as a `number` stat tile; everything else is a safe `table`
+ * that always renders (the user can edit the SQL afterwards).
+ */
+function vizForResult(r: Pick<WidgetRegenResult, "columns" | "row_count">): VizType {
+  const cols = r.columns?.length ?? 0;
+  if ((r.row_count ?? 0) === 1 && cols > 0 && cols <= 2) return "number";
+  return "table";
+}
+
 /** Pick a sensible default tile size per viz type for the initial auto-layout. */
 function sizeFor(viz: VizType): { w: number; h: number } {
   if (viz === "number") return { w: 3, h: 2 };
@@ -145,6 +170,17 @@ export default function OneShotDashboardPage() {
 
   // A persisted draft available for restore for the currently-selected space, or null.
   const [restorable, setRestorable] = useState<PersistedDraft | null>(null);
+
+  // Iteration loop (CLI-160): the add-widget prompt box and the "repair all
+  // failed" one-click recovery. `autoRunIds` tracks widgets added/regenerated
+  // this session so their cards fetch rows on mount (the regenerate endpoint
+  // returns SQL/columns but no rows); it's a ref, not persisted, and off the
+  // render path.
+  const [addPrompt, setAddPrompt] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const autoRunIds = useRef<Set<string>>(new Set());
+  const addSeq = useRef(0);
 
   const abortRef = useRef<AbortController | null>(null);
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
@@ -376,6 +412,15 @@ export default function OneShotDashboardPage() {
   const restoreDraft = useCallback(() => {
     if (!restorable || !spaceId) return;
     setDescription(restorable.description);
+    // A restored widget that was added/regenerated this session carries no rows
+    // (CLI-160) — force its card to fetch on mount so it doesn't render empty
+    // even under no active filters (the CLI-175 filter-divergence refetch alone
+    // wouldn't cover the no-filter case).
+    autoRunIds.current = new Set(
+      restorable.widgets
+        .filter((w) => w.status === "ok" && (w.rows?.length ?? 0) === 0)
+        .map((w) => w.id)
+    );
     setWidgets(restorable.widgets);
     setFilters(restorable.filters);
     setTruncated(restorable.truncated);
@@ -421,6 +466,147 @@ export default function OneShotDashboardPage() {
   const handleRemove = useCallback((id: string) => {
     setWidgets((prev) => prev.filter((wgt) => wgt.id !== id));
   }, []);
+
+  // Regenerate one widget's SQL via the A4 endpoint (CLI-160), steered by an
+  // optional user instruction and — for a failed widget — its error text (fix
+  // it). We lift the new SQL/status/columns into the draft; the still-mounted
+  // card re-runs the SQL off the change and refreshes its rows/error. Returns
+  // the raw result so "repair all" can tally fixed-vs-still-failing.
+  const regenerateWidget = useCallback(
+    async (
+      id: string,
+      intent: string,
+      sql: string,
+      opts: { error?: string | null; instruction?: string } = {}
+    ): Promise<WidgetRegenResult | null> => {
+      if (!spaceId) return null;
+      try {
+        const res = await fetch(`/api/v1/spaces/${spaceId}/dashboard/widget/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent,
+            sql,
+            error: opts.error ?? undefined,
+            instruction: opts.instruction ?? undefined,
+          }),
+        });
+        if (!res.ok) {
+          let detail = `Regenerate failed (HTTP ${res.status})`;
+          try {
+            const j = await res.json();
+            if (typeof j?.detail === "string") detail = j.detail;
+          } catch { /* non-JSON body */ }
+          message.error(detail);
+          return null;
+        }
+        const r: WidgetRegenResult = await res.json();
+        setWidgets((prev) =>
+          prev.map((w) =>
+            w.id === id
+              ? {
+                  ...w,
+                  sql: r.sql,
+                  status: r.status,
+                  error: r.error ?? null,
+                  columns: r.columns ?? w.columns,
+                  // Drop the pre-regenerate rows: they no longer match the new
+                  // SQL. The mounted card re-queries off the SQL change; clearing
+                  // here also keeps the persisted draft honest so a later restore
+                  // refetches instead of showing stale rows (see restoreDraft).
+                  rows: [],
+                }
+              : w
+          )
+        );
+        return r;
+      } catch {
+        message.error("Regenerate failed — please try again.");
+        return null;
+      }
+    },
+    [spaceId]
+  );
+
+  // One-click "Repair all failed" (CLI-160): fire regenerate for every errored
+  // widget in parallel, feeding each its own error text, then summarize.
+  const repairAllFailed = useCallback(async () => {
+    const failed = widgets.filter((w) => w.status === "error");
+    if (failed.length === 0) return;
+    setRepairing(true);
+    try {
+      const results = await Promise.all(
+        failed.map((w) => regenerateWidget(w.id, w.intent, w.sql, { error: w.error ?? undefined }))
+      );
+      const fixed = results.filter((r) => r?.status === "ok").length;
+      const still = results.filter((r) => r?.status === "error").length;
+      if (fixed) message.success(`Repaired ${fixed} widget${fixed === 1 ? "" : "s"}.`);
+      if (still) message.warning(`${still} widget${still === 1 ? "" : "s"} still failing after repair.`);
+    } finally {
+      setRepairing(false);
+    }
+  }, [widgets, regenerateWidget]);
+
+  // Add-widget prompt box (CLI-160): reuse the A4 endpoint with the prompt as the
+  // analysis intent and a trivial seed SQL for the model to "improve" into a real
+  // query, then append the widget at the grid bottom. Its card auto-runs on mount
+  // (autoRunIds) since the endpoint returns SQL/columns but no rows.
+  const addWidget = useCallback(async () => {
+    if (!spaceId) return;
+    const prompt = addPrompt.trim();
+    if (!prompt) return;
+    setAdding(true);
+    try {
+      const res = await fetch(`/api/v1/spaces/${spaceId}/dashboard/widget/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: prompt, sql: "SELECT 1" }),
+      });
+      if (!res.ok) {
+        let detail = `Add widget failed (HTTP ${res.status})`;
+        try {
+          const j = await res.json();
+          if (typeof j?.detail === "string") detail = j.detail;
+        } catch { /* non-JSON body */ }
+        message.error(detail);
+        return;
+      }
+      const r: WidgetRegenResult = await res.json();
+      const viz = vizForResult(r);
+      const size = sizeFor(viz);
+      const id = `osd-add-${addSeq.current++}`;
+      // Only force a mount fetch for a widget that validated — an errored one
+      // shows its error text directly, no point re-running the bad SQL.
+      if (r.status === "ok") autoRunIds.current.add(id);
+      setWidgets((prev) => {
+        const nextY = prev.reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0);
+        const nw: DraftWidget = {
+          id,
+          title: prompt.slice(0, 80),
+          intent: prompt,
+          sql: r.sql,
+          viz,
+          suggested_filters: [],
+          status: r.status,
+          error: r.error ?? null,
+          columns: r.columns ?? [],
+          rows: [],
+          layout: { x: 0, y: nextY, w: size.w, h: size.h },
+        };
+        return [...prev, nw];
+      });
+      setAddPrompt("");
+      if (r.status === "error") {
+        message.warning("The added widget's query failed — edit its SQL or regenerate it.");
+      } else {
+        message.success("Widget added.");
+      }
+    } catch {
+      message.error("Add widget failed — please try again.");
+    } finally {
+      setAdding(false);
+    }
+  }, [spaceId, addPrompt]);
 
   const startOver = () => {
     abortRef.current?.abort();
@@ -514,6 +700,7 @@ export default function OneShotDashboardPage() {
   };
 
   const gridLayout = widgets.map((wgt) => ({ i: wgt.id, ...wgt.layout, minW: 2, minH: 2 }));
+  const failedCount = widgets.filter((w) => w.status === "error").length;
 
   return (
     <Layout style={{ minHeight: "100vh", overflowX: "hidden" }}>
@@ -685,6 +872,27 @@ export default function OneShotDashboardPage() {
                 message={note}
               />
             )}
+            {failedCount > 0 && (
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message={`${failedCount} of ${widgets.length} widget${
+                  widgets.length === 1 ? "" : "s"
+                } failed to generate`}
+                description="Repair them with AI, or edit each widget's SQL manually."
+                action={
+                  <Button
+                    size="small"
+                    danger
+                    loading={repairing}
+                    onClick={repairAllFailed}
+                  >
+                    Repair all failed
+                  </Button>
+                }
+              />
+            )}
             {filterColumns.length > 0 && (
               <div style={{ padding: "0 0 4px 0" }}>
                 <UnifiedFilterBar
@@ -730,11 +938,52 @@ export default function OneShotDashboardPage() {
                         spaceView={spaceView}
                         onSqlChange={(sql) => handleSqlChange(wgt.id, sql)}
                         onRemove={() => handleRemove(wgt.id)}
+                        onRegenerate={(instruction) =>
+                          regenerateWidget(wgt.id, wgt.intent, wgt.sql, {
+                            error: wgt.status === "error" ? wgt.error : undefined,
+                            instruction,
+                          }).then(() => {})
+                        }
+                        autoRunOnMount={autoRunIds.current.has(wgt.id)}
                       />
                     </div>
                   ))}
                 </ResponsiveGridLayout>
               ) : null}
+            </div>
+
+            {/* Add-widget prompt box (CLI-160): generate one more widget into the grid. */}
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                background: token.colorBgContainer,
+                border: `1px dashed ${token.colorBorder}`,
+                borderRadius: token.borderRadiusLG,
+              }}
+            >
+              <Typography.Text type="secondary" style={{ display: "block", marginBottom: 6 }}>
+                Add a widget
+              </Typography.Text>
+              <Space.Compact style={{ width: "100%" }}>
+                <Input
+                  value={addPrompt}
+                  onChange={(e) => setAddPrompt(e.target.value)}
+                  onPressEnter={addWidget}
+                  placeholder="e.g. Win rate by sales rep this quarter"
+                  maxLength={2000}
+                  disabled={adding}
+                />
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  loading={adding}
+                  disabled={!addPrompt.trim()}
+                  onClick={addWidget}
+                >
+                  Add widget
+                </Button>
+              </Space.Compact>
             </div>
           </>
         )}
