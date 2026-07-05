@@ -739,3 +739,80 @@ def test_clean_board_has_no_warnings(space):
     spec = _run(generate_dashboard_spec(space, "overview", provider=FakeProvider(plan), run_query=FakeRunner()))
     assert spec.warnings == [], spec.warnings
     assert all(w.warnings == [] for w in spec.widgets), [w.warnings for w in spec.widgets]
+
+
+# ---------------------------------------------------------------------------
+# 5. C5 — plan-quality composition assertions (CLI-168)
+# ---------------------------------------------------------------------------
+#
+# The C2 tests above unit-check the pure lint functions and a few targeted flows.
+# These add the four canonical *plan-quality* scenarios from the CLI-147 Plan C
+# spec, asserted end-to-end through the fake-provider/fake-runner seams, so a
+# regression in the wiring between the lint module and ``generate_dashboard_spec``
+# (not just the pure functions) is caught: an 8-table plan is rejected, a
+# 200-category bar is demoted, and the KPI band is enforced. The fourth scenario —
+# the band-layout template for a canonical plan — lives in the frontend layout
+# unit test (``frontend/tests/bandLayout.node.test.ts``), since layout is a pure
+# frontend function (plan C3 / CLI-156).
+
+
+def test_c5_lint_rejects_eight_table_plan(space):
+    """An 8-widget board that is *all* detail tables violates the grammar on three
+    counts — no KPI band, no breakdowns, and a pile of tables — and every one of
+    those is surfaced as a board warning rather than silently accepted."""
+    plan = {
+        "dashboard_filters": [],
+        "widgets": [
+            _widget(f"Table {i}", f"SELECT dealstage, amount FROM {VIEW} WHERE deal_id = '{i}' LIMIT 100", "table", role="detail")
+            for i in range(8)
+        ],
+    }
+    spec = _run(generate_dashboard_spec(space, "everything as a table", provider=FakeProvider(plan), run_query=FakeRunner()))
+
+    # All eight survive execution (they are valid tables) — the rejection is the
+    # composition verdict, not a truncation or a per-widget failure.
+    assert spec.widget_count == 8
+    assert spec.truncated is False
+    assert any("KPI band" in w for w in spec.warnings), spec.warnings
+    assert any("breakdown" in w.lower() for w in spec.warnings), spec.warnings
+    assert any("detail table" in w for w in spec.warnings), spec.warnings
+
+
+def test_c5_two_hundred_category_bar_demoted_to_table(space):
+    """A breakdown bar whose query returns 200 categories is unreadable; with no
+    top-N repair available it is deterministically demoted to a table and the
+    residual cardinality is named in the widget warning."""
+    provider = FakeProvider(_one_widget_plan(f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "bar", "breakdown"))
+    runner = FakeRunner(default=[{"dealstage": str(i), "c": i} for i in range(200)])
+    spec = _run(generate_dashboard_spec(space, "overview", provider=provider, run_query=runner))
+    w = spec.widgets[0]
+    assert w.viz_type == "table", "a 200-category bar must be demoted to a table"
+    assert w.row_count == 200
+    assert any("200 categories" in warn and "table" in warn for warn in w.warnings), w.warnings
+
+
+def test_c5_kpi_band_enforced(space):
+    """The KPI band (2–4 headline tiles) is enforced end-to-end: a board with no
+    KPI tile and one over-stuffed with five are both flagged, while a proper
+    3-tile band lints clean on the KPI dimension."""
+    def _board_warnings(kpi_n: int) -> list[str]:
+        widgets = [
+            _widget(f"KPI {i}", f"SELECT count(*) FROM {VIEW} WHERE deal_id = '{i}'", "number", role="kpi")
+            for i in range(kpi_n)
+        ]
+        # A breakdown pair keeps the *only* complaint about the KPI band, not the
+        # rest of the grammar (so the assertions below isolate the band rule).
+        widgets += [
+            _widget("By Stage", f"SELECT dealstage, sum(amount) AS s FROM {VIEW} GROUP BY dealstage ORDER BY s DESC LIMIT 12", "bar", role="breakdown"),
+            _widget("By Owner", f"SELECT owner, count(*) AS c FROM {VIEW} GROUP BY owner ORDER BY c DESC LIMIT 12", "bar", role="breakdown"),
+        ]
+        plan = {"dashboard_filters": [], "widgets": widgets}
+        spec = _run(generate_dashboard_spec(space, "overview", provider=FakeProvider(plan), run_query=FakeRunner()))
+        return spec.warnings
+
+    # No KPI band → flagged.
+    assert any("KPI band" in w for w in _board_warnings(0))
+    # Over-stuffed band (5 tiles) → flagged.
+    assert any("KPI" in w for w in _board_warnings(5))
+    # A sanctioned 3-tile band → no KPI complaint.
+    assert not any("KPI" in w for w in _board_warnings(3))
