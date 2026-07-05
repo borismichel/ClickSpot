@@ -65,10 +65,11 @@ async def api_stream_dashboard_spec(space_id: str, req: GenerateDashboardSpecReq
 
     Same work as ``POST .../dashboard/spec`` but returns Server-Sent Events so the
     frontend can render an honest progress bar. Each SSE ``data:`` line is a JSON
-    ``DashboardEvent`` (``planning`` -> per-widget ``generating``/``validating``
+    ``DashboardEvent`` (``planning`` -> per-widget ``running``/``validated``
     -> ``done``); the terminal ``done`` event carries the full spec. A failure
-    after the stream opens is reported as an ``error`` event rather than an HTTP
-    status, since the 200 response has already started.
+    after the stream opens — including a zero-widget plan — is reported as an
+    ``error`` event rather than an HTTP status, since the 200 response has
+    already started.
     """
     from app.llm.dashboard_spec import DashboardEvent, stream_dashboard_spec
     from app.llm.providers import get_provider

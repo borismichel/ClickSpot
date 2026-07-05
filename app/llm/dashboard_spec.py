@@ -108,6 +108,9 @@ class DashboardSpec(BaseModel):
     widget_count: int
     llm_ms: int
     truncated: bool = False
+    # Set when the plan (even after a bounded re-ask) returned fewer than the
+    # requested MIN_WIDGETS — the board is accepted but the shortfall is surfaced.
+    note: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -115,22 +118,25 @@ class DashboardSpec(BaseModel):
 # ---------------------------------------------------------------------------
 
 # The generation flow is otherwise synchronous; these events let the frontend
-# render an honest progress bar instead of a fake timer. Emitted order for an
-# M-widget dashboard:
+# render an honest progress bar instead of a fake timer. Stage names are literal:
+# all SQL is authored in the single planning call, so per-widget work is *running*
+# the SQL (not generating it) and then reporting it *validated*. Emitted order for
+# an M-widget dashboard:
 #   planning
-#   -> generating (1/M) -> validating (1/M)
+#   -> running (1/M) -> validated (1/M)
 #   -> ...
-#   -> generating (M/M) -> validating (M/M)
+#   -> running (M/M) -> validated (M/M)
 #   -> done            (carries the full DashboardSpec)
-# A fatal failure mid-stream emits a single ``error`` event instead of ``done``.
-EventStage = Literal["planning", "generating", "validating", "done", "error"]
+# A fatal failure mid-stream (incl. a zero-widget plan) emits a single ``error``
+# event instead of ``done``.
+EventStage = Literal["planning", "running", "validated", "done", "error"]
 
 
 class DashboardEvent(BaseModel):
     """One progress event in the dashboard generation stream."""
 
     stage: EventStage
-    index: int | None = None  # 1-based widget index (generating/validating only)
+    index: int | None = None  # 1-based widget index (running/validated only)
     total: int | None = None  # total widget count, known once planning completes
     widget_title: str | None = None
     error: str | None = None  # per-widget sanitized error, or a fatal stream error
@@ -189,6 +195,19 @@ def _build_user_prompt(description: str, min_widgets: int, max_widgets: int) -> 
     return (
         f"Design a dashboard of {min_widgets} to {max_widgets} complementary widgets "
         f"for this analysis case:\n\n{description}"
+    )
+
+
+def _build_reask_prompt(
+    description: str, min_widgets: int, max_widgets: int, got: int
+) -> str:
+    """Nudge prompt used once when the first plan fell short of ``min_widgets``."""
+    return (
+        f"The previous attempt returned only {got} widget(s), but a useful dashboard "
+        f"needs at least {min_widgets}. Design a fuller dashboard of {min_widgets} to "
+        f"{max_widgets} complementary widgets — each adding a distinct perspective "
+        f"(headline KPIs, a time trend, breakdowns, and a funnel/comparison where the "
+        f"data supports it) — for this analysis case:\n\n{description}"
     )
 
 
@@ -298,6 +317,24 @@ async def _finalize_widget(
 # Public entrypoint
 # ---------------------------------------------------------------------------
 
+async def _request_plan(
+    provider: LLMProvider,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[DashboardPlan, int]:
+    """Run one structured planning call, returning the plan and its wall-clock ms."""
+    t0 = time.time()
+    raw = await provider.generate_tool(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        tool_name=_GEN_TOOL_NAME,
+        tool_description=_GEN_TOOL_DESCRIPTION,
+        input_schema=DashboardPlan.model_json_schema(),
+    )
+    ms = int((time.time() - t0) * 1000)
+    return DashboardPlan.model_validate(raw), ms
+
+
 async def stream_dashboard_spec(
     config: DataSpaceConfig,
     description: str,
@@ -315,9 +352,16 @@ async def stream_dashboard_spec(
     real progress. The final ``done`` event carries the complete ``DashboardSpec``.
 
     Events are emitted *before* the slow step they describe (``planning`` before
-    the LLM plan call, ``generating`` before a widget is finalized); the
-    ``validating`` event fires *after* a widget is validated/executed and carries
+    the LLM plan call, ``running`` before a widget's SQL is executed); the
+    ``validated`` event fires *after* a widget is validated/executed and carries
     that widget's sanitized error if it failed.
+
+    Widget-floor enforcement (CLI-153): the ``MIN_WIDGETS`` floor is enforced in
+    code, not just in the prompt. A plan that returns **zero** widgets ends the
+    stream with an ``error`` event (never an empty board). A plan that returns
+    *fewer than* ``min_widgets`` triggers one bounded re-ask for a fuller plan;
+    whatever the re-ask yields is then accepted, with ``DashboardSpec.note`` set
+    if it is still short.
     """
     if provider is None:
         provider = get_provider()
@@ -331,17 +375,42 @@ async def stream_dashboard_spec(
 
     yield DashboardEvent(stage="planning")
 
-    t0 = time.time()
-    raw = await provider.generate_tool(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        tool_name=_GEN_TOOL_NAME,
-        tool_description=_GEN_TOOL_DESCRIPTION,
-        input_schema=DashboardPlan.model_json_schema(),
-    )
-    llm_ms = int((time.time() - t0) * 1000)
+    plan, llm_ms = await _request_plan(provider, system_prompt, user_prompt)
 
-    plan = DashboardPlan.model_validate(raw)
+    # Widget-floor enforcement. A completely empty plan is a hard failure — end
+    # the stream with an error rather than streaming a full progress bar to an
+    # empty grid. A short-but-non-empty plan gets one bounded re-ask.
+    if not plan.widgets:
+        yield DashboardEvent(
+            stage="error",
+            error=(
+                "The model did not return any widgets for this analysis case. "
+                "Try rephrasing the request or narrowing the scope."
+            ),
+        )
+        return
+
+    note: str | None = None
+    if len(plan.widgets) < min_widgets:
+        log.info(
+            "Dashboard plan returned %d widgets (< MIN %d); re-asking once",
+            len(plan.widgets),
+            min_widgets,
+        )
+        reask_prompt = _build_reask_prompt(
+            description, min_widgets, max_widgets, len(plan.widgets)
+        )
+        reask_plan, reask_ms = await _request_plan(provider, system_prompt, reask_prompt)
+        llm_ms += reask_ms
+        # Keep whichever attempt produced more widgets — never regress below the
+        # first plan's count.
+        if len(reask_plan.widgets) > len(plan.widgets):
+            plan = reask_plan
+        if len(plan.widgets) < min_widgets:
+            note = (
+                f"Generated {len(plan.widgets)} of the target {min_widgets} widgets — "
+                "the analysis case may be too narrow for a fuller dashboard."
+            )
 
     widgets = plan.widgets
     truncated = False
@@ -354,12 +423,12 @@ async def stream_dashboard_spec(
     finalized: list[WidgetSpec] = []
     for index, w in enumerate(widgets, start=1):
         yield DashboardEvent(
-            stage="generating", index=index, total=total, widget_title=w.title
+            stage="running", index=index, total=total, widget_title=w.title
         )
         spec_widget = await _finalize_widget(provider, system_prompt, w, run_query)
         finalized.append(spec_widget)
         yield DashboardEvent(
-            stage="validating",
+            stage="validated",
             index=index,
             total=total,
             widget_title=w.title,
@@ -374,6 +443,7 @@ async def stream_dashboard_spec(
         widget_count=len(finalized),
         llm_ms=llm_ms,
         truncated=truncated,
+        note=note,
     )
     yield DashboardEvent(stage="done", total=total, spec=spec)
 
@@ -392,9 +462,12 @@ async def generate_dashboard_spec(
     Flow: one structured LLM call plans the whole dashboard, then each widget's
     SQL is run through the existing validated query path with a single bounded
     self-repair retry on validator/ClickHouse failure. The widget count is capped
-    at ``max_widgets``. Non-streaming wrapper over :func:`stream_dashboard_spec`.
+    at ``max_widgets`` and floored at ``min_widgets`` (one bounded re-ask; a
+    zero-widget plan raises). Non-streaming wrapper over
+    :func:`stream_dashboard_spec`.
     """
     spec: DashboardSpec | None = None
+    stream_error: str | None = None
     async for event in stream_dashboard_spec(
         config,
         description,
@@ -405,5 +478,9 @@ async def generate_dashboard_spec(
     ):
         if event.stage == "done":
             spec = event.spec
-    assert spec is not None, "stream_dashboard_spec must end with a 'done' event"
+        elif event.stage == "error":
+            stream_error = event.error
+    if spec is None:
+        # The only non-``done`` terminal state is a zero-widget plan.
+        raise ValueError(stream_error or "Dashboard generation produced no widgets")
     return spec
