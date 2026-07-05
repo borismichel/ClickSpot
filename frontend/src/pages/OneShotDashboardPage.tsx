@@ -64,6 +64,7 @@ interface DashboardEvent {
   stage: "planning" | "running" | "validated" | "done" | "error";
   index?: number | null;
   total?: number | null;
+  completed?: number | null;
   widget_title?: string | null;
   error?: string | null;
   spec?: DashboardSpec | null;
@@ -181,19 +182,20 @@ export default function OneShotDashboardPage() {
         setStatusText("Planning the dashboard…");
         break;
       case "running": {
+        // Widgets are finalized in parallel; this is a single bulk tick.
         const total = ev.total ?? 0;
-        const idx = ev.index ?? 0;
-        const done = (idx - 1) * 2;
-        setProgress(total ? Math.min(96, 4 + (92 * done) / (total * 2)) : 10);
-        setStatusText(`Running widget ${idx}/${total}: ${ev.widget_title ?? ""}`);
+        setProgress(10);
+        setStatusText(total ? `Building ${total} widgets…` : "Building widgets…");
         break;
       }
       case "validated": {
+        // Completion-counted: one event per widget as it lands (any order).
         const total = ev.total ?? 0;
-        const idx = ev.index ?? 0;
-        const done = (idx - 1) * 2 + 1;
-        setProgress(total ? Math.min(98, 4 + (92 * done) / (total * 2)) : 20);
-        setStatusText(`Validated widget ${idx}/${total}: ${ev.widget_title ?? ""}`);
+        const completed = ev.completed ?? 0;
+        setProgress(total ? Math.min(98, 10 + (88 * completed) / total) : 20);
+        setStatusText(
+          total ? `Validated ${completed}/${total} widgets…` : "Validating widgets…"
+        );
         break;
       }
       case "done": {

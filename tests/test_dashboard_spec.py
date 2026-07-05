@@ -243,7 +243,8 @@ def _collect_events(coro_factory) -> list[DashboardEvent]:
 
 
 def test_stream_event_sequence_three_widgets(space):
-    # Three valid widgets → planning, generating/validating per widget, done.
+    # Three valid widgets → planning, one bulk running tick, then one
+    # completion-counted validated event per widget (any order), then done.
     widgets = [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(3)]
     plan = {"dashboard_filters": ["dealstage"], "widgets": widgets}
     provider = FakeProvider(plan)
@@ -255,27 +256,69 @@ def test_stream_event_sequence_three_widgets(space):
         )
     )
 
-    assert [(e.stage, e.index, e.total) for e in events] == [
-        ("planning", None, None),
-        ("running", 1, 3),
-        ("validated", 1, 3),
-        ("running", 2, 3),
-        ("validated", 2, 3),
-        ("running", 3, 3),
-        ("validated", 3, 3),
-        ("done", None, 3),
-    ]
+    # Framing events are deterministic; the middle validated burst is not ordered.
+    assert events[0].stage == "planning"
+    assert (events[1].stage, events[1].total, events[1].completed) == ("running", 3, 0)
+    assert events[-1].stage == "done" and events[-1].total == 3
 
-    # Per-widget events carry the widget title; no errors on the happy path.
-    assert events[1].widget_title == "w0" and events[2].widget_title == "w0"
+    validated = [e for e in events if e.stage == "validated"]
+    assert len(validated) == 3
+    # Every widget lands exactly once, index-tagged, with a monotonically rising
+    # completed tally (1..3) regardless of the order they finish in.
+    assert {e.index for e in validated} == {1, 2, 3}
+    assert sorted(e.completed for e in validated) == [1, 2, 3]
+    assert all(e.total == 3 for e in validated)
+    assert {e.widget_title for e in validated} == {"w0", "w1", "w2"}
     assert all(e.error is None for e in events)
 
-    # The terminal event carries the full validated spec.
+    # The terminal event carries the full validated spec, in planned order.
     done = events[-1]
     assert done.spec is not None
     assert done.spec.widget_count == 3
+    assert [w.title for w in done.spec.widgets] == ["w0", "w1", "w2"]
     assert [w.status for w in done.spec.widgets] == ["ok", "ok", "ok"]
     assert done.spec.dashboard_filters == ["dealstage"]
+
+
+def test_stream_parallelizes_and_preserves_order(space):
+    # CLI-152: widgets finalize concurrently (bounded), so completion order need
+    # not match planned order — but the spec must still be assembled in order.
+    import asyncio
+    import re
+
+    n = 6
+    # Distinct SQL per widget so the runner can key its delay off the index.
+    widgets = [_widget(f"w{i}", f"SELECT amount FROM {VIEW} WHERE amount > {i}") for i in range(n)]
+    plan = {"dashboard_filters": [], "widgets": widgets}
+    provider = FakeProvider(plan)
+
+    state = {"active": 0, "peak": 0}
+
+    async def runner(sql: str) -> list[dict]:
+        state["active"] += 1
+        state["peak"] = max(state["peak"], state["active"])
+        i = int(re.search(r"amount > (\d+)", sql).group(1))
+        await asyncio.sleep(0.02 * (n - i))  # later widgets finish first
+        state["active"] -= 1
+        return [{"amount": 1}]
+
+    events = _collect_events(
+        lambda: stream_dashboard_spec(
+            space, "x", provider=provider, run_query=runner, max_concurrency=4
+        )
+    )
+
+    # Bounded fan-out genuinely overlapped work, capped at the concurrency limit.
+    assert state["peak"] > 1
+    assert state["peak"] <= 4
+
+    validated = [e for e in events if e.stage == "validated"]
+    assert len(validated) == n
+    # Completion order differs from planned order (proves no serial waiting)…
+    assert [e.index for e in validated] != list(range(1, n + 1))
+    # …yet the terminal spec is still in planned order.
+    done = events[-1]
+    assert [w.title for w in done.spec.widgets] == [f"w{i}" for i in range(n)]
 
 
 def test_stream_surfaces_widget_error(space):
