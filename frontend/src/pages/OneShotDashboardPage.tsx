@@ -15,7 +15,7 @@ import {
   message,
   theme,
 } from "antd";
-import { ThunderboltOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import { ThunderboltOutlined, ReloadOutlined, SaveOutlined, StopOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout } from "react-grid-layout";
@@ -72,6 +72,20 @@ type Phase = "idle" | "generating" | "ready" | "error";
 
 const COLS = 12;
 
+// A ready draft lives only in React state, so a reload/back/stray-nav destroys it
+// (CLI-154 / UX #2). We mirror it to sessionStorage keyed by space so it survives a
+// remount within the tab session, surfaced via a restore banner on return.
+const DRAFT_STORE_PREFIX = "osd:draft:";
+const draftKey = (sid: string) => `${DRAFT_STORE_PREFIX}${sid}`;
+
+interface PersistedDraft {
+  description: string;
+  widgets: DraftWidget[];
+  filters: SpaceFilter[];
+  truncated: boolean;
+  savedAt: number;
+}
+
 /** Pick a sensible default tile size per viz type for the initial auto-layout. */
 function sizeFor(viz: VizType): { w: number; h: number } {
   if (viz === "number") return { w: 3, h: 2 };
@@ -123,6 +137,9 @@ export default function OneShotDashboardPage() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // A persisted draft available for restore for the currently-selected space, or null.
+  const [restorable, setRestorable] = useState<PersistedDraft | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
@@ -296,6 +313,89 @@ export default function OneShotDashboardPage() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  const clearPersisted = useCallback((sid?: string) => {
+    const id = sid ?? spaceId;
+    if (!id) return;
+    try {
+      sessionStorage.removeItem(draftKey(id));
+    } catch { /* storage unavailable */ }
+  }, [spaceId]);
+
+  // Mirror a ready draft to sessionStorage so it survives reload/back within the tab.
+  // We only persist a completed draft — a mid-generation server task can't be resumed.
+  useEffect(() => {
+    if (phase !== "ready" || !spaceId || widgets.length === 0) return;
+    try {
+      const payload: PersistedDraft = {
+        description,
+        widgets,
+        filters,
+        truncated,
+        savedAt: Date.now(),
+      };
+      sessionStorage.setItem(draftKey(spaceId), JSON.stringify(payload));
+    } catch { /* quota exceeded / storage disabled — durability is best-effort */ }
+  }, [phase, spaceId, widgets, filters, truncated, description]);
+
+  // On return to the entry form, surface any persisted draft for the selected space
+  // as a restore banner. Only while idle, so we never clobber a live/ready draft.
+  useEffect(() => {
+    if (!spaceId || phase !== "idle") {
+      setRestorable(null);
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(draftKey(spaceId));
+      const parsed = raw ? (JSON.parse(raw) as PersistedDraft) : null;
+      setRestorable(parsed?.widgets?.length ? parsed : null);
+    } catch {
+      setRestorable(null);
+    }
+  }, [spaceId, phase]);
+
+  // Guard against losing an unsaved draft to a reload/close/external nav (UX #2).
+  useEffect(() => {
+    const dirty = phase === "generating" || (phase === "ready" && widgets.length > 0);
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [phase, widgets.length]);
+
+  const restoreDraft = useCallback(() => {
+    if (!restorable || !spaceId) return;
+    setDescription(restorable.description);
+    setWidgets(restorable.widgets);
+    setFilters(restorable.filters);
+    setTruncated(restorable.truncated);
+    loadFilterColumns(spaceId, restorable.filters.map((f) => f.column));
+    setProgress(100);
+    setStatusText("Restored draft");
+    setError(null);
+    setValidationError(null);
+    setRestorable(null);
+    setPhase("ready");
+  }, [restorable, spaceId, loadFilterColumns]);
+
+  const dismissRestore = useCallback(() => {
+    clearPersisted(spaceId);
+    setRestorable(null);
+  }, [spaceId, clearPersisted]);
+
+  // Abort an in-flight generation. The reader.read() rejects with AbortError (swallowed
+  // in generate()); the server task dies at its next yield. We reset back to the form,
+  // keeping the description so the user can tweak and retry.
+  const cancelGenerate = useCallback(() => {
+    abortRef.current?.abort();
+    setPhase("idle");
+    setProgress(0);
+    setStatusText("");
+    setWidgets([]);
+  }, []);
+
   const handleLayoutChange = useCallback((layout: RGLLayout) => {
     setWidgets((prev) =>
       prev.map((wgt) => {
@@ -316,6 +416,7 @@ export default function OneShotDashboardPage() {
 
   const startOver = () => {
     abortRef.current?.abort();
+    clearPersisted();
     setPhase("idle");
     setWidgets([]);
     setError(null);
@@ -367,6 +468,7 @@ export default function OneShotDashboardPage() {
         return;
       }
       const dash: { id: string } = await res.json();
+      clearPersisted(spaceId);
       message.success("Dashboard saved");
       setSaveOpen(false);
       navigate(`/spaces/${spaceId}/dashboard?dashboard=${dash.id}`);
@@ -439,6 +541,26 @@ export default function OneShotDashboardPage() {
               widgets from your data space — fully editable, transient until you save.
             </Typography.Paragraph>
 
+            {restorable && phase === "idle" && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Unsaved draft found"
+                description="You have an unsaved generated dashboard for this data space. Restore it or dismiss to start fresh."
+                action={
+                  <Space>
+                    <Button size="small" type="primary" onClick={restoreDraft}>
+                      Restore
+                    </Button>
+                    <Button size="small" onClick={dismissRestore}>
+                      Dismiss
+                    </Button>
+                  </Space>
+                }
+              />
+            )}
+
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
               <div>
                 <Typography.Text type="secondary" style={{ display: "block", marginBottom: 4 }}>
@@ -476,15 +598,22 @@ export default function OneShotDashboardPage() {
                 />
               </div>
 
-              <Button
-                type="primary"
-                icon={<ThunderboltOutlined />}
-                onClick={generate}
-                loading={phase === "generating"}
-                disabled={phase === "generating"}
-              >
-                {phase === "generating" ? "Generating…" : "Generate dashboard"}
-              </Button>
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  onClick={generate}
+                  loading={phase === "generating"}
+                  disabled={phase === "generating"}
+                >
+                  {phase === "generating" ? "Generating…" : "Generate dashboard"}
+                </Button>
+                {phase === "generating" && (
+                  <Button danger icon={<StopOutlined />} onClick={cancelGenerate}>
+                    Cancel
+                  </Button>
+                )}
+              </Space>
 
               {validationError && (
                 <Alert type="warning" message={validationError} showIcon />
