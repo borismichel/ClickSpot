@@ -93,11 +93,23 @@ class FakeRunner:
         return self.default
 
 
-def _widget(title: str, sql: str, viz: str = "table") -> dict:
+# Default widget role per viz type — matches the composition grammar (CLI-155).
+_ROLE_FOR_VIZ = {
+    "number": "kpi",
+    "line": "trend",
+    "bar": "breakdown",
+    "funnel": "flow",
+    "table": "detail",
+    "comparison": "breakdown",
+}
+
+
+def _widget(title: str, sql: str, viz: str = "table", role: str | None = None) -> dict:
     return {
         "title": title,
         "intent": f"answer {title}",
         "sql": sql,
+        "role": role or _ROLE_FOR_VIZ.get(viz, "breakdown"),
         "viz_type": viz,
         "encoding": {"x": "dealstage", "y": ["amount"]},
         "suggested_filters": ["dealstage"],

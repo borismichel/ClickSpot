@@ -43,6 +43,23 @@ MAX_WIDGET_CONCURRENCY = 4
 
 VizType = Literal["number", "table", "bar", "line", "funnel", "comparison"]
 
+# The dashboard composition grammar (CLI-155 / plan C1). Every widget declares
+# the *job* it does on the board; the prompt below constrains how many of each
+# role a plan may contain, and downstream code (C2 lint, C3 layout) keys off it:
+#   kpi       -> a single headline "number" stat tile
+#   trend     -> a time series ("line")
+#   breakdown -> magnitude across categories ("bar", or "table" when >7 classes)
+#   flow      -> a genuinely staged process ("funnel")
+#   detail    -> a full-width lookup "table"
+WidgetRole = Literal["kpi", "trend", "breakdown", "flow", "detail"]
+
+# ``comparison`` is intentionally absent from the composition grammar above: it is
+# a broken viz in the OSD draft renderer (it never receives the context-KPI
+# payload it needs), so the prompt no longer asks the model to produce it. Whether
+# to fully retire the type from ``VizType`` or repair the renderer is the C4
+# renderer-alignment decision (CLI-147 open decision #3); the type is kept in the
+# Literal until then so existing specs continue to validate.
+
 # Type of the injectable query runner — async SQL -> rows. Defaults to the real
 # ClickHouse path; tests inject a fake.
 QueryRunner = Callable[[str], Awaitable[list[dict]]]
@@ -76,6 +93,14 @@ class WidgetPlan(BaseModel):
     title: str = Field(description="Short widget title (max ~10 words).")
     intent: str = Field(description="One sentence: what business question this widget answers.")
     sql: str = Field(description="ClickHouse SELECT against the data space VIEW.")
+    role: WidgetRole = Field(
+        description=(
+            "The job this widget does on the board, per the composition grammar: "
+            "'kpi' (headline number), 'trend' (time series), 'breakdown' "
+            "(magnitude across categories), 'flow' (staged funnel), 'detail' "
+            "(lookup table). Drives layout and composition checks."
+        )
+    )
     viz_type: VizType
     encoding: WidgetEncoding = Field(default_factory=WidgetEncoding)
     suggested_filters: list[str] = Field(
@@ -112,6 +137,7 @@ class WidgetSpec(BaseModel):
     title: str
     intent: str
     sql: str
+    role: str
     viz_type: str
     encoding: WidgetEncoding
     suggested_filters: list[str]
@@ -205,15 +231,40 @@ def _block_dashboard_instructions(min_widgets: int, max_widgets: int) -> str:
     return f"""DASHBOARD DESIGN TASK:
 You are designing a complete analytics dashboard, not a single chart. Produce
 between {min_widgets} and {max_widgets} complementary widgets that together answer
-the analysis case from several angles.
+the analysis case following the inverted-pyramid layout: the headline answer must
+be readable in ~5 seconds at the top, with supporting detail below.
 
-Guidelines:
-- Lead with 1–2 headline "number" KPIs for the most important metrics.
-- Include a time trend ("line"), one or more breakdowns ("bar"/"table"), and a
-  "funnel" or "comparison" widget where the data supports it.
+COMPOSITION GRAMMAR (set the `role` field on every widget and respect these counts):
+- role "kpi" — a single headline metric as a "number" stat tile. Include EXACTLY
+  ONE band of 2–4 kpi widgets (never a one-bar chart for a single value).
+- role "trend" — change over time as a "line". Include exactly ONE trend widget
+  WHEN the VIEW has a usable date/timestamp column; omit it when it has none.
+- role "breakdown" — magnitude across categories as a "bar" (or "table" only when
+  there are more than ~7 categories that all matter). Include 2–4 breakdowns.
+- role "detail" — a full-width lookup "table". At most ONE, placed last.
+- role "flow" — a "funnel" ONLY for a genuinely staged, monotonic process (e.g. a
+  sales pipeline). If the data is not a real ordered pipeline, use a breakdown bar
+  instead. Zero or one flow widget.
+Do NOT emit a "comparison" widget — it is not supported here; express period
+comparisons as a kpi (single number) or a trend line instead.
+
+PER-VIZ SQL SHAPE CONTRACTS (in addition to the CRITICAL RULES section above):
+- number (kpi): return EXACTLY ONE ROW with a single value column (optionally a
+  second prior-period column for a delta). Never GROUP BY.
+- bar (breakdown): sort descending and cap the tail —
+  `... GROUP BY <category> ORDER BY <measure> DESC LIMIT 12`. Fold the long tail
+  into "Other" rather than returning hundreds of categories.
+- line (trend): bucket by time (`toStartOfMonth(...)`, `toStartOfWeek(...)`, etc.),
+  `ORDER BY` the time bucket ascending, and keep it to AT MOST 5 series — 6+ series
+  must be folded or split into separate widgets.
+- funnel (flow): one row per ordered stage, stages in pipeline order.
+- table (breakdown/detail): at most ~8 explicit columns; no `SELECT *`.
+
+OTHER RULES:
 - Each widget MUST have its own valid ClickHouse SELECT against the VIEW and obey
   every rule in the CRITICAL RULES section above.
-- Do not repeat the same analysis — each widget adds a distinct perspective.
+- Do not repeat the same analysis — two widgets grouping by the same column on the
+  same measure is a duplicate; each widget adds a distinct perspective.
 - For each widget set the encoding hints, naming the VIEW columns used for the
   x axis / y measures / series / value / label as appropriate for its viz_type.
 - "bar" widgets: rank the categories — ORDER BY the measure DESC and LIMIT ~12 so
@@ -362,6 +413,7 @@ async def _finalize_widget(
         title=plan.title,
         intent=plan.intent,
         sql=result.sql,
+        role=plan.role,
         viz_type=plan.viz_type,
         encoding=plan.encoding,
         suggested_filters=plan.suggested_filters,
