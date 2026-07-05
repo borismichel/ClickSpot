@@ -60,6 +60,8 @@ export interface SpaceFilter {
 export interface SpaceDashboardItem {
   id: string;
   title: string;
+  /** The one-sentence business question this widget answers (OSD provenance, A5). */
+  intent?: string;
   sql: string;
   viz: VizType;
   contextKPIs: { label: string; sql: string; previous_sql?: string }[];
@@ -70,6 +72,8 @@ export interface SpaceDashboard {
   id: string;
   space_id: string;
   title: string;
+  /** The original prompt that generated this dashboard (OSD provenance, A5). */
+  source_description?: string;
   items: SpaceDashboardItem[];
   filters: SpaceFilter[];
   pinned_columns: string[];

@@ -117,9 +117,19 @@ export function SpaceDashboardCard({ item, refreshKey, filters, spaceView, onRem
     fetchData();
   }, [fetchData, refreshKey]);
 
+  // Surface the widget's business-question intent (OSD provenance, A5) as a
+  // tooltip on the title so the "why" behind the chart travels with it.
+  const title = item.intent ? (
+    <Tooltip title={item.intent}>
+      <span>{item.title}</span>
+    </Tooltip>
+  ) : (
+    item.title
+  );
+
   return (
     <Card
-      title={item.title}
+      title={title}
       size="small"
       extra={
         <>

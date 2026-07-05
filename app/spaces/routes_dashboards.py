@@ -140,8 +140,10 @@ class DraftWidgetLayout(BaseModel):
 
 class SaveDraftWidget(BaseModel):
     title: str
+    intent: str = ""
     sql: str
     viz: str
+    status: str = "ok"
     layout: DraftWidgetLayout = Field(default_factory=DraftWidgetLayout)
     context_kpis: list[dict] = []
 
@@ -151,12 +153,19 @@ class SaveDraftDashboardRequest(BaseModel):
 
     Carries the whole draft so the create happens in one transaction, preserving
     each widget's (possibly user-edited) SQL, viz type, and grid layout, plus the
-    dashboard-level filters.
+    dashboard-level filters. Provenance (CLI-164/A5) rides along too: the
+    originating prompt (``source_description``) and each widget's business-question
+    ``intent`` are persisted rather than dropped at save time.
     """
 
     title: str = Field(min_length=1, max_length=200)
+    source_description: str = ""
     filters: list[dict] = []
     widgets: list[SaveDraftWidget] = []
+    # Guard against silently saving broken widgets (A5): a draft carrying any
+    # error-status widget is rejected unless the caller explicitly opts in after
+    # being warned.
+    allow_error_widgets: bool = False
 
 
 async def _get_space_dashboard(db, dash_id: str) -> dict | None:
@@ -175,12 +184,14 @@ async def _get_space_dashboard(db, dash_id: str) -> dict | None:
         "id": dash["id"],
         "space_id": dash["space_id"],
         "title": dash["title"],
+        "source_description": dash["source_description"],
         "pinned_columns": json.loads(dash["pinned_columns"]),
         "filters": json.loads(dash["filters"]),
         "items": [
             {
                 "id": item["id"],
                 "title": item["title"],
+                "intent": item["intent"],
                 "sql": item["sql"],
                 "viz": item["viz"],
                 "contextKPIs": json.loads(item["context_kpis"]),
@@ -256,25 +267,44 @@ async def api_save_draft_dashboard(space_id: str, req: SaveDraftDashboardRequest
     if not config:
         raise HTTPException(404, f"Data space '{space_id}' not found")
 
+    # Don't silently save broken widgets (A5): a draft carrying error-status
+    # widgets would error on every load. Reject with the offending titles so the
+    # UI can warn; the caller re-sends with allow_error_widgets to save anyway.
+    broken = [w.title for w in req.widgets if w.status == "error"]
+    if broken and not req.allow_error_widgets:
+        raise HTTPException(
+            409,
+            detail={
+                "error": "error_widgets",
+                "message": (
+                    f"{len(broken)} widget(s) failed to generate and will error on "
+                    "every load. Fix or remove them, or save anyway."
+                ),
+                "widgets": broken,
+            },
+        )
+
     db = await get_db()
     try:
         now = _now()
         dash_id = f"sdash-{uuid4().hex[:12]}"
         await db.execute(
-            "INSERT INTO space_dashboards (id, space_id, title, pinned_columns, filters, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (dash_id, space_id, req.title, "[]", json.dumps(req.filters), now, now),
+            "INSERT INTO space_dashboards "
+            "(id, space_id, title, source_description, pinned_columns, filters, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (dash_id, space_id, req.title, req.source_description, "[]", json.dumps(req.filters), now, now),
         )
         for sort_order, widget in enumerate(req.widgets):
             item_id = f"sitem-{uuid4().hex[:12]}"
             await db.execute(
                 "INSERT INTO space_dashboard_items "
-                "(id, dashboard_id, title, sql, viz, context_kpis, layout_x, layout_y, layout_w, layout_h, sort_order) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(id, dashboard_id, title, intent, sql, viz, context_kpis, layout_x, layout_y, layout_w, layout_h, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     item_id,
                     dash_id,
                     widget.title,
+                    widget.intent,
                     widget.sql,
                     widget.viz,
                     json.dumps(widget.context_kpis),

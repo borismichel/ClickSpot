@@ -337,7 +337,7 @@ export default function OneShotDashboardPage() {
   // Promote the draft to a saved space dashboard in a single call, preserving each
   // widget's (possibly edited) SQL, viz type, and grid layout plus the filters,
   // then jump to the saved dashboard.
-  const saveDraft = async () => {
+  const saveDraft = async (allowErrors = false) => {
     if (!spaceId) return;
     const title = saveTitle.trim();
     if (!title) return;
@@ -348,20 +348,46 @@ export default function OneShotDashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
+          // Provenance (A5): the prompt that generated this board is persisted so
+          // the saved dashboard remembers where it came from.
+          source_description: description.trim(),
+          allow_error_widgets: allowErrors,
           filters: filters.map((f) => ({ column: f.column, operator: f.operator, values: f.values })),
           widgets: widgets.map((w) => ({
             title: w.title,
+            intent: w.intent,
             sql: w.sql,
             viz: w.viz,
+            status: w.status,
             layout: w.layout,
           })),
         }),
       });
+      // The backend refuses to silently save broken widgets (A5): warn, then let
+      // the user save anyway rather than losing the whole board.
+      if (res.status === 409) {
+        let payload: { message?: string; widgets?: string[] } | undefined;
+        try {
+          const j = await res.json();
+          payload = j?.detail ?? j;
+        } catch { /* non-JSON body */ }
+        Modal.confirm({
+          title: "Some widgets failed to generate",
+          content:
+            payload?.message ??
+            "One or more widgets errored and will fail on every load. Save anyway?",
+          okText: "Save anyway",
+          okButtonProps: { danger: true },
+          cancelText: "Go back",
+          onOk: () => saveDraft(true),
+        });
+        return;
+      }
       if (!res.ok) {
         let detail = `Save failed (HTTP ${res.status})`;
         try {
           const j = await res.json();
-          if (j?.detail) detail = j.detail;
+          if (typeof j?.detail === "string") detail = j.detail;
         } catch { /* non-JSON body */ }
         message.error(detail);
         return;
@@ -573,7 +599,7 @@ export default function OneShotDashboardPage() {
         title="Save dashboard"
         open={saveOpen}
         onCancel={() => setSaveOpen(false)}
-        onOk={saveDraft}
+        onOk={() => saveDraft()}
         okText="Save"
         okButtonProps={{ disabled: !saveTitle.trim(), loading: saving }}
         confirmLoading={saving}
@@ -585,7 +611,7 @@ export default function OneShotDashboardPage() {
         <Input
           value={saveTitle}
           onChange={(e) => setSaveTitle(e.target.value)}
-          onPressEnter={saveDraft}
+          onPressEnter={() => saveDraft()}
           placeholder="Dashboard title"
           maxLength={120}
           autoFocus
