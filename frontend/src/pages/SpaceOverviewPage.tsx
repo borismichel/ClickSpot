@@ -20,6 +20,7 @@ import {
   MessageOutlined,
   ReloadOutlined,
   DatabaseOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import { ReactFlow, Background, Controls, type Node } from "@xyflow/react";
@@ -267,6 +268,14 @@ export default function SpaceOverviewPage() {
               onClick={() => setChatOpen((o) => !o)}
             >
               {showLabels && "Ask"}
+            </Button>
+          </Tooltip>
+          <Tooltip title={showLabels ? undefined : "Generate dashboard"}>
+            <Button
+              icon={<ThunderboltOutlined />}
+              onClick={() => navigate(`/generate?space=${id}`)}
+            >
+              {showLabels && "Generate"}
             </Button>
           </Tooltip>
           <Tooltip title={showLabels ? undefined : "Analyze"}>

@@ -24,6 +24,7 @@ import {
   EditOutlined,
   ShareAltOutlined,
   DeleteOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -328,9 +329,14 @@ export default function DashboardListPage() {
     <Layout style={{ minHeight: "100vh" }}>
       <AppHeader
         actions={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            New Dashboard
-          </Button>
+          <>
+            <Button icon={<ThunderboltOutlined />} onClick={() => navigate("/generate")}>
+              Generate
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              New Dashboard
+            </Button>
+          </>
         }
       />
 
@@ -380,12 +386,17 @@ export default function DashboardListPage() {
         ) : isEmpty ? (
           <div style={{ textAlign: "center", paddingTop: 120 }}>
             <Empty
-              description="No dashboards yet. Build one from a saved object, or open a Space and analyze."
+              description="No dashboards yet. Generate one from a data space, build one from a saved object, or open a Space and analyze."
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             >
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-                New Dashboard
-              </Button>
+              <Space>
+                <Button type="primary" icon={<ThunderboltOutlined />} onClick={() => navigate("/generate")}>
+                  Generate dashboard
+                </Button>
+                <Button icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+                  New Dashboard
+                </Button>
+              </Space>
             </Empty>
           </div>
         ) : (

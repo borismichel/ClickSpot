@@ -16,7 +16,7 @@ import {
   theme,
 } from "antd";
 import { ThunderboltOutlined, ReloadOutlined, SaveOutlined, StopOutlined, PlusOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
 import type { Layout as RGLLayout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
@@ -146,6 +146,7 @@ function autoLayout(widgets: WidgetSpec[]): Array<{ x: number; y: number; w: num
 export default function OneShotDashboardPage() {
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   usePageTitle("One Shot Dashboard");
 
   const [spaces, setSpaces] = useState<SpaceOption[]>([]);
@@ -197,10 +198,19 @@ export default function OneShotDashboardPage() {
           name: s.name ?? s.id,
         }));
         setSpaces(opts);
-        if (opts.length > 0) setSpaceId((prev) => prev ?? opts[0].id);
+        if (opts.length > 0) {
+          // Pre-select the space from `?space={id}` when it's a real space on
+          // this instance (in-context entry from a space/dashboard page); fall
+          // back to the first space otherwise. Only fills an unset selection so
+          // it never clobbers a choice the user already made.
+          const requested = searchParams.get("space");
+          const preselect =
+            requested && opts.some((o) => o.id === requested) ? requested : opts[0].id;
+          setSpaceId((prev) => prev ?? preselect);
+        }
       })
       .catch(() => {});
-  }, []);
+  }, [searchParams]);
 
   // Resolve the dashboard-wide filter columns once a spec is generated: keep the
   // space columns the model suggested as dashboard_filters, falling back to all.

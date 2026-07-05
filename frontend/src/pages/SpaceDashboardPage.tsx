@@ -9,6 +9,7 @@ import {
   CheckOutlined,
   MessageOutlined,
   ShareAltOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
@@ -304,6 +305,15 @@ export default function SpaceDashboardPage() {
               {!isMobile && "Refresh"}
             </Button>
           </Tooltip>
+          <Tooltip title={isMobile ? "Generate dashboard" : ""}>
+            <Button
+              icon={<ThunderboltOutlined />}
+              onClick={() => navigate(`/generate?space=${spaceId}`)}
+              aria-label="Generate dashboard"
+            >
+              {!isMobile && "Generate"}
+            </Button>
+          </Tooltip>
           {activeId && (
             <Tooltip title="Copy a link to this dashboard with its current filters">
               <Button icon={<ShareAltOutlined />} onClick={handleShare} aria-label="Share">
@@ -340,12 +350,21 @@ export default function SpaceDashboardPage() {
           ) : activeDashboard.items.length === 0 ? (
             <div style={{ textAlign: "center", paddingTop: 120 }}>
               <Empty
-                description="This dashboard is empty. Open the chat to add visualizations."
+                description="This dashboard is empty. Generate a full set of widgets from your data, or open the chat to add them one at a time."
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               >
-                <Button type="primary" icon={<MessageOutlined />} onClick={() => setChatOpen(true)}>
-                  Open Chat
-                </Button>
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<ThunderboltOutlined />}
+                    onClick={() => navigate(`/generate?space=${spaceId}`)}
+                  >
+                    Generate dashboard
+                  </Button>
+                  <Button icon={<MessageOutlined />} onClick={() => setChatOpen(true)}>
+                    Open Chat
+                  </Button>
+                </Space>
               </Empty>
             </div>
           ) : mounted ? (
