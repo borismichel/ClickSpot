@@ -10,6 +10,20 @@ interface Props {
   encoding?: WidgetEncoding;
 }
 
+/** Round to at most `dp` decimals without forcing trailing zeros (2 → 2.0, 51094.26 stays 2 dp). */
+function roundTo(num: number, dp: number): number {
+  const f = 10 ** dp;
+  return Math.round(num * f) / f;
+}
+
+// Column-name hints that a numeric measure is a currency/money value and should
+// carry the € symbol. Substring (not \b) matching so snake_case names like
+// `avg_deal_size` / `deal_value_eur` are caught (CLI-181).
+const CURRENCY_HINTS = [
+  "amount", "arr", "mrr", "acv", "tcv", "ltv", "revenue", "value",
+  "price", "cost", "deal_size", "eur", "usd", "gbp",
+];
+
 function formatValue(val: unknown, colName: string): { value: number | string; prefix: string; suffix: string } {
   const num = typeof val === "number" ? val : parseFloat(String(val));
   const lower = colName.toLowerCase();
@@ -19,15 +33,20 @@ function formatValue(val: unknown, colName: string): { value: number | string; p
   if (lower.match(/\brate\b/) || lower.includes("percent") || lower.includes("pct")) {
     // If value < 1, it's a ratio — multiply by 100
     const pct = num < 1 && num > -1 ? num * 100 : num;
-    return { value: Math.round(pct * 10) / 10, prefix: "", suffix: "%" };
+    return { value: roundTo(pct, 1), prefix: "", suffix: "%" };
   }
-  if (lower.includes("amount") || lower.includes("arr") || lower.includes("revenue") || lower.includes("value")) {
-    return { value: Math.round(num), prefix: "€", suffix: "" };
+  if (CURRENCY_HINTS.some((h) => lower.includes(h))) {
+    // Headline money reads as whole euros; the single € prefix + antd's default
+    // thousands grouping give `€51,094` rather than a raw 15-digit float.
+    return { value: roundTo(num, 0), prefix: "€", suffix: "" };
   }
   if (lower.includes("days") || lower.includes("avg_days")) {
-    return { value: Math.round(num * 10) / 10, prefix: "", suffix: " days" };
+    return { value: roundTo(num, 1), prefix: "", suffix: " days" };
   }
-  return { value: num, prefix: "", suffix: "" };
+  // Any other numeric measure: round to at most 2 dp so a raw AVG never dumps
+  // full floating-point precision into a stat tile (CLI-181). antd's Statistic
+  // still applies grouped thousands, so this reads e.g. `1,234.56`.
+  return { value: roundTo(num, 2), prefix: "", suffix: "" };
 }
 
 /**
