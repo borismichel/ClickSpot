@@ -126,15 +126,28 @@ function vizForResult(r: Pick<WidgetRegenResult, "columns" | "row_count">): VizT
 const MAX_FALLBACK_FILTERS = 6;
 
 /**
+ * Cap on date/time columns in the fallback bar. A from/to range rarely needs
+ * more than one date column, so ~2 covers the common case without letting a
+ * date-heavy space (CRM: created/updated/close/first_contact/... dates) fill
+ * every slot with range pickers and surface zero categoricals (CLI-184).
+ */
+const MAX_FALLBACK_DATE_FILTERS = 2;
+
+/**
  * When the model's `dashboard_filters` don't map to real space columns, the
  * filter bar used to dump *every* column (CLI-167). Cap the fallback to the
- * handful that make the best dashboard-wide filters: date/time columns first
- * (range filters), then low-cardinality-looking categoricals, dropping
- * identifier and numeric-measure columns which make poor `in` filters. We have
- * no true cardinality here, so this is a type/name heuristic capped at 6.
+ * handful that make the best dashboard-wide filters. We have no true
+ * cardinality here, so this is a type/name heuristic.
+ *
+ * Rather than a pure rank-sort (which lets date columns monopolise all 6 slots
+ * on a date-heavy space, or back-fills numerics/ids on a column-poor one),
+ * interleave by bucket: take at most `MAX_FALLBACK_DATE_FILTERS` dates, then
+ * guarantee categoricals get the remaining slots before falling back to numeric
+ * measures and identifiers, which make poor `in` filters (CLI-184).
  */
 function pickFallbackFilterColumns(all: SpaceColumnMeta[]): SpaceColumnMeta[] {
-  const rank = (c: SpaceColumnMeta): number => {
+  // Bucket priority: 0 dates, 1 categoricals, 2 numerics, 3 identifiers.
+  const bucketOf = (c: SpaceColumnMeta): number => {
     const type = (c.type || "").toLowerCase();
     const name = (c.name || "").toLowerCase();
     if (/date|time/.test(type)) return 0; // date ranges — best dashboard filter
@@ -142,11 +155,14 @@ function pickFallbackFilterColumns(all: SpaceColumnMeta[]): SpaceColumnMeta[] {
     if (/int|float|double|decimal/.test(type)) return 2; // numeric measures
     return 1; // categorical / string / computed
   };
-  return all
-    .map((c, i) => ({ c, i, r: rank(c) }))
-    .sort((a, b) => a.r - b.r || a.i - b.i)
-    .slice(0, MAX_FALLBACK_FILTERS)
-    .map((x) => x.c);
+  const buckets: SpaceColumnMeta[][] = [[], [], [], []];
+  all.forEach((c) => buckets[bucketOf(c)].push(c)); // preserves column order within each bucket
+
+  const dates = buckets[0].slice(0, MAX_FALLBACK_DATE_FILTERS);
+  // Categoricals first, then numerics, then ids — each fills only after the
+  // previous bucket is exhausted, so categoricals are never crowded out.
+  const rest = [...buckets[1], ...buckets[2], ...buckets[3]];
+  return [...dates, ...rest].slice(0, MAX_FALLBACK_FILTERS);
 }
 
 /**
