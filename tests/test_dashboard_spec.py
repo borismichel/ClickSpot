@@ -16,7 +16,9 @@ from app.llm.dashboard_spec import (
     MAX_WIDGETS,
     DashboardEvent,
     DashboardSpec,
+    WidgetRegenResult,
     generate_dashboard_spec,
+    regenerate_widget,
     stream_dashboard_spec,
 )
 from app.llm.providers import LLMProvider
@@ -358,3 +360,194 @@ def test_stream_route_404_for_unknown_space(monkeypatch):
         json={"description": "x"},
     )
     assert res.status_code == 404
+
+
+# --- per-widget regenerate (CLI-159) -------------------------------------
+
+class SeqProvider(LLMProvider):
+    """generate() returns a queued sequence of SQL strings, one per call."""
+
+    def __init__(self, sqls: list[str]):
+        self._sqls = list(sqls)
+        self.calls: list[list[dict]] = []
+
+    async def generate_tool(self, **kwargs) -> dict:  # not used here
+        raise AssertionError("regenerate must not call generate_tool")
+
+    async def generate(self, messages, system_prompt=None) -> ChatSQLResponse:
+        self.calls.append(messages)
+        sql = self._sqls.pop(0) if self._sqls else f"SELECT amount FROM {VIEW}"
+        return ChatSQLResponse(sql=sql, viz="table", title="regen", explanation="")
+
+
+def test_regenerate_repairs_failed_widget(space):
+    # One-click repair: the widget's SQL failed; the model returns valid SQL that
+    # runs cleanly. A single LLM call (the regenerate) is enough — no extra repair.
+    provider = SeqProvider([f"SELECT amount FROM {VIEW}"])
+    runner = FakeRunner(default=[{"amount": 7}])
+
+    result = _run(
+        regenerate_widget(
+            space,
+            intent="total revenue",
+            sql=f"SELECT * FROM {VIEW}",
+            error="SQL validation failed: SELECT * is not allowed",
+            provider=provider,
+            run_query=runner,
+        )
+    )
+
+    assert isinstance(result, WidgetRegenResult)
+    assert result.status == "ok"
+    assert result.error is None
+    assert result.repaired is False  # first regenerate already valid
+    assert "SELECT amount" in result.sql
+    assert "LIMIT" in result.sql.upper()  # ensure_limit injected
+    assert result.columns == ["amount"]
+    assert result.row_count == 1
+    assert len(provider.calls) == 1
+    # The error text was fed back to the model for repair.
+    assert "validation failed" in provider.calls[0][-1]["content"]
+
+
+def test_regenerate_follows_instruction(space):
+    # Iteration loop: a user instruction ("make this monthly") is passed through
+    # to the model even when there is no error.
+    provider = SeqProvider([f"SELECT toStartOfMonth(closedate) AS m, sum(amount) AS amount FROM {VIEW} GROUP BY m"])
+    runner = FakeRunner(default=[{"m": "2026-01-01", "amount": 5}])
+
+    result = _run(
+        regenerate_widget(
+            space,
+            intent="revenue trend",
+            sql=f"SELECT amount FROM {VIEW}",
+            instruction="make this monthly",
+            provider=provider,
+            run_query=runner,
+        )
+    )
+
+    assert result.status == "ok"
+    assert result.repaired is False
+    assert "toStartOfMonth" in result.sql
+    feedback = provider.calls[0][-1]["content"]
+    assert "make this monthly" in feedback
+    assert "failed with this error" not in feedback  # no error signal supplied
+
+
+def test_regenerate_bounded_self_repair(space):
+    # Regenerated SQL still fails the validator → exactly one bounded repair runs.
+    # Both attempts are invalid here, so the widget ends in error.
+    provider = SeqProvider([f"SELECT * FROM {VIEW}", f"SELECT * FROM {VIEW}"])
+    runner = FakeRunner()
+
+    result = _run(
+        regenerate_widget(
+            space,
+            intent="revenue",
+            sql=f"SELECT * FROM {VIEW}",
+            error="boom",
+            provider=provider,
+            run_query=runner,
+        )
+    )
+
+    assert result.status == "error"
+    assert result.repaired is True
+    assert result.error and "validation" in result.error.lower()
+    assert len(provider.calls) == 2  # one regenerate + one bounded repair
+    assert runner.calls == []  # invalid SQL is never executed
+
+
+def test_regenerate_sanitizes_clickhouse_error(space):
+    # Both attempts hit a ClickHouse error → the client gets a sanitized message
+    # only (no server version / table names leaked).
+    ch_exc = Exception(
+        "Code: 60. DB::Exception: Table silver.secret doesn't exist. "
+        "(UNKNOWN_TABLE) (version 26.2.5.45)"
+    )
+    provider = SeqProvider([f"SELECT amount FROM {VIEW}", f"SELECT dealstage FROM {VIEW}"])
+    runner = FakeRunner(behavior={VIEW: ch_exc})
+
+    result = _run(
+        regenerate_widget(
+            space,
+            intent="revenue",
+            sql=f"SELECT amount FROM {VIEW}",
+            error="prior failure",
+            provider=provider,
+            run_query=runner,
+        )
+    )
+
+    assert result.status == "error"
+    assert result.error == "ClickHouse error 60: UNKNOWN_TABLE"
+    assert "version" not in result.error and "silver.secret" not in result.error
+
+
+def test_regenerate_route_wiring(space, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app.spaces.routes_dashboards as routes
+
+    async def fake_regen(config, intent, sql, *, error=None, instruction=None, provider=None):
+        return WidgetRegenResult(
+            intent=intent,
+            sql=f"SELECT amount FROM {VIEW}",
+            status="ok",
+            columns=["amount"],
+            row_count=3,
+        )
+
+    monkeypatch.setattr(routes, "get_space", lambda sid: space)
+    monkeypatch.setattr("app.llm.providers.get_provider", lambda: object())
+    monkeypatch.setattr("app.llm.dashboard_spec.regenerate_widget", fake_regen)
+
+    from app.main import app
+
+    client = TestClient(app)
+    res = client.post(
+        "/api/v1/spaces/test_space/dashboard/widget/regenerate",
+        json={"intent": "revenue", "sql": f"SELECT * FROM {VIEW}", "error": "boom"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["columns"] == ["amount"]
+    assert body["row_count"] == 3
+
+
+def test_regenerate_route_404_for_unknown_space(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app.spaces.routes_dashboards as routes
+
+    monkeypatch.setattr(routes, "get_space", lambda sid: None)
+
+    from app.main import app
+
+    client = TestClient(app)
+    res = client.post(
+        "/api/v1/spaces/nope/dashboard/widget/regenerate",
+        json={"intent": "x", "sql": "SELECT 1"},
+    )
+    assert res.status_code == 404
+
+
+def test_regenerate_route_validates_input(space, monkeypatch):
+    # Empty intent / missing sql → 422 from the request model, before any work.
+    from fastapi.testclient import TestClient
+
+    import app.spaces.routes_dashboards as routes
+
+    monkeypatch.setattr(routes, "get_space", lambda sid: space)
+
+    from app.main import app
+
+    client = TestClient(app)
+    res = client.post(
+        "/api/v1/spaces/test_space/dashboard/widget/regenerate",
+        json={"intent": "", "sql": ""},
+    )
+    assert res.status_code == 422

@@ -102,6 +102,59 @@ async def api_stream_dashboard_spec(space_id: str, req: GenerateDashboardSpecReq
     )
 
 
+class RegenerateWidgetRequest(BaseModel):
+    """Per-widget regenerate input (CLI-159).
+
+    ``intent``/``sql`` describe the widget to regenerate; ``error`` (when the
+    widget failed) and ``instruction`` (a user tweak, e.g. "make this monthly")
+    steer the model. Both are optional and may be combined.
+    """
+
+    intent: str = Field(min_length=1, max_length=2000)
+    sql: str = Field(min_length=1, max_length=20000)
+    error: str | None = Field(default=None, max_length=8000)
+    instruction: str | None = Field(default=None, max_length=2000)
+
+
+@router.post("/{space_id}/dashboard/widget/regenerate")
+async def api_regenerate_widget(space_id: str, req: RegenerateWidgetRequest):
+    """One Shot Dashboard (CLI-159): regenerate a single widget's SQL.
+
+    The non-streaming backend for the iteration loop (B3) and one-click repair of
+    a failed widget. Produces new SQL via the LLM — steered by an optional error
+    (fix it) and/or instruction (change it) — then runs it through the same
+    validator/limit/query path as generation with a bounded self-repair retry.
+    The LLM only ever sees the space schema and the error *text* (never rows),
+    preserving the CLI-126 privacy invariant.
+    """
+    from app.llm.dashboard_spec import regenerate_widget
+    from app.llm.providers import get_provider
+
+    config = get_space(space_id)
+    if not config:
+        raise HTTPException(404, f"Data space '{space_id}' not found")
+
+    try:
+        provider = get_provider()
+    except ValueError as e:
+        raise HTTPException(503, str(e))
+
+    try:
+        result = await regenerate_widget(
+            config,
+            req.intent,
+            req.sql,
+            error=req.error,
+            instruction=req.instruction,
+            provider=provider,
+        )
+    except Exception as e:  # noqa: BLE001 — log full, return sanitized (no provider internals)
+        log.error(f"Widget regeneration failed for space '{space_id}': {e}")
+        raise HTTPException(502, "Widget regeneration error")
+
+    return result.model_dump()
+
+
 class CreateSpaceDashboardRequest(BaseModel):
     title: str
 
