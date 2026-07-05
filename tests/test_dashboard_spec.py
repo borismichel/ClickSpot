@@ -93,11 +93,23 @@ class FakeRunner:
         return self.default
 
 
-def _widget(title: str, sql: str, viz: str = "table") -> dict:
+# Default widget role per viz type — matches the composition grammar (CLI-155).
+_ROLE_FOR_VIZ = {
+    "number": "kpi",
+    "line": "trend",
+    "bar": "breakdown",
+    "funnel": "flow",
+    "table": "detail",
+    "comparison": "breakdown",
+}
+
+
+def _widget(title: str, sql: str, viz: str = "table", role: str | None = None) -> dict:
     return {
         "title": title,
         "intent": f"answer {title}",
         "sql": sql,
+        "role": role or _ROLE_FOR_VIZ.get(viz, "breakdown"),
         "viz_type": viz,
         "encoding": {"x": "dealstage", "y": ["amount"]},
         "suggested_filters": ["dealstage"],
@@ -150,6 +162,7 @@ def test_encoding_compare_roundtrips_to_spec(space):
         "title": "Revenue vs last quarter",
         "intent": "current revenue against the prior period",
         "sql": f"SELECT sum(amount) AS revenue, sum(prev_amount) AS prev_revenue FROM {VIEW}",
+        "role": "kpi",  # required since C1; a value+delta stat tile is a kpi
         "viz_type": "comparison",
         "encoding": {"value": "revenue", "compare": "prev_revenue"},
         "suggested_filters": [],

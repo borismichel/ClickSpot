@@ -72,11 +72,23 @@ def allow_view():
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-def _widget(title: str, sql: str, viz: str = "table") -> dict:
+# Default widget role per viz type — matches the composition grammar (CLI-155).
+_ROLE_FOR_VIZ = {
+    "number": "kpi",
+    "line": "trend",
+    "bar": "breakdown",
+    "funnel": "flow",
+    "table": "detail",
+    "comparison": "breakdown",
+}
+
+
+def _widget(title: str, sql: str, viz: str = "table", role: str | None = None) -> dict:
     return {
         "title": title,
         "intent": f"answer {title}",
         "sql": sql,
+        "role": role or _ROLE_FOR_VIZ.get(viz, "breakdown"),
         "viz_type": viz,
         "encoding": {"x": "dealstage", "y": ["amount"]},
         "suggested_filters": ["dealstage"],
@@ -321,6 +333,66 @@ def test_schema_only_invariant_build_prompt_uses_config_metadata_only(space):
 
     # No sentinel row data can appear (structural: config carries no DB values)
     assert _SENTINEL not in prompt
+
+
+# ---------------------------------------------------------------------------
+# 2b. Composition contract (CLI-155 / plan C1)
+# ---------------------------------------------------------------------------
+
+def test_widget_plan_requires_role():
+    """`role` is a required field on WidgetPlan — a plan without it is rejected."""
+    from pydantic import ValidationError
+
+    from app.llm.dashboard_spec import WidgetPlan
+
+    with pytest.raises(ValidationError):
+        WidgetPlan(title="t", intent="i", sql="SELECT 1", viz_type="number")
+
+    # A valid role validates fine.
+    w = WidgetPlan(title="t", intent="i", sql="SELECT 1", viz_type="number", role="kpi")
+    assert w.role == "kpi"
+
+
+def test_widget_plan_rejects_unknown_role():
+    """The role enum is closed to the five composition roles."""
+    from pydantic import ValidationError
+
+    from app.llm.dashboard_spec import WidgetPlan
+
+    with pytest.raises(ValidationError):
+        WidgetPlan(title="t", intent="i", sql="SELECT 1", viz_type="bar", role="chart")
+
+
+def test_role_propagates_to_widget_spec(space):
+    """The planned `role` survives validation/execution onto the output WidgetSpec."""
+    plan = {
+        "dashboard_filters": [],
+        "widgets": [
+            _widget("KPI", f"SELECT count(*) FROM {VIEW}", "number", role="kpi"),
+            _widget("Stages", f"SELECT dealstage, count(*) FROM {VIEW} GROUP BY dealstage", "bar", role="breakdown"),
+        ],
+    }
+    spec = _run(generate_dashboard_spec(
+        space, "overview", provider=FakeProvider(plan), run_query=FakeRunner(),
+    ))
+    assert [w.role for w in spec.widgets] == ["kpi", "breakdown"]
+
+
+def test_prompt_encodes_composition_grammar_and_drops_comparison(space):
+    """The dashboard prompt states the role grammar and no longer solicits comparison."""
+    prompt = build_dashboard_prompt(space)
+
+    # The five composition roles are named.
+    for role in ("kpi", "trend", "breakdown", "flow", "detail"):
+        assert f'"{role}"' in prompt, f"role '{role}' missing from prompt grammar"
+
+    # Per-viz SQL shape contracts are embedded (bar top-N, line series cap).
+    assert "ORDER BY" in prompt and "LIMIT 12" in prompt, "bar top-N contract missing"
+    assert "5 series" in prompt, "line series cap missing"
+
+    # comparison is retired from the OSD vocabulary: the prompt explicitly tells
+    # the model NOT to emit it rather than encouraging it (as the old prose did).
+    assert 'Do NOT emit a "comparison"' in prompt, "prompt should forbid comparison widgets"
 
 
 # ---------------------------------------------------------------------------
