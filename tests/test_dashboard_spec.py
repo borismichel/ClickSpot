@@ -13,6 +13,7 @@ import json
 import pytest
 
 from app.llm.dashboard_spec import (
+    MAX_SPEC_ROWS,
     MAX_WIDGETS,
     DashboardEvent,
     DashboardSpec,
@@ -135,6 +136,8 @@ def test_spec_shape_and_widget_cap(space):
     assert w.encoding.x == "dealstage" and w.encoding.y == ["amount"]
     assert w.columns == ["amount"]
     assert w.row_count == 1
+    # Rows are carried inline so the draft renders without re-querying (CLI-148).
+    assert w.rows == [{"amount": 10}]
     assert "LIMIT" in w.sql.upper()  # ensure_limit injected
 
 
@@ -146,6 +149,34 @@ def test_no_truncation_when_within_cap(space):
     )
     assert spec.widget_count == 6
     assert spec.truncated is False
+
+
+def test_carried_rows_are_bounded(space):
+    # A widget returning more than the cap carries only the first MAX_SPEC_ROWS,
+    # while row_count still reflects the true (bounded-by-ensure_limit) result.
+    big = [{"amount": i} for i in range(MAX_SPEC_ROWS + 50)]
+    plan = {"dashboard_filters": [], "widgets": [_widget("big", f"SELECT amount FROM {VIEW}")]}
+    spec = _run(
+        generate_dashboard_spec(
+            space, "x", provider=FakeProvider(plan), run_query=FakeRunner(default=big)
+        )
+    )
+    w = spec.widgets[0]
+    assert w.status == "ok"
+    assert len(w.rows) == MAX_SPEC_ROWS
+    assert w.rows[0] == {"amount": 0}
+    assert w.row_count == MAX_SPEC_ROWS + 50
+
+
+def test_error_widget_carries_no_rows(space):
+    # A widget that fails validation and can't be repaired carries an empty set.
+    bad = _widget("broken", f"SELECT * FROM {VIEW}")  # SELECT * fails the validator
+    plan = {"dashboard_filters": [], "widgets": [bad]}
+    provider = FakeProvider(plan, repair_sql=f"SELECT * FROM {VIEW}")  # still invalid
+    spec = _run(generate_dashboard_spec(space, "x", provider=provider, run_query=FakeRunner()))
+    w = spec.widgets[0]
+    assert w.status == "error"
+    assert w.rows == []
 
 
 # --- self-repair ---------------------------------------------------------

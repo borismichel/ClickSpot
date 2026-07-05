@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, Spin, Alert, Button, Tooltip, Input, Space, theme } from "antd";
 import { ReloadOutlined, CloseOutlined, CodeOutlined } from "@ant-design/icons";
 import type { SpaceFilter, VizType } from "../../types/dashboard";
@@ -15,6 +15,8 @@ export interface DraftWidget {
   status: "ok" | "error";
   error?: string | null;
   columns: string[];
+  /** Rows carried inline from the spec so the card renders without re-querying (CLI-148). */
+  rows: Record<string, unknown>[];
   layout: { x: number; y: number; w: number; h: number };
 }
 
@@ -42,10 +44,16 @@ function buildSpaceFilterPayload(filters: SpaceFilter[]) {
  */
 export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlChange, onRemove }: Props) {
   const { token } = theme.useToken();
-  const [results, setResults] = useState<Record<string, unknown>[]>([]);
+  // Hydrate straight from the spec — the backend already validated + executed
+  // this widget and carried its rows, so the draft renders without a second
+  // ClickHouse round-trip (CLI-148). We only re-query on filter change, refresh,
+  // or SQL edit (see the effect below).
+  const [results, setResults] = useState<Record<string, unknown>[]>(widget.rows);
   const [columns, setColumns] = useState<string[]>(widget.columns);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(
+    widget.status === "error" ? widget.error ?? "Widget generation failed" : null
+  );
   const [showSql, setShowSql] = useState(false);
   const [draftSql, setDraftSql] = useState(widget.sql);
 
@@ -75,13 +83,29 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
     [filters, spaceView]
   );
 
-  // Re-run when the persisted SQL, the dashboard filters, or a manual refresh
-  // changes. Editing the SQL field alone does not re-run until "Run" is pressed.
-  // draftSql already tracks widget.sql (applySql lifts the edit before the prop
-  // updates), so it needs no resync here — keeping the effect a pure fetch sync.
+  // Signature of the inputs that determine the result set. The card is seeded
+  // with the spec's rows (the no-filter result of the original SQL), so we only
+  // re-query when this signature diverges from what was last fetched: a filter
+  // change, a manual refresh (refreshKey), or a lifted SQL edit. Editing the SQL
+  // field alone does not re-run until "Run" is pressed (applySql lifts it into
+  // widget.sql first). Using a signature rather than a first-render flag keeps
+  // React StrictMode's double-invoke from triggering a spurious mount fetch.
+  const fetchSig = useMemo(
+    () =>
+      JSON.stringify({
+        sql: widget.sql,
+        filters: buildSpaceFilterPayload(filters) ?? null,
+        spaceView: spaceView ?? null,
+        refreshKey,
+      }),
+    [widget.sql, filters, spaceView, refreshKey]
+  );
+  const lastFetchedSig = useRef(fetchSig);
   useEffect(() => {
+    if (lastFetchedSig.current === fetchSig) return; // matches the carried spec rows
+    lastFetchedSig.current = fetchSig;
     runSql(widget.sql);
-  }, [widget.sql, runSql, refreshKey]);
+  }, [fetchSig, runSql, widget.sql]);
 
   const applySql = () => {
     const next = draftSql.trim();
