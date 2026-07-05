@@ -625,7 +625,6 @@ export default function OneShotDashboardPage() {
           intent: prompt,
           sql: r.sql,
           viz,
-          suggested_filters: [],
           status: r.status,
           error: r.error ?? null,
           columns: r.columns ?? [],
