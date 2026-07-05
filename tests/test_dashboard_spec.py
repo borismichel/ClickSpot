@@ -112,7 +112,6 @@ def _widget(title: str, sql: str, viz: str = "table", role: str | None = None) -
         "role": role or _ROLE_FOR_VIZ.get(viz, "breakdown"),
         "viz_type": viz,
         "encoding": {"x": "dealstage", "y": ["amount"]},
-        "suggested_filters": ["dealstage"],
     }
 
 
@@ -146,7 +145,6 @@ def test_spec_shape_and_widget_cap(space):
     assert w.repaired is False
     assert w.viz_type == "table"
     assert w.intent == "answer w0"
-    assert w.suggested_filters == ["dealstage"]
     assert w.encoding.x == "dealstage" and w.encoding.y == ["amount"]
     assert w.columns == ["amount"]
     assert w.row_count == 1

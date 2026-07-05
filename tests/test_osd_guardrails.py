@@ -91,7 +91,6 @@ def _widget(title: str, sql: str, viz: str = "table", role: str | None = None) -
         "role": role or _ROLE_FOR_VIZ.get(viz, "breakdown"),
         "viz_type": viz,
         "encoding": {"x": "dealstage", "y": ["amount"]},
-        "suggested_filters": ["dealstage"],
     }
 
 
