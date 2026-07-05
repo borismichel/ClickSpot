@@ -163,7 +163,6 @@ def test_encoding_compare_roundtrips_to_spec(space):
         "role": "kpi",  # required since C1; a value+delta stat tile is a kpi
         "viz_type": "comparison",
         "encoding": {"value": "revenue", "compare": "prev_revenue"},
-        "suggested_filters": [],
     }
     plan = {"dashboard_filters": [], "widgets": [widget]}
     runner = FakeRunner(default=[{"revenue": 100, "prev_revenue": 80}])
