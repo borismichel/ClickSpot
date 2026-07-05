@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS space_dashboards (
     id TEXT PRIMARY KEY,
     space_id TEXT NOT NULL,
     title TEXT NOT NULL,
+    source_description TEXT NOT NULL DEFAULT '',
     pinned_columns TEXT NOT NULL DEFAULT '[]',
     filters TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS space_dashboard_items (
     id TEXT PRIMARY KEY,
     dashboard_id TEXT NOT NULL REFERENCES space_dashboards(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
+    intent TEXT NOT NULL DEFAULT '',
     sql TEXT NOT NULL,
     viz TEXT NOT NULL,
     context_kpis TEXT NOT NULL DEFAULT '[]',
@@ -117,6 +119,27 @@ async def init_db():
             await db.execute("ALTER TABLE conversations ADD COLUMN space_id TEXT")
             await db.commit()
             log.info("Migrated conversations table: added space_id column")
+
+        # Preserve OSD provenance on existing saved dashboards (CLI-164/A5): the
+        # dashboard's originating prompt and each widget's business-question intent
+        # are additive columns; backfill them on databases created before A5.
+        cursor = await db.execute("PRAGMA table_info(space_dashboards)")
+        dash_cols = {row[1] for row in await cursor.fetchall()}
+        if dash_cols and "source_description" not in dash_cols:
+            await db.execute(
+                "ALTER TABLE space_dashboards ADD COLUMN source_description TEXT NOT NULL DEFAULT ''"
+            )
+            await db.commit()
+            log.info("Migrated space_dashboards table: added source_description column")
+
+        cursor = await db.execute("PRAGMA table_info(space_dashboard_items)")
+        item_cols = {row[1] for row in await cursor.fetchall()}
+        if item_cols and "intent" not in item_cols:
+            await db.execute(
+                "ALTER TABLE space_dashboard_items ADD COLUMN intent TEXT NOT NULL DEFAULT ''"
+            )
+            await db.commit()
+            log.info("Migrated space_dashboard_items table: added intent column")
 
         # Now create all tables + indexes (safe — space_id exists or table is new)
         await db.executescript(SCHEMA_SQL)
