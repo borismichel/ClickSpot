@@ -143,6 +143,40 @@ def test_spec_shape_and_widget_cap(space):
     assert "LIMIT" in w.sql.upper()  # ensure_limit injected
 
 
+def test_encoding_compare_roundtrips_to_spec(space):
+    # A comparison widget names a prior-period column in encoding.compare; the
+    # renderer relies on it to draw a value + delta (CLI-165 / A6 + C4).
+    widget = {
+        "title": "Revenue vs last quarter",
+        "intent": "current revenue against the prior period",
+        "sql": f"SELECT sum(amount) AS revenue, sum(prev_amount) AS prev_revenue FROM {VIEW}",
+        "viz_type": "comparison",
+        "encoding": {"value": "revenue", "compare": "prev_revenue"},
+        "suggested_filters": [],
+    }
+    plan = {"dashboard_filters": [], "widgets": [widget]}
+    runner = FakeRunner(default=[{"revenue": 100, "prev_revenue": 80}])
+
+    spec = _run(generate_dashboard_spec(space, "x", provider=FakeProvider(plan), run_query=runner))
+
+    w = spec.widgets[0]
+    assert w.status == "ok"
+    assert w.viz_type == "comparison"
+    assert w.encoding.value == "revenue"
+    assert w.encoding.compare == "prev_revenue"
+
+
+def test_prompt_documents_bar_ordering_and_compare(space):
+    from app.llm.dashboard_spec import build_dashboard_prompt
+
+    prompt = build_dashboard_prompt(space)
+    # Bar top-N ordering guidance and the compare-column contract are both in the
+    # planner prompt so the model authors the hints the renderer now consumes.
+    assert "ORDER BY" in prompt and "LIMIT" in prompt
+    assert "encoding.compare" in prompt
+    assert "encoding.value" in prompt
+
+
 def test_no_truncation_when_within_cap(space):
     widgets = [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(6)]
     plan = {"dashboard_filters": [], "widgets": widgets}
