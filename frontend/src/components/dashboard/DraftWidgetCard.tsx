@@ -100,7 +100,23 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
       }),
     [widget.sql, filters, spaceView, refreshKey]
   );
-  const lastFetchedSig = useRef(fetchSig);
+  // Seed the last-fetched signature to the one the *carried* rows actually
+  // correspond to, not the current signature. The backend executes the
+  // generation query with no active filter payload, so widget.rows are the
+  // unfiltered result of widget.sql. On a fresh-generation mount the filters are
+  // still empty, so this seed equals the current fetchSig and the second query
+  // is correctly skipped (CLI-148). On a durable-draft restore the filter bar
+  // carries picked values, so the current fetchSig diverges from this seed and
+  // the mount refetches — otherwise the card would render the unfiltered carried
+  // rows under active filters (CLI-175).
+  const lastFetchedSig = useRef(
+    JSON.stringify({
+      sql: widget.sql,
+      filters: null,
+      spaceView: spaceView ?? null,
+      refreshKey,
+    })
+  );
   useEffect(() => {
     if (lastFetchedSig.current === fetchSig) return; // matches the carried spec rows
     lastFetchedSig.current = fetchSig;
