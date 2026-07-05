@@ -55,14 +55,38 @@ _ROLE_VIZ: dict[str, tuple[str, ...]] = {
     "detail": ("table",),
 }
 
+# Plain-language labels for the role/viz enums. ClickSpot is a no-SQL, plain-English
+# surface, so end-user warnings never leak the internal ``kpi``/``number`` tokens
+# (UX review, CLI-161). Keyed by the enum; fall back to the raw token if unmapped.
+_ROLE_LABEL: dict[str, str] = {
+    "kpi": "headline KPI",
+    "trend": "time trend",
+    "breakdown": "breakdown",
+    "flow": "funnel",
+    "detail": "detail table",
+}
+_VIZ_LABEL: dict[str, str] = {
+    "number": "single-number tile",
+    "line": "line chart",
+    "bar": "bar chart",
+    "table": "table",
+    "funnel": "funnel",
+    "comparison": "comparison",
+}
+
 
 def viz_role_warning(role: str, viz_type: str) -> str | None:
-    """Return a warning if ``viz_type`` is incoherent with ``role``, else ``None``."""
+    """Return a plain-language warning if ``viz_type`` is incoherent with ``role``.
+
+    Phrased for end users (no ``kpi``/``number`` enum tokens), else ``None``.
+    """
     allowed = _ROLE_VIZ.get(role)
     if allowed is None or viz_type in allowed:
         return None
-    expected = " or ".join(f"'{v}'" for v in allowed)
-    return f"Role '{role}' should render as {expected}, not '{viz_type}'."
+    role_label = _ROLE_LABEL.get(role, role)
+    viz_label = _VIZ_LABEL.get(viz_type, viz_type)
+    expected = " or ".join(_VIZ_LABEL.get(v, v) for v in allowed)
+    return f"This {role_label} is set to render as a {viz_label}; a {expected} fits it better."
 
 
 def cardinality_repair_instruction(viz_type: str, row_count: int | None) -> str | None:
@@ -172,11 +196,11 @@ def composition_warnings(roles: list[str]) -> list[str]:
     kpi = counts.get("kpi", 0)
     if kpi == 0:
         out.append(
-            f"No KPI band: lead with {KPI_BAND_MIN}–{KPI_BAND_MAX} headline 'number' widgets."
+            f"No KPI band: lead with {KPI_BAND_MIN}–{KPI_BAND_MAX} headline number tiles."
         )
     elif kpi < KPI_BAND_MIN:
         out.append(
-            f"Only {kpi} KPI widget: a headline band should be {KPI_BAND_MIN}–{KPI_BAND_MAX}."
+            f"Only {kpi} KPI tile: a headline band should be {KPI_BAND_MIN}–{KPI_BAND_MAX}."
         )
     elif kpi > KPI_BAND_MAX:
         out.append(

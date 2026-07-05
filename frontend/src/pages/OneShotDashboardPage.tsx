@@ -92,6 +92,10 @@ interface PersistedDraft {
   widgets: DraftWidget[];
   filters: SpaceFilter[];
   truncated: boolean;
+  // Board-level composition warnings (CLI-161 / C2). Persisted so pure role-count
+  // warnings — which have no per-widget echo — survive a draft restore rather than
+  // silently vanishing (they'd otherwise breach C2's "surfaced, never silent" rule).
+  boardWarnings: string[];
   savedAt: number;
 }
 
@@ -384,11 +388,12 @@ export default function OneShotDashboardPage() {
         widgets,
         filters,
         truncated,
+        boardWarnings,
         savedAt: Date.now(),
       };
       sessionStorage.setItem(draftKey(spaceId), JSON.stringify(payload));
     } catch { /* quota exceeded / storage disabled — durability is best-effort */ }
-  }, [phase, spaceId, widgets, filters, truncated, description]);
+  }, [phase, spaceId, widgets, filters, truncated, description, boardWarnings]);
 
   // On return to the entry form, surface any persisted draft for the selected space
   // as a restore banner. Only while idle, so we never clobber a live/ready draft.
@@ -433,6 +438,7 @@ export default function OneShotDashboardPage() {
     setWidgets(restorable.widgets);
     setFilters(restorable.filters);
     setTruncated(restorable.truncated);
+    setBoardWarnings(restorable.boardWarnings ?? []);
     loadFilterColumns(spaceId, restorable.filters.map((f) => f.column));
     setProgress(100);
     setStatusText("Restored draft");

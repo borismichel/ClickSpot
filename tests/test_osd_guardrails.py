@@ -565,7 +565,10 @@ def test_viz_role_coherence(role, viz, expect_warn):
     w = viz_role_warning(role, viz)
     assert (w is not None) is expect_warn
     if expect_warn:
-        assert role in w and viz in w
+        # Plain-language copy (UX review): no quoted enum tokens (e.g. 'kpi',
+        # 'number') leak to the user, and the raw viz enum is humanised.
+        assert "'" not in w
+        assert f"'{role}'" not in w and f"'{viz}'" not in w
 
 
 def test_cardinality_instruction_and_violation():
@@ -698,7 +701,8 @@ def test_viz_role_incoherence_surfaces_widget_warning(space):
     """A widget whose viz contradicts its role is flagged even when it runs fine."""
     provider = FakeProvider(_one_widget_plan(f"SELECT sum(amount) FROM {VIEW}", "bar", "kpi"))
     spec = _run(generate_dashboard_spec(space, "overview", provider=provider, run_query=FakeRunner()))
-    assert any("kpi" in warn for warn in spec.widgets[0].warnings)
+    # Plain-language coherence copy — the KPI/bar mismatch is surfaced without enum tokens.
+    assert any("KPI" in warn and "bar chart" in warn for warn in spec.widgets[0].warnings)
 
 
 def test_duplicate_analysis_surfaces_board_and_widget_warning(space):
@@ -715,7 +719,8 @@ def test_duplicate_analysis_surfaces_board_and_widget_warning(space):
     spec = _run(generate_dashboard_spec(space, "overview", provider=FakeProvider(plan), run_query=FakeRunner()))
     assert any("Duplicate analysis" in w for w in spec.warnings)
     # the second (redundant) widget is tagged; the first is left clean
-    assert any("Duplicates" in w for w in spec.widgets[1].warnings)
+    assert any("same breakdown" in w for w in spec.widgets[1].warnings)
+    assert spec.widgets[0].warnings == []
 
 
 def test_clean_board_has_no_warnings(space):

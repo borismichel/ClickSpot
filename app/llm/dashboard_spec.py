@@ -757,13 +757,13 @@ async def stream_dashboard_spec(
     for group in find_duplicate_analyses([w.sql for w in ordered]):
         titles = ", ".join(f"'{ordered[i].title}'" for i in group)
         board_warnings.append(
-            f"Duplicate analysis: {titles} group by the same column(s) on the same measure."
+            f"Duplicate analysis: {titles} break down the same field by the same metric."
         )
         # Tag the redundant widgets (all but the first) so the warning is also
         # visible on the chart itself, not just the board summary.
         for i in group[1:]:
             ordered[i].warnings.append(
-                "Duplicates another widget's analysis (same GROUP BY + measure)."
+                "Shows the same breakdown as another widget (same grouping and metric)."
             )
 
     spec = DashboardSpec(
