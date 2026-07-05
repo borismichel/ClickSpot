@@ -38,11 +38,18 @@ interface SpaceOption {
   name: string;
 }
 
+// The composition-grammar role each widget declares (CLI-155 / plan C1). The
+// band-based auto-layout (C3) keys off it, so it mirrors the backend
+// `WidgetRole` in app/llm/dashboard_spec.py.
+type WidgetRole = "kpi" | "trend" | "breakdown" | "flow" | "detail";
+
 // Mirrors the backend DashboardEvent (app/llm/dashboard_spec.py).
 interface WidgetSpec {
   title: string;
   intent: string;
   sql: string;
+  // The job this widget does on the board; drives the band layout (C1/CLI-155).
+  role: WidgetRole;
   viz_type: VizType;
   encoding?: WidgetEncoding;
   status: "ok" | "error";
@@ -142,7 +149,12 @@ function pickFallbackFilterColumns(all: SpaceColumnMeta[]): SpaceColumnMeta[] {
     .map((x) => x.c);
 }
 
-/** Pick a sensible default tile size per viz type for the initial auto-layout. */
+/**
+ * Default tile size per viz type — used only when a single widget is appended
+ * via the prompt box (the initial multi-widget layout uses the band template
+ * below). The bottom-append path has no board context to reason about, so a
+ * per-viz default is the right heuristic there.
+ */
 function sizeFor(viz: VizType): { w: number; h: number } {
   if (viz === "number") return { w: 3, h: 2 };
   if (viz === "comparison") return { w: 4, h: 2 };
@@ -150,23 +162,103 @@ function sizeFor(viz: VizType): { w: number; h: number } {
   return { w: 6, h: 4 }; // bar / line / funnel
 }
 
-/** Left-to-right packer wrapping at 12 cols; RGL vertically compacts afterwards. */
-function autoLayout(widgets: WidgetSpec[]): Array<{ x: number; y: number; w: number; h: number }> {
-  let x = 0;
+type Pos = { x: number; y: number; w: number; h: number };
+
+// Fallback role for specs authored before C1 (CLI-155) made `role` required, or
+// for any value outside the grammar: infer the job from the viz type so the band
+// layout still places the widget sensibly.
+const VIZ_ROLE_FALLBACK: Record<VizType, WidgetRole> = {
+  number: "kpi",
+  comparison: "kpi",
+  line: "trend",
+  funnel: "flow",
+  table: "detail",
+  bar: "breakdown",
+};
+
+function roleOf(w: { role?: string; viz_type: VizType }): WidgetRole {
+  const r = w.role;
+  if (r === "kpi" || r === "trend" || r === "breakdown" || r === "flow" || r === "detail") return r;
+  return VIZ_ROLE_FALLBACK[w.viz_type] ?? "breakdown";
+}
+
+/**
+ * Band-based auto-layout (CLI-156 / plan C3). Places widgets into a fixed
+ * template keyed on their composition `role`, independent of emission order, so
+ * the initial board reads top-to-bottom as: headline → trend → breakdowns →
+ * detail. Deterministic and gap-free (every row fills all 12 columns); RGL
+ * drag/resize still lets the user override afterwards.
+ *
+ *   Row 1        KPI band     — all `kpi` tiles, ≤6 per row, widths sum to 12, h 2
+ *   Row 2        hero trend   — first `trend` at 8 wide (12 if solo), h 4
+ *                + sidecar    — first `flow` beside it at 4 wide, h 4
+ *   Middle rows  breakdowns   — matched 6+6 pairs (odd tail spans full width), h 4
+ *   Final rows   detail       — each `detail` table full-width, h 5
+ *
+ * Returns positions aligned by index with the input array.
+ */
+function autoLayout(widgets: WidgetSpec[]): Pos[] {
+  const positions: Pos[] = new Array(widgets.length);
+  const buckets: Record<WidgetRole, number[]> = {
+    kpi: [], trend: [], breakdown: [], flow: [], detail: [],
+  };
+  widgets.forEach((w, i) => buckets[roleOf(w)].push(i));
+
   let y = 0;
-  let rowH = 0;
-  return widgets.map((w) => {
-    const { w: ww, h: hh } = sizeFor(w.viz_type);
-    if (x + ww > COLS) {
-      x = 0;
-      y += rowH;
-      rowH = 0;
+
+  // Row 1 — KPI band. Chunk into rows of ≤6 (so tiles never get too narrow) and
+  // distribute the 12 columns evenly, handing the remainder to the leftmost
+  // tiles so each row fills the full width with no gap.
+  const KPI_PER_ROW = 6;
+  for (let s = 0; s < buckets.kpi.length; s += KPI_PER_ROW) {
+    const row = buckets.kpi.slice(s, s + KPI_PER_ROW);
+    const base = Math.floor(COLS / row.length);
+    const extra = COLS - base * row.length;
+    let x = 0;
+    row.forEach((idx, j) => {
+      const w = base + (j < extra ? 1 : 0);
+      positions[idx] = { x, y, w, h: 2 };
+      x += w;
+    });
+    y += 2;
+  }
+
+  // Row 2 — hero trend + optional flow sidecar. Consume the first of each; any
+  // extras fall through to the breakdown pairs below.
+  const trendIdx = buckets.trend.shift();
+  const sidecarIdx = buckets.flow.shift();
+  if (trendIdx !== undefined) {
+    positions[trendIdx] = { x: 0, y, w: sidecarIdx !== undefined ? 8 : COLS, h: 4 };
+    if (sidecarIdx !== undefined) positions[sidecarIdx] = { x: 8, y, w: 4, h: 4 };
+    y += 4;
+  } else if (sidecarIdx !== undefined) {
+    // No trend to anchor it — give the lone flow its own full-width band.
+    positions[sidecarIdx] = { x: 0, y, w: COLS, h: 4 };
+    y += 4;
+  }
+
+  // Middle rows — breakdowns (plus any leftover trends/flows) in matched 6+6
+  // pairs, restored to emission order. An odd trailing tile spans the full width
+  // rather than leaving the row ragged.
+  const middle = [...buckets.breakdown, ...buckets.trend, ...buckets.flow].sort((a, b) => a - b);
+  for (let s = 0; s < middle.length; s += 2) {
+    const pair = middle.slice(s, s + 2);
+    if (pair.length === 2) {
+      positions[pair[0]] = { x: 0, y, w: 6, h: 4 };
+      positions[pair[1]] = { x: 6, y, w: 6, h: 4 };
+    } else {
+      positions[pair[0]] = { x: 0, y, w: COLS, h: 4 };
     }
-    const pos = { x, y, w: ww, h: hh };
-    x += ww;
-    rowH = Math.max(rowH, hh);
-    return pos;
-  });
+    y += 4;
+  }
+
+  // Final rows — detail tables, each full-width and stacked.
+  for (const idx of buckets.detail) {
+    positions[idx] = { x: 0, y, w: COLS, h: 5 };
+    y += 5;
+  }
+
+  return positions;
 }
 
 export default function OneShotDashboardPage() {
