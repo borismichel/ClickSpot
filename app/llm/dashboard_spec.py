@@ -60,6 +60,14 @@ class WidgetEncoding(BaseModel):
     series: str | None = Field(default=None, description="Optional column to split into series.")
     value: str | None = Field(default=None, description="Single value column (for 'number' viz).")
     label: str | None = Field(default=None, description="Label column (for 'funnel'/'bar').")
+    compare: str | None = Field(
+        default=None,
+        description=(
+            "Prior-period / baseline value column returned alongside 'value' in the "
+            "same single-row query. When set, 'number'/'comparison' widgets render a "
+            "delta badge (value vs prior) instead of a bare figure."
+        ),
+    )
 
 
 class WidgetPlan(BaseModel):
@@ -208,6 +216,12 @@ Guidelines:
 - Do not repeat the same analysis — each widget adds a distinct perspective.
 - For each widget set the encoding hints, naming the VIEW columns used for the
   x axis / y measures / series / value / label as appropriate for its viz_type.
+- "bar" widgets: rank the categories — ORDER BY the measure DESC and LIMIT ~12 so
+  the chart stays legible (the renderer folds any tail into an "Other" bar).
+- "number" and "comparison" widgets: return exactly ONE row. For a comparison,
+  select the current value AND the prior-period value as two columns in that row,
+  name the current column in encoding.value and the prior column in encoding.compare
+  so the tile can show a value + delta. A plain "number" needs only encoding.value.
 - suggested_filters: VIEW column names that make good per-widget interactive filters.
 - dashboard_filters: VIEW column names that make sense as dashboard-wide filters
   applied across all widgets (e.g. a date column, owner, pipeline).

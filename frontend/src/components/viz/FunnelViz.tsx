@@ -9,20 +9,19 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { chartPalette as COLORS } from "../../theme/chartPalette";
+import type { WidgetEncoding } from "../../types/dashboard";
+import { resolveLabelCol, resolveValueCols } from "./vizRoles";
 
 interface Props {
   results: Record<string, unknown>[];
   columns: string[];
   title: string;
+  encoding?: WidgetEncoding;
 }
 
-export function FunnelViz({ results, columns, title }: Props) {
-  const labelCol = columns.find((c) =>
-    results.length > 0 && typeof results[0][c] === "string"
-  ) || columns[0];
-  const valueCol = columns.find((c) =>
-    results.length > 0 && typeof results[0][c] === "number"
-  ) || columns[1] || columns[0];
+export function FunnelViz({ results, columns, title, encoding }: Props) {
+  const labelCol = resolveLabelCol(encoding, results, columns);
+  const valueCol = resolveValueCols(encoding, results, columns, labelCol)[0];
 
   // Keep original order from SQL (already ordered as a funnel)
   const data = results.map((r) => ({

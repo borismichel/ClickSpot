@@ -1,5 +1,26 @@
 export type VizType = "number" | "table" | "bar" | "line" | "funnel" | "comparison";
 
+/**
+ * LLM-authored column-role hints for a widget (mirrors the backend
+ * `WidgetEncoding` in app/llm/dashboard_spec.py). The renderer treats these as
+ * the authoritative column mapping and falls back to type-sniffing when a role
+ * is absent (CLI-165 / plan A6).
+ */
+export interface WidgetEncoding {
+  /** Category or time axis column. */
+  x?: string | null;
+  /** Measure column(s) to plot. */
+  y?: string[];
+  /** Optional column to split into series. */
+  series?: string | null;
+  /** Single value column (for `number`/`comparison`). */
+  value?: string | null;
+  /** Label column (for `funnel`/`bar`). */
+  label?: string | null;
+  /** Prior-period / baseline column returned alongside `value` for a delta. */
+  compare?: string | null;
+}
+
 export interface SavedObject {
   id: string;
   title: string;

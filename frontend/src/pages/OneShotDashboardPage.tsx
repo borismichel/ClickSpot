@@ -27,7 +27,7 @@ import { UnifiedFilterBar } from "../components/filters/UnifiedFilterBar";
 import type { FilterValueOption, UnifiedFilterColumn } from "../components/filters/UnifiedFilterBar";
 import { DraftWidgetCard } from "../components/dashboard/DraftWidgetCard";
 import type { DraftWidget } from "../components/dashboard/DraftWidgetCard";
-import type { SpaceColumnMeta, SpaceFilter, VizType } from "../types/dashboard";
+import type { SpaceColumnMeta, SpaceFilter, VizType, WidgetEncoding } from "../types/dashboard";
 import { spacing } from "../theme/tokens";
 
 const { Content } = Layout;
@@ -44,6 +44,7 @@ interface WidgetSpec {
   intent: string;
   sql: string;
   viz_type: VizType;
+  encoding?: WidgetEncoding;
   suggested_filters: string[];
   status: "ok" | "error";
   error?: string | null;
@@ -263,6 +264,7 @@ export default function OneShotDashboardPage() {
           intent: w.intent,
           sql: w.sql,
           viz: w.viz_type,
+          encoding: w.encoding,
           suggested_filters: w.suggested_filters,
           status: w.status,
           error: w.error ?? null,

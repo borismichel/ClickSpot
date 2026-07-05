@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, Spin, Alert, Button, Tooltip, Input, Space, Popover, Typography, theme } from "antd";
 import { ReloadOutlined, CloseOutlined, CodeOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import type { SpaceFilter, VizType } from "../../types/dashboard";
+import type { SpaceFilter, VizType, WidgetEncoding } from "../../types/dashboard";
 import { VizRouter } from "../viz/VizRouter";
 
 /** A generated widget in the transient One Shot Dashboard draft (CLI-129). */
@@ -11,6 +11,7 @@ export interface DraftWidget {
   intent: string;
   sql: string;
   viz: VizType;
+  encoding?: WidgetEncoding;
   suggested_filters: string[];
   status: "ok" | "error";
   error?: string | null;
@@ -303,7 +304,7 @@ export function DraftWidgetCard({
           }
         />
       ) : (
-        <VizRouter viz={widget.viz} results={results} columns={columns} title="" />
+        <VizRouter viz={widget.viz} results={results} columns={columns} title="" encoding={widget.encoding} />
       )}
     </Card>
   );

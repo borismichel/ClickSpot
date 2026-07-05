@@ -10,29 +10,48 @@ import {
   Legend,
 } from "recharts";
 import { chartPalette as COLORS } from "../../theme/chartPalette";
+import type { WidgetEncoding } from "../../types/dashboard";
 
 interface Props {
   results: Record<string, unknown>[];
   columns: string[];
   title: string;
+  encoding?: WidgetEncoding;
+}
+
+/** Only trust an encoding column name if the query actually returned it. */
+function present(col: string | null | undefined, columns: string[]): string | undefined {
+  return col && columns.includes(col) ? col : undefined;
 }
 
 /**
  * Detect multi-series pattern: [date, category_string, numeric_value].
  * Returns { dateCol, seriesCol, valueCol } or null if not multi-series.
+ * Encoding hints (x = date, series, y[0] = value) are authoritative when the
+ * query returned those columns; otherwise fall back to positional sniffing (A6).
  */
 function detectMultiSeries(
   results: Record<string, unknown>[],
-  columns: string[]
+  columns: string[],
+  encoding?: WidgetEncoding
 ): { dateCol: string; seriesCol: string; valueCol: string } | null {
   if (results.length === 0 || columns.length < 3) return null;
 
   const row = results[0];
-  const dateCol = columns[0]; // first col is always the date/period
+  const dateCol = present(encoding?.x, columns) ?? columns[0]; // first col is the date/period
+
+  // Encoding names an explicit series split → trust it over sniffing.
+  const hintedSeries = present(encoding?.series, columns);
+  const hintedValue = (encoding?.y ?? []).find((c) => columns.includes(c));
+  if (hintedSeries && hintedValue && hintedSeries !== dateCol) {
+    const distinct = new Set(results.map((r) => String(r[hintedSeries])));
+    if (distinct.size >= 2) return { dateCol, seriesCol: hintedSeries, valueCol: hintedValue };
+  }
 
   // Find a string column that's not the date — the category/series column
-  const stringCols = columns.slice(1).filter((c) => typeof row[c] === "string");
-  const numericCols = columns.slice(1).filter((c) => typeof row[c] === "number");
+  const rest = columns.filter((c) => c !== dateCol);
+  const stringCols = rest.filter((c) => typeof row[c] === "string");
+  const numericCols = rest.filter((c) => typeof row[c] === "number");
 
   if (stringCols.length !== 1 || numericCols.length !== 1) return null;
 
@@ -103,10 +122,10 @@ function makeFormatter(colName: string) {
   };
 }
 
-export function TimeSeriesViz({ results, columns, title }: Props) {
+export function TimeSeriesViz({ results, columns, title, encoding }: Props) {
   const multiSeries = useMemo(
-    () => detectMultiSeries(results, columns),
-    [results, columns]
+    () => detectMultiSeries(results, columns, encoding),
+    [results, columns, encoding]
   );
 
   if (multiSeries) {
@@ -119,18 +138,21 @@ export function TimeSeriesViz({ results, columns, title }: Props) {
     );
   }
 
-  return <SingleSeriesChart results={results} columns={columns} title={title} />;
+  return <SingleSeriesChart results={results} columns={columns} title={title} encoding={encoding} />;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Single or multi-column series                                      */
 /* ------------------------------------------------------------------ */
 
-function SingleSeriesChart({ results, columns, title }: Props) {
-  const xCol = columns[0];
-  const valueCols = columns.slice(1).filter((c) =>
-    results.length > 0 && typeof results[0][c] === "number"
-  );
+function SingleSeriesChart({ results, columns, title, encoding }: Props) {
+  const xCol = present(encoding?.x, columns) ?? columns[0];
+  const hintedValues = (encoding?.y ?? []).filter((c) => columns.includes(c));
+  const valueCols = hintedValues.length
+    ? hintedValues
+    : columns.filter((c) =>
+        c !== xCol && results.length > 0 && typeof results[0][c] === "number"
+      );
 
   if (valueCols.length === 0) return null;
 
