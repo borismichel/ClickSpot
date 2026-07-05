@@ -250,17 +250,19 @@ def test_stream_event_sequence_three_widgets(space):
     runner = FakeRunner(default=[{"amount": 1}])
 
     events = _collect_events(
-        lambda: stream_dashboard_spec(space, "x", provider=provider, run_query=runner)
+        lambda: stream_dashboard_spec(
+            space, "x", provider=provider, run_query=runner, min_widgets=3
+        )
     )
 
     assert [(e.stage, e.index, e.total) for e in events] == [
         ("planning", None, None),
-        ("generating", 1, 3),
-        ("validating", 1, 3),
-        ("generating", 2, 3),
-        ("validating", 2, 3),
-        ("generating", 3, 3),
-        ("validating", 3, 3),
+        ("running", 1, 3),
+        ("validated", 1, 3),
+        ("running", 2, 3),
+        ("validated", 2, 3),
+        ("running", 3, 3),
+        ("validated", 3, 3),
         ("done", None, 3),
     ]
 
@@ -278,19 +280,21 @@ def test_stream_event_sequence_three_widgets(space):
 
 def test_stream_surfaces_widget_error(space):
     # A widget whose SQL fails validation and whose repair also fails surfaces a
-    # sanitized error on its 'validating' event (and status 'error' in the spec).
+    # sanitized error on its 'validated' event (and status 'error' in the spec).
     bad = _widget("revenue", f"SELECT * FROM {VIEW}")
     plan = {"dashboard_filters": [], "widgets": [bad]}
     provider = FakeProvider(plan, repair_sql=f"SELECT * FROM {VIEW}")  # still invalid
     runner = FakeRunner()
 
     events = _collect_events(
-        lambda: stream_dashboard_spec(space, "x", provider=provider, run_query=runner)
+        lambda: stream_dashboard_spec(
+            space, "x", provider=provider, run_query=runner, min_widgets=1
+        )
     )
 
-    validating = [e for e in events if e.stage == "validating"]
-    assert len(validating) == 1
-    assert validating[0].error and "validation" in validating[0].error.lower()
+    validated = [e for e in events if e.stage == "validated"]
+    assert len(validated) == 1
+    assert validated[0].error and "validation" in validated[0].error.lower()
 
     done = events[-1]
     assert done.stage == "done"
@@ -307,8 +311,8 @@ def test_stream_route_serializes_sse(space, monkeypatch):
 
     async def fake_stream(config, description, *, provider=None, **kwargs):
         yield DashboardEvent(stage="planning")
-        yield DashboardEvent(stage="generating", index=1, total=1, widget_title="w0")
-        yield DashboardEvent(stage="validating", index=1, total=1, widget_title="w0")
+        yield DashboardEvent(stage="running", index=1, total=1, widget_title="w0")
+        yield DashboardEvent(stage="validated", index=1, total=1, widget_title="w0")
         yield DashboardEvent(
             stage="done",
             total=1,
@@ -340,7 +344,84 @@ def test_stream_route_serializes_sse(space, monkeypatch):
     frames = [f for f in res.text.split("\n\n") if f.strip()]
     assert all(f.startswith("data: ") for f in frames)
     stages = [json.loads(f[len("data: "):])["stage"] for f in frames]
-    assert stages == ["planning", "generating", "validating", "done"]
+    assert stages == ["planning", "running", "validated", "done"]
+
+
+# --- widget-floor enforcement (CLI-153) ----------------------------------
+
+class SequenceProvider(LLMProvider):
+    """Returns a different canned plan on each successive generate_tool call."""
+
+    def __init__(self, plans: list[dict]):
+        self._plans = plans
+        self.tool_calls = 0
+
+    async def generate_tool(self, **kwargs) -> dict:
+        plan = self._plans[min(self.tool_calls, len(self._plans) - 1)]
+        self.tool_calls += 1
+        return plan
+
+    async def generate(self, messages, system_prompt=None) -> ChatSQLResponse:
+        return ChatSQLResponse(sql=f"SELECT amount FROM {VIEW}", viz="table", title="r", explanation="r")
+
+
+def test_zero_widget_plan_emits_error_and_no_done(space):
+    # An empty plan is a hard failure: a single 'error' event, never a 'done'.
+    plan = {"dashboard_filters": [], "widgets": []}
+    provider = FakeProvider(plan)
+
+    events = _collect_events(
+        lambda: stream_dashboard_spec(space, "x", provider=provider, run_query=FakeRunner())
+    )
+
+    assert [e.stage for e in events] == ["planning", "error"]
+    assert events[-1].error and "did not return any widgets" in events[-1].error
+    assert all(e.stage != "done" for e in events)
+    # No re-ask on a zero-widget plan — one planning call only.
+    assert provider.tool_calls == 1
+
+
+def test_zero_widget_plan_raises_in_nonstreaming_wrapper(space):
+    plan = {"dashboard_filters": [], "widgets": []}
+    with pytest.raises(ValueError, match="did not return any widgets"):
+        _run(generate_dashboard_spec(space, "x", provider=FakeProvider(plan), run_query=FakeRunner()))
+
+
+def test_short_plan_reasks_once_and_recovers(space):
+    # First plan is short (2 widgets); the single re-ask returns a full 6-widget
+    # plan, which is accepted with no note.
+    short = {"dashboard_filters": [], "widgets": [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(2)]}
+    full = {"dashboard_filters": [], "widgets": [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(6)]}
+    provider = SequenceProvider([short, full])
+
+    spec = _run(generate_dashboard_spec(space, "x", provider=provider, run_query=FakeRunner()))
+
+    assert provider.tool_calls == 2  # exactly one re-ask
+    assert spec.widget_count == 6
+    assert spec.note is None
+
+
+def test_short_plan_reask_still_short_is_accepted_with_note(space):
+    # Both attempts return fewer than MIN_WIDGETS → accept the best one, set a note.
+    short = {"dashboard_filters": [], "widgets": [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(2)]}
+    provider = SequenceProvider([short, short])
+
+    spec = _run(generate_dashboard_spec(space, "x", provider=provider, run_query=FakeRunner()))
+
+    assert provider.tool_calls == 2  # bounded to a single re-ask
+    assert spec.widget_count == 2
+    assert spec.note and "target 6 widgets" in spec.note
+
+
+def test_reask_never_regresses_widget_count(space):
+    # If the re-ask returns fewer widgets than the first plan, keep the first.
+    first = {"dashboard_filters": [], "widgets": [_widget(f"w{i}", f"SELECT amount FROM {VIEW}") for i in range(4)]}
+    worse = {"dashboard_filters": [], "widgets": [_widget("w0", f"SELECT amount FROM {VIEW}")]}
+    provider = SequenceProvider([first, worse])
+
+    spec = _run(generate_dashboard_spec(space, "x", provider=provider, run_query=FakeRunner()))
+
+    assert spec.widget_count == 4  # first plan retained, not the smaller re-ask
 
 
 def test_stream_route_404_for_unknown_space(monkeypatch):

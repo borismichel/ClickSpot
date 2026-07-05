@@ -58,9 +58,10 @@ interface DashboardSpec {
   widget_count: number;
   llm_ms: number;
   truncated: boolean;
+  note?: string | null;
 }
 interface DashboardEvent {
-  stage: "planning" | "generating" | "validating" | "done" | "error";
+  stage: "planning" | "running" | "validated" | "done" | "error";
   index?: number | null;
   total?: number | null;
   widget_title?: string | null;
@@ -116,6 +117,7 @@ export default function OneShotDashboardPage() {
 
   const [widgets, setWidgets] = useState<DraftWidget[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [filters, setFilters] = useState<SpaceFilter[]>([]);
   const [filterColumns, setFilterColumns] = useState<UnifiedFilterColumn[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -178,20 +180,20 @@ export default function OneShotDashboardPage() {
         setProgress(4);
         setStatusText("Planning the dashboard…");
         break;
-      case "generating": {
+      case "running": {
         const total = ev.total ?? 0;
         const idx = ev.index ?? 0;
         const done = (idx - 1) * 2;
         setProgress(total ? Math.min(96, 4 + (92 * done) / (total * 2)) : 10);
-        setStatusText(`Generating widget ${idx}/${total}: ${ev.widget_title ?? ""}`);
+        setStatusText(`Running widget ${idx}/${total}: ${ev.widget_title ?? ""}`);
         break;
       }
-      case "validating": {
+      case "validated": {
         const total = ev.total ?? 0;
         const idx = ev.index ?? 0;
         const done = (idx - 1) * 2 + 1;
         setProgress(total ? Math.min(98, 4 + (92 * done) / (total * 2)) : 20);
-        setStatusText(`Validating widget ${idx}/${total}: ${ev.widget_title ?? ""}`);
+        setStatusText(`Validated widget ${idx}/${total}: ${ev.widget_title ?? ""}`);
         break;
       }
       case "done": {
@@ -212,6 +214,7 @@ export default function OneShotDashboardPage() {
         }));
         setWidgets(drafts);
         setTruncated(spec.truncated);
+        setNote(spec.note ?? null);
         setFilters(spec.dashboard_filters.map((c) => ({ column: c, operator: "in", values: [] })));
         loadFilterColumns(sid, spec.dashboard_filters);
         setProgress(100);
@@ -512,6 +515,14 @@ export default function OneShotDashboardPage() {
                 showIcon
                 style={{ marginBottom: 8 }}
                 message="The generated dashboard was capped to the maximum number of widgets."
+              />
+            )}
+            {note && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message={note}
               />
             )}
             {filterColumns.length > 0 && (
