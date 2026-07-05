@@ -130,6 +130,25 @@ class DashboardSpec(BaseModel):
     note: str | None = None
 
 
+class WidgetRegenResult(BaseModel):
+    """Result of regenerating a single widget's SQL (OSD phase 3, CLI-159).
+
+    Returned by the per-widget regenerate endpoint. Mirrors the SQL-outcome
+    fields of :class:`WidgetSpec` (the caller already holds the widget's
+    title/viz/encoding), plus the AI-produced ``sql`` and how the model was
+    steered (``repaired`` when a bounded self-repair retry ran).
+    """
+
+    intent: str
+    sql: str
+    status: Literal["ok", "error"]
+    error: str | None = None
+    columns: list[str] = Field(default_factory=list)
+    row_count: int | None = None
+    repaired: bool = False
+    llm_ms: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Streaming progress events (OSD phase 2)
 # ---------------------------------------------------------------------------
@@ -338,6 +357,119 @@ async def _finalize_widget(
         row_count=result.row_count,
         rows=result.rows,
         repaired=repaired,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-widget regenerate (OSD phase 3, CLI-159)
+# ---------------------------------------------------------------------------
+
+async def _regenerate_sql(
+    provider: LLMProvider,
+    system_prompt: str,
+    intent: str,
+    sql: str,
+    *,
+    error: str | None = None,
+    instruction: str | None = None,
+) -> str | None:
+    """Ask the model to produce a new SQL query for one widget.
+
+    Reuses the same schema-only chat turn as :func:`_repair_sql` but is steered
+    by two optional signals: ``error`` (the widget failed — fix it) and
+    ``instruction`` (the user wants a change, e.g. "make this monthly"). Either,
+    both, or neither may be given; with neither it simply re-derives the query
+    for the same intent. Only the error *text* is fed back (it describes the
+    SQL/schema, never row data — the CLI-126 privacy invariant).
+    """
+    feedback: list[str] = []
+    if error:
+        feedback.append(f"That query failed with this error:\n{error}")
+    if instruction:
+        feedback.append(f"Revise the query to satisfy this instruction: {instruction}")
+    if not feedback:
+        feedback.append("Regenerate the query for the same analysis, improving it.")
+
+    messages = [
+        {"role": "user", "content": f"Generate a ClickHouse SQL query for this analysis: {intent}"},
+        {"role": "assistant", "content": "", "sql": sql},
+        {
+            "role": "user",
+            "content": (
+                "\n\n".join(feedback)
+                + "\n\nReturn a corrected ClickHouse SQL query for the same analysis. "
+                "Only reference columns that exist in the VIEW and follow all the rules."
+            ),
+        },
+    ]
+    try:
+        resp = await provider.generate(messages, system_prompt=system_prompt)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Widget regenerate LLM call failed for intent '%s': %s", intent[:60], exc)
+        return None
+    return resp.sql
+
+
+async def regenerate_widget(
+    config: DataSpaceConfig,
+    intent: str,
+    sql: str,
+    *,
+    error: str | None = None,
+    instruction: str | None = None,
+    provider: LLMProvider | None = None,
+    run_query: QueryRunner | None = None,
+) -> WidgetRegenResult:
+    """Regenerate one widget's SQL, then validate/execute it (CLI-159).
+
+    The backend for the OSD iteration loop (Plan B3) and one-click repair of a
+    failed widget. Reuses the existing pipeline: an LLM turn produces new SQL
+    (steered by ``error`` and/or ``instruction``), then :func:`_validate_and_run`
+    runs it through the same validator/limit path as the chat path, with a single
+    bounded :func:`_repair_sql` retry if it still fails — exactly the guarantee
+    :func:`_finalize_widget` gives during generation.
+    """
+    if provider is None:
+        provider = get_provider()
+    if run_query is None:
+        from app.db import async_query_rows
+
+        run_query = async_query_rows
+
+    system_prompt = build_dashboard_prompt(config)
+
+    t0 = time.time()
+    new_sql = await _regenerate_sql(
+        provider, system_prompt, intent, sql, error=error, instruction=instruction
+    )
+    llm_ms = int((time.time() - t0) * 1000)
+
+    # If the model returned nothing, fall back to validating the original SQL so
+    # the caller still gets a real status instead of a hard failure.
+    result = await _validate_and_run(new_sql or sql, run_query)
+    repaired = False
+
+    if not result.ok:
+        plan = WidgetPlan(
+            title=(intent[:80] or "widget"),
+            intent=intent,
+            sql=result.sql,
+            viz_type="table",
+        )
+        fixed = await _repair_sql(provider, system_prompt, plan, result.raw_error or "")
+        if fixed:
+            repaired = True
+            result = await _validate_and_run(fixed, run_query)
+
+    return WidgetRegenResult(
+        intent=intent,
+        sql=result.sql,
+        status="ok" if result.ok else "error",
+        error=None if result.ok else result.safe_error,
+        columns=result.columns,
+        row_count=result.row_count,
+        repaired=repaired,
+        llm_ms=llm_ms,
     )
 
 
