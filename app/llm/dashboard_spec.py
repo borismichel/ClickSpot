@@ -445,9 +445,11 @@ async def _finalize_widget(
                 provider, system_prompt, plan.intent, result.sql, instruction=instruction
             )
             if new_sql:
-                repaired = True
                 retry = await _validate_and_run(new_sql, run_query)
+                # Only count it repaired if we actually adopt the retry — an
+                # unadopted (still-broken) retry left the original result in place.
                 if retry.ok:
+                    repaired = True
                     result = retry
 
         residual = cardinality_violation(viz_type, result.row_count)
@@ -460,10 +462,12 @@ async def _finalize_widget(
             else:
                 warnings.append(f"KPI {residual}.")
 
-    # Viz/role coherence — checked on the *final* viz (post-demotion).
-    coherence = viz_role_warning(plan.role, viz_type)
-    if coherence:
-        warnings.append(coherence)
+        # Viz/role coherence — checked on the *final* viz (post-demotion). Only
+        # meaningful for a widget that renders; an errored widget shows its error,
+        # not the viz, so a coherence warning there would never surface.
+        coherence = viz_role_warning(plan.role, viz_type)
+        if coherence:
+            warnings.append(coherence)
 
     return WidgetSpec(
         title=plan.title,

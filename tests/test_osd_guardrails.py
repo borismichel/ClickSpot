@@ -626,6 +626,28 @@ def test_composition_warnings_role_counts():
     assert any("trend" in w for w in warns)
 
 
+def test_composition_warnings_breakdown_count():
+    # A board with a KPI band but no breakdowns explains nothing → warned.
+    assert any(
+        "breakdown" in w.lower()
+        for w in composition_warnings(["kpi", "kpi", "trend"])
+    )
+    # Too many breakdowns is noise → warned.
+    assert any(
+        "breakdown" in w.lower()
+        for w in composition_warnings(["kpi", "kpi"] + ["breakdown"] * 8)
+    )
+    # 2–4 breakdowns is the sanctioned range → no breakdown warning.
+    for n in (2, 3, 4):
+        warns = composition_warnings(["kpi", "kpi", "trend"] + ["breakdown"] * n)
+        assert not any("breakdown" in w.lower() for w in warns), (n, warns)
+    # A single breakdown is under the band → warned.
+    assert any(
+        "breakdown" in w.lower()
+        for w in composition_warnings(["kpi", "kpi", "breakdown"])
+    )
+
+
 # -- integration through generate_dashboard_spec ----------------------------
 
 def _one_widget_plan(sql: str, viz: str, role: str) -> dict:

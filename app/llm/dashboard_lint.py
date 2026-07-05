@@ -12,8 +12,8 @@ in code — not vibes — against the same grammar the prompt asks for:
                           (:func:`cardinality_repair_instruction` / :func:`cardinality_violation`)
   * duplicate analysis  — two widgets grouping by the same column(s) on the same
                           measure add no perspective (:func:`find_duplicate_analyses`)
-  * composition counts  — exactly one KPI band (2–4), <= 1 detail table, <= 1 flow,
-                          a single lead trend (:func:`composition_warnings`)
+  * composition counts  — a KPI band (2–4), 2–4 breakdowns, <= 1 detail table,
+                          <= 1 flow, a single lead trend (:func:`composition_warnings`)
 
 Cardinality violations feed the existing bounded self-repair loop (see
 ``dashboard_spec._finalize_widget``); anything still wrong after that — plus the
@@ -37,6 +37,11 @@ MAX_BAR_ROWS = 12
 # A headline KPI band is 2–4 stat tiles (matches the C1 composition grammar).
 KPI_BAND_MIN = 2
 KPI_BAND_MAX = 4
+
+# The board should carry 2–4 breakdowns ("Include 2–4 breakdowns." in the C1
+# composition grammar) — a board with none has no analysis, one with many is noise.
+BREAKDOWN_MIN = 2
+BREAKDOWN_MAX = 4
 
 # The viz type(s) each role may legitimately render as. ``breakdown`` allows a table
 # as the many-category fallback the grammar sanctions (and the cardinality demotion
@@ -176,6 +181,21 @@ def composition_warnings(roles: list[str]) -> list[str]:
     elif kpi > KPI_BAND_MAX:
         out.append(
             f"{kpi} KPI widgets: a headline band should be {KPI_BAND_MIN}–{KPI_BAND_MAX}."
+        )
+
+    breakdown = counts.get("breakdown", 0)
+    if breakdown == 0:
+        out.append(
+            f"No breakdowns: add {BREAKDOWN_MIN}–{BREAKDOWN_MAX} category breakdowns "
+            "so the board explains the KPIs."
+        )
+    elif breakdown < BREAKDOWN_MIN:
+        out.append(
+            f"Only {breakdown} breakdown: aim for {BREAKDOWN_MIN}–{BREAKDOWN_MAX} to cover the drivers."
+        )
+    elif breakdown > BREAKDOWN_MAX:
+        out.append(
+            f"{breakdown} breakdowns: trim to {BREAKDOWN_MIN}–{BREAKDOWN_MAX} so the board stays focused."
         )
 
     detail = counts.get("detail", 0)
