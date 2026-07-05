@@ -84,6 +84,14 @@ class DashboardPlan(BaseModel):
 # Final, validated response shape returned by the endpoint
 # ---------------------------------------------------------------------------
 
+# Rows carried inline with each widget so the frontend can render the draft
+# immediately instead of re-issuing the same SQL (CLI-148). Bounded to keep the
+# spec payload sane; the query itself is still limited by ``ensure_limit``. A
+# widget whose result exceeds this cap carries the first ``MAX_SPEC_ROWS`` and
+# re-queries the full set on demand (filter change / refresh / SQL edit).
+MAX_SPEC_ROWS = 500
+
+
 class WidgetSpec(BaseModel):
     """A widget after validation + execution (and optional self-repair)."""
 
@@ -97,6 +105,9 @@ class WidgetSpec(BaseModel):
     error: str | None = None
     columns: list[str] = Field(default_factory=list)
     row_count: int | None = None
+    # Bounded result set (<= MAX_SPEC_ROWS) so the draft renders without a
+    # second ClickHouse round-trip. Empty for error widgets.
+    rows: list[dict] = Field(default_factory=list)
     repaired: bool = False
 
 
@@ -201,6 +212,7 @@ class _RunResult(BaseModel):
     ok: bool
     columns: list[str] = Field(default_factory=list)
     row_count: int | None = None
+    rows: list[dict] = Field(default_factory=list)  # bounded to MAX_SPEC_ROWS
     raw_error: str | None = None  # full error — safe to feed the model (no rows)
     safe_error: str | None = None  # sanitized error — safe to return to client
 
@@ -227,7 +239,13 @@ async def _validate_and_run(sql: str, run_query: QueryRunner) -> _RunResult:
         )
 
     columns = list(rows[0].keys()) if rows else []
-    return _RunResult(sql=limited, ok=True, columns=columns, row_count=len(rows))
+    return _RunResult(
+        sql=limited,
+        ok=True,
+        columns=columns,
+        row_count=len(rows),
+        rows=rows[:MAX_SPEC_ROWS],
+    )
 
 
 async def _repair_sql(
@@ -290,6 +308,7 @@ async def _finalize_widget(
         error=None if result.ok else result.safe_error,
         columns=result.columns,
         row_count=result.row_count,
+        rows=result.rows,
         repaired=repaired,
     )
 

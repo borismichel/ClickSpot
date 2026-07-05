@@ -49,6 +49,8 @@ interface WidgetSpec {
   error?: string | null;
   columns: string[];
   row_count?: number | null;
+  // Rows carried inline so the draft renders without a second query (CLI-148).
+  rows?: Record<string, unknown>[];
 }
 interface DashboardSpec {
   space_id: string;
@@ -208,6 +210,7 @@ export default function OneShotDashboardPage() {
           status: w.status,
           error: w.error ?? null,
           columns: w.columns,
+          rows: w.rows ?? [],
           layout: positions[i],
         }));
         setWidgets(drafts);
