@@ -162,6 +162,7 @@ def test_encoding_compare_roundtrips_to_spec(space):
         "title": "Revenue vs last quarter",
         "intent": "current revenue against the prior period",
         "sql": f"SELECT sum(amount) AS revenue, sum(prev_amount) AS prev_revenue FROM {VIEW}",
+        "role": "kpi",  # required since C1; a value+delta stat tile is a kpi
         "viz_type": "comparison",
         "encoding": {"value": "revenue", "compare": "prev_revenue"},
         "suggested_filters": [],
