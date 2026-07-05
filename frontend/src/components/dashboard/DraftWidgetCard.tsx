@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Card, Spin, Alert, Button, Tooltip, Input, Space, theme } from "antd";
-import { ReloadOutlined, CloseOutlined, CodeOutlined } from "@ant-design/icons";
+import { Card, Spin, Alert, Button, Tooltip, Input, Space, Popover, Typography, theme } from "antd";
+import { ReloadOutlined, CloseOutlined, CodeOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { SpaceFilter, VizType } from "../../types/dashboard";
 import { VizRouter } from "../viz/VizRouter";
 
@@ -28,6 +28,20 @@ interface Props {
   /** Persist an edited SQL back into the draft so it survives re-layout/refresh. */
   onSqlChange: (sql: string) => void;
   onRemove: () => void;
+  /**
+   * AI-regenerate this widget's SQL via the A4 endpoint (CLI-160), optionally
+   * steered by a free-text instruction ("make this monthly"). The page owns the
+   * fetch + draft-state update; the card just drives the affordance and its
+   * in-flight state. Absent for cards that don't support regeneration.
+   */
+  onRegenerate?: (instruction: string | undefined) => Promise<void>;
+  /**
+   * Fetch on mount even though no rows were carried — set for widgets the user
+   * added or regenerated into the grid (CLI-160), whose rows the regenerate
+   * endpoint doesn't return. Generated widgets carry their rows (CLI-148) and
+   * leave this false to avoid a redundant query.
+   */
+  autoRunOnMount?: boolean;
 }
 
 function buildSpaceFilterPayload(filters: SpaceFilter[]) {
@@ -42,7 +56,16 @@ function buildSpaceFilterPayload(filters: SpaceFilter[]) {
  * decision on CLI-126): toggling the code affordance reveals the SQL, and
  * running it re-executes the widget and lifts the new SQL into the draft state.
  */
-export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlChange, onRemove }: Props) {
+export function DraftWidgetCard({
+  widget,
+  refreshKey,
+  filters,
+  spaceView,
+  onSqlChange,
+  onRemove,
+  onRegenerate,
+  autoRunOnMount = false,
+}: Props) {
   const { token } = theme.useToken();
   // Hydrate straight from the spec — the backend already validated + executed
   // this widget and carried its rows, so the draft renders without a second
@@ -56,6 +79,13 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
   );
   const [showSql, setShowSql] = useState(false);
   const [draftSql, setDraftSql] = useState(widget.sql);
+
+  // Per-widget "Regenerate with AI" (CLI-160): an optional instruction steers the
+  // A4 endpoint; the page lifts the new SQL back into the draft and the fetchSig
+  // effect below re-runs it. `regenerating` gates a spinner over the whole card.
+  const [regenOpen, setRegenOpen] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [regenerating, setRegenerating] = useState(false);
 
   const runSql = useCallback(
     async (sql: string) => {
@@ -109,13 +139,19 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
   // carries picked values, so the current fetchSig diverges from this seed and
   // the mount refetches — otherwise the card would render the unfiltered carried
   // rows under active filters (CLI-175).
+  //
+  // A widget the user *added* or *regenerated* (CLI-160) carries no rows — the
+  // regenerate endpoint returns only SQL/columns — so we seed a sentinel that
+  // never matches fetchSig, forcing the effect below to fetch its rows on mount.
   const lastFetchedSig = useRef(
-    JSON.stringify({
-      sql: widget.sql,
-      filters: null,
-      spaceView: spaceView ?? null,
-      refreshKey,
-    })
+    autoRunOnMount
+      ? "__force_initial_fetch__"
+      : JSON.stringify({
+          sql: widget.sql,
+          filters: null,
+          spaceView: spaceView ?? null,
+          refreshKey,
+        })
   );
   useEffect(() => {
     if (lastFetchedSig.current === fetchSig) return; // matches the carried spec rows
@@ -133,12 +169,69 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
     setShowSql(false);
   };
 
+  const submitRegenerate = async () => {
+    if (!onRegenerate || regenerating) return;
+    const instr = instruction.trim() || undefined;
+    setRegenerating(true);
+    try {
+      await onRegenerate(instr);
+      // The page lifts the new SQL into widget.sql; the fetchSig effect re-runs it.
+      setRegenOpen(false);
+      setInstruction("");
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const regenContent = (
+    <div style={{ width: 260 }}>
+      <Typography.Text type="secondary" style={{ display: "block", marginBottom: 6, fontSize: 12 }}>
+        Regenerate this widget with AI. Add an optional instruction to steer it.
+      </Typography.Text>
+      <Input.TextArea
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        placeholder='e.g. "make this monthly" or "only closed-won deals"'
+        autoSize={{ minRows: 2, maxRows: 4 }}
+        maxLength={2000}
+        disabled={regenerating}
+      />
+      <Space style={{ marginTop: 8 }}>
+        <Button size="small" type="primary" loading={regenerating} onClick={submitRegenerate}>
+          Regenerate
+        </Button>
+        <Button size="small" disabled={regenerating} onClick={() => setRegenOpen(false)}>
+          Cancel
+        </Button>
+      </Space>
+    </div>
+  );
+
   return (
     <Card
       title={widget.title}
       size="small"
       extra={
         <>
+          {onRegenerate && (
+            <Popover
+              open={regenOpen}
+              onOpenChange={(o) => !regenerating && setRegenOpen(o)}
+              trigger="click"
+              placement="bottomRight"
+              title="Regenerate with AI"
+              content={regenContent}
+            >
+              <Tooltip title="Regenerate with AI">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ThunderboltOutlined />}
+                  loading={regenerating}
+                />
+              </Tooltip>
+            </Popover>
+          )}
           <Tooltip title={showSql ? "Hide SQL" : "View / edit SQL"}>
             <Button
               type="text"
@@ -192,9 +285,11 @@ export function DraftWidgetCard({ widget, refreshKey, filters, spaceView, onSqlC
         </div>
       )}
 
-      {loading ? (
+      {loading || regenerating ? (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 120 }}>
-          <Spin />
+          <Spin tip={regenerating ? "Regenerating…" : undefined}>
+            <div style={{ minHeight: 40 }} />
+          </Spin>
         </div>
       ) : error ? (
         <Alert
