@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
   Layout,
   Button,
@@ -324,13 +324,30 @@ export default function OneShotDashboardPage() {
   const addSeq = useRef(0);
 
   const abortRef = useRef<AbortController | null>(null);
-  const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
+  const { width: containerWidth, containerRef: gridContainerRef, mounted, measureWidth } =
+    useContainerWidth();
   // Mirror the latest container width into a ref during render so the (empty-dep)
   // layout-change handler can read the current breakpoint without going stale.
   // Updated in render (not an effect) so it's current before RGL's own effects
   // fire onLayoutChange for a breakpoint reflow.
   const containerWidthRef = useRef(containerWidth);
   containerWidthRef.current = containerWidth;
+  // The grid container only mounts once a draft is ready, which is *after*
+  // useContainerWidth's own measure/observe effect has already run against a null
+  // ref. Left alone, `width` stays at the hook's 1280px default, so on a phone the
+  // grid renders at desktop column widths and wide tiles overflow the clipped
+  // container (CLI-178). Measure the container ourselves the moment it appears and
+  // keep it in sync via a ResizeObserver, so ResponsiveGridLayout reflows to the
+  // real width (~358px → `sm`) on load and across viewport changes.
+  useLayoutEffect(() => {
+    const node = gridContainerRef.current;
+    if (phase !== "ready" || !node) return;
+    measureWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measureWidth());
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [phase, measureWidth, gridContainerRef]);
 
   const spaceView = spaceId ? `gold.ds_${spaceId}` : undefined;
 
@@ -866,6 +883,26 @@ export default function OneShotDashboardPage() {
   };
 
   const gridLayout = widgets.map((wgt) => ({ i: wgt.id, ...wgt.layout, minW: 2, minH: 2 }));
+  // Below `lg`, RGL derives positions from the lg layout, so a wide tile (w:6)
+  // stays wider than an md(8)/sm(4) container and is clipped by the grid's
+  // `overflowX: hidden` (CLI-178). Supply explicit per-breakpoint layouts that
+  // stack every widget into a single full-width column in reading order, so
+  // nothing is lost or unreachable on a phone/tablet.
+  const stackedLayout = (base: RGLLayout, cols: number): RGLLayout => {
+    let y = 0;
+    return [...base]
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+      .map((l) => {
+        const item = { ...l, x: 0, y, w: cols, minW: Math.min(l.minW ?? 2, cols) };
+        y += l.h;
+        return item;
+      });
+  };
+  const gridLayouts = {
+    lg: gridLayout,
+    md: stackedLayout(gridLayout, GRID_COLS.md),
+    sm: stackedLayout(gridLayout, GRID_COLS.sm),
+  };
   const failedCount = widgets.filter((w) => w.status === "error").length;
 
   return (
@@ -1101,7 +1138,7 @@ export default function OneShotDashboardPage() {
                 <ResponsiveGridLayout
                   className="layout"
                   width={containerWidth}
-                  layouts={{ lg: gridLayout }}
+                  layouts={gridLayouts}
                   breakpoints={GRID_BREAKPOINTS}
                   cols={GRID_COLS}
                   rowHeight={80}
