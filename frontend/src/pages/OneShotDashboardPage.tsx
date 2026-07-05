@@ -196,6 +196,105 @@ function sizeFor(viz: VizType): { w: number; h: number } {
   return { w: 6, h: 4 }; // bar / line / funnel
 }
 
+interface OsdDraftGridProps {
+  widgets: DraftWidget[];
+  /** The authoritative `lg` layout derived from each widget's persisted geometry. */
+  gridLayout: RGLLayout;
+  /** Persist geometry edits — forwarded only while at the `lg` breakpoint. */
+  onLayoutChange: (layout: RGLLayout) => void;
+  refreshKey: number;
+  filters: SpaceFilter[];
+  spaceView: string | undefined;
+  onSqlChange: (id: string, sql: string) => void;
+  onRemove: (id: string) => void;
+  onRegenerate: (
+    id: string,
+    intent: string,
+    sql: string,
+    opts: { error?: string | null; instruction?: string },
+  ) => Promise<WidgetRegenResult | null>;
+  autoRunIds: { current: Set<string> };
+  onStartOver: () => void;
+}
+
+/**
+ * The draft grid, isolated so `useContainerWidth` mounts *together with* the grid
+ * node (CLI-178). Previously the hook lived in the page component, whose first
+ * measurement effect ran while the grid was still behind the `phase==="ready"`
+ * gate — the ref'd node didn't exist, so `width` stayed pinned at the `lg` default
+ * (~1280) and RGL never reflowed to md/sm, clipping wide tiles on narrow viewports.
+ * Mounting the hook with the node makes the measurement track the real container.
+ * The lg-breakpoint persistence guard (CLI-179 / #77) now lives inline here and
+ * reads this live `containerWidth` directly, so it sees a real width instead of the
+ * pinned `lg` default.
+ */
+function OsdDraftGrid({
+  widgets,
+  gridLayout,
+  onLayoutChange,
+  refreshKey,
+  filters,
+  spaceView,
+  onSqlChange,
+  onRemove,
+  onRegenerate,
+  autoRunIds,
+  onStartOver,
+}: OsdDraftGridProps) {
+  const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
+
+  return (
+    <div ref={gridContainerRef} style={{ maxWidth: "100%", overflowX: "hidden" }}>
+      {widgets.length === 0 ? (
+        <div style={{ textAlign: "center", paddingTop: 80 }}>
+          <Empty description="No widgets in this draft" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+            <Button type="primary" onClick={onStartOver}>
+              Start over
+            </Button>
+          </Empty>
+        </div>
+      ) : mounted ? (
+        <ResponsiveGridLayout
+          className="layout"
+          width={containerWidth}
+          layouts={{ lg: gridLayout }}
+          breakpoints={GRID_BREAKPOINTS}
+          cols={GRID_COLS}
+          rowHeight={80}
+          margin={GRID_GUTTER}
+          onLayoutChange={(layout: RGLLayout) => {
+            // Only forward persistence at the authoritative lg breakpoint. RGL derives
+            // md/sm from lg; persisting a derived reflow would clobber lg (CLI-179).
+            if (breakpointFromWidth(containerWidth) === "lg") onLayoutChange(layout);
+          }}
+          dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
+          resizeConfig={{ enabled: true, handles: ["se"] }}
+        >
+          {widgets.map((wgt) => (
+            <div key={wgt.id}>
+              <DraftWidgetCard
+                widget={wgt}
+                refreshKey={refreshKey}
+                filters={filters}
+                spaceView={spaceView}
+                onSqlChange={(sql) => onSqlChange(wgt.id, sql)}
+                onRemove={() => onRemove(wgt.id)}
+                onRegenerate={(instruction) =>
+                  onRegenerate(wgt.id, wgt.intent, wgt.sql, {
+                    error: wgt.status === "error" ? wgt.error : undefined,
+                    instruction,
+                  }).then(() => {})
+                }
+                autoRunOnMount={autoRunIds.current.has(wgt.id)}
+              />
+            </div>
+          ))}
+        </ResponsiveGridLayout>
+      ) : null}
+    </div>
+  );
+}
+
 export default function OneShotDashboardPage() {
   const { token } = theme.useToken();
   const navigate = useNavigate();
@@ -239,13 +338,6 @@ export default function OneShotDashboardPage() {
   const addSeq = useRef(0);
 
   const abortRef = useRef<AbortController | null>(null);
-  const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
-  // Mirror the latest container width into a ref during render so the (empty-dep)
-  // layout-change handler can read the current breakpoint without going stale.
-  // Updated in render (not an effect) so it's current before RGL's own effects
-  // fire onLayoutChange for a breakpoint reflow.
-  const containerWidthRef = useRef(containerWidth);
-  containerWidthRef.current = containerWidth;
 
   const spaceView = spaceId ? `gold.ds_${spaceId}` : undefined;
 
@@ -527,11 +619,10 @@ export default function OneShotDashboardPage() {
   }, []);
 
   const handleLayoutChange = useCallback((layout: RGLLayout) => {
-    // RGL fires onLayoutChange with the *current* breakpoint's reflowed layout on
-    // width/breakpoint changes. Only `lg` is authoritative, so persisting a md/sm
-    // reflow here would clobber the lg layout and corrupt drag/resize, the saved
-    // draft, and the CLI-164 save. Ignore callbacks while below the lg breakpoint.
-    if (breakpointFromWidth(containerWidthRef.current) !== "lg") return;
+    // Persist geometry edits back onto the widgets. <OsdDraftGrid/> only forwards
+    // this callback while at the authoritative `lg` breakpoint (CLI-179): RGL
+    // derives md/sm from lg, and persisting a derived reflow would clobber the lg
+    // layout, drag/resize, the saved draft, and the CLI-164 save.
     setWidgets((prev) =>
       prev.map((wgt) => {
         const l = layout.find((ly) => ly.i === wgt.id);
@@ -1003,50 +1094,19 @@ export default function OneShotDashboardPage() {
               </div>
             )}
 
-            <div ref={gridContainerRef} style={{ maxWidth: "100%", overflowX: "hidden" }}>
-              {widgets.length === 0 ? (
-                <div style={{ textAlign: "center", paddingTop: 80 }}>
-                  <Empty description="No widgets in this draft" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                    <Button type="primary" onClick={startOver}>
-                      Start over
-                    </Button>
-                  </Empty>
-                </div>
-              ) : mounted ? (
-                <ResponsiveGridLayout
-                  className="layout"
-                  width={containerWidth}
-                  layouts={{ lg: gridLayout }}
-                  breakpoints={GRID_BREAKPOINTS}
-                  cols={GRID_COLS}
-                  rowHeight={80}
-                  margin={GRID_GUTTER}
-                  onLayoutChange={handleLayoutChange}
-                  dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
-                  resizeConfig={{ enabled: true, handles: ["se"] }}
-                >
-                  {widgets.map((wgt) => (
-                    <div key={wgt.id}>
-                      <DraftWidgetCard
-                        widget={wgt}
-                        refreshKey={refreshKey}
-                        filters={filters}
-                        spaceView={spaceView}
-                        onSqlChange={(sql) => handleSqlChange(wgt.id, sql)}
-                        onRemove={() => handleRemove(wgt.id)}
-                        onRegenerate={(instruction) =>
-                          regenerateWidget(wgt.id, wgt.intent, wgt.sql, {
-                            error: wgt.status === "error" ? wgt.error : undefined,
-                            instruction,
-                          }).then(() => {})
-                        }
-                        autoRunOnMount={autoRunIds.current.has(wgt.id)}
-                      />
-                    </div>
-                  ))}
-                </ResponsiveGridLayout>
-              ) : null}
-            </div>
+            <OsdDraftGrid
+              widgets={widgets}
+              gridLayout={gridLayout}
+              onLayoutChange={handleLayoutChange}
+              refreshKey={refreshKey}
+              filters={filters}
+              spaceView={spaceView}
+              onSqlChange={handleSqlChange}
+              onRemove={handleRemove}
+              onRegenerate={regenerateWidget}
+              autoRunIds={autoRunIds}
+              onStartOver={startOver}
+            />
 
             {/* Add-widget prompt box (CLI-160): generate one more widget into the grid. */}
             <div
