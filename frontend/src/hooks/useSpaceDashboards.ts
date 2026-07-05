@@ -102,6 +102,32 @@ export function useSpaceDashboards(spaceId: string | null) {
     [spaceId]
   );
 
+  // Persist an inline SQL edit to a saved widget (CLI-166/B4). Optimistic so the
+  // card re-runs against the new SQL immediately; the server returns the whole
+  // dashboard, which we fold back in to stay authoritative.
+  const updateItemSql = useCallback(
+    async (dashId: string, itemId: string, sql: string) => {
+      setDashboards((prev) =>
+        prev.map((d) =>
+          d.id === dashId
+            ? { ...d, items: d.items.map((it) => (it.id === itemId ? { ...it, sql } : it)) }
+            : d
+        )
+      );
+      if (!spaceId) return;
+      const res = await fetch(`/api/v1/spaces/${spaceId}/dashboards/${dashId}/items/${itemId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql }),
+      }).catch(() => null);
+      if (res?.ok) {
+        const updated: SpaceDashboard = await res.json();
+        setDashboards((prev) => prev.map((d) => (d.id === dashId ? updated : d)));
+      }
+    },
+    [spaceId]
+  );
+
   const updateLayouts = useCallback(
     async (dashId: string, layouts: { i: string; x: number; y: number; w: number; h: number }[]) => {
       // Optimistic update
@@ -170,6 +196,7 @@ export function useSpaceDashboards(spaceId: string | null) {
     renameDashboard,
     addItem,
     removeItem,
+    updateItemSql,
     updateLayouts,
     updateFilters,
     updatePinnedColumns,

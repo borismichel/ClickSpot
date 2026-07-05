@@ -571,6 +571,40 @@ export default function DashboardPage() {
     [activeSpaceDash]
   );
 
+  // Persist an inline SQL edit to a saved space widget (CLI-166/B4). Optimistic
+  // so the card re-runs immediately; the server echoes the whole dashboard back.
+  const handleSpaceUpdateItemSql = useCallback(
+    async (itemId: string, sql: string) => {
+      if (!activeSpaceDash) return;
+      const spaceId = activeSpaceDash.space_id;
+      const dashId = activeSpaceDash.id;
+      setSpaceDashboards((prev) =>
+        prev.map((d) =>
+          d.id === dashId
+            ? { ...d, items: d.items.map((it) => (it.id === itemId ? { ...it, sql } : it)) }
+            : d
+        )
+      );
+      try {
+        const res = await fetch(
+          `/api/v1/spaces/${spaceId}/dashboards/${dashId}/items/${itemId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sql }),
+          }
+        );
+        if (res.ok) {
+          const updated: SpaceDashboard = await res.json();
+          setSpaceDashboards((prev) =>
+            prev.map((d) => (d.id === dashId ? { ...updated, space_name: d.space_name } : d))
+          );
+        }
+      } catch { /* silent */ }
+    },
+    [activeSpaceDash]
+  );
+
   const handleAddToDashboard = useCallback(
     async (msg: ChatMessage) => {
       if (!activeSpaceDash || !msg.sql) return;
@@ -870,6 +904,7 @@ export default function DashboardPage() {
                       refreshKey={refreshKey}
                       filters={activeSpaceDash.filters}
                       spaceView={spaceConfig?.id ? `gold.ds_${spaceConfig.id}` : undefined}
+                      onSqlChange={(sql) => handleSpaceUpdateItemSql(item.id, sql)}
                       onRemove={() => handleSpaceRemoveItem(item.id)}
                     />
                   </div>
