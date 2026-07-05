@@ -309,9 +309,11 @@ def _build_reask_prompt(
     return (
         f"The previous attempt returned only {got} widget(s), but a useful dashboard "
         f"needs at least {min_widgets}. Design a fuller dashboard of {min_widgets} to "
-        f"{max_widgets} complementary widgets — each adding a distinct perspective "
-        f"(headline KPIs, a time trend, breakdowns, and a funnel/comparison where the "
-        f"data supports it) — for this analysis case:\n\n{description}"
+        f"{max_widgets} complementary widgets — each with a distinct `role` per the "
+        f"composition grammar (headline 'kpi' numbers, a 'trend' line, 'breakdown' "
+        f"bars, a 'detail' table, and a 'flow' funnel only for a genuinely staged "
+        f"process). Do NOT emit a 'comparison' widget; express period comparisons as a "
+        f"kpi or a trend line — for this analysis case:\n\n{description}"
     )
 
 
@@ -520,6 +522,7 @@ async def regenerate_widget(
             title=(intent[:80] or "widget"),
             intent=intent,
             sql=result.sql,
+            role="detail",  # required since C1; transient plan, only intent/sql are used by _repair_sql
             viz_type="table",
         )
         fixed = await _repair_sql(provider, system_prompt, plan, result.raw_error or "")
