@@ -17,6 +17,7 @@ not rows) for self-repair, and surface only the sanitized error to the client.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import AsyncIterator, Awaitable, Callable, Literal
@@ -34,6 +35,11 @@ log = logging.getLogger("app.llm.dashboard_spec")
 # Board decision (CLI-126): widget cap 6–8.
 MIN_WIDGETS = 6
 MAX_WIDGETS = 8
+
+# Widgets are validated/executed (and occasionally LLM-repaired) in parallel
+# (CLI-152). Cap concurrency so a wide dashboard doesn't fan out a burst of
+# ClickHouse queries / provider calls all at once.
+MAX_WIDGET_CONCURRENCY = 4
 
 VizType = Literal["number", "table", "bar", "line", "funnel", "comparison"]
 
@@ -117,16 +123,18 @@ class DashboardSpec(BaseModel):
 # Streaming progress events (OSD phase 2)
 # ---------------------------------------------------------------------------
 
-# The generation flow is otherwise synchronous; these events let the frontend
-# render an honest progress bar instead of a fake timer. Stage names are literal:
-# all SQL is authored in the single planning call, so per-widget work is *running*
-# the SQL (not generating it) and then reporting it *validated*. Emitted order for
-# an M-widget dashboard:
+# These events let the frontend render an honest progress bar instead of a fake
+# timer. Stage names are literal: all SQL is authored in the single planning call,
+# so per-widget work is *running* the SQL (not generating it) and then reporting it
+# *validated*. Widget finalization runs in parallel (CLI-152), so progress is
+# completion-counted rather than sequential — a single bulk ``running`` tick follows
+# ``planning``, then one ``validated`` event fires as each widget lands, carrying
+# the finished widget's 1-based ``index`` (so the frontend needs no ordering) and a
+# running ``completed`` tally. Emitted order for an M-widget dashboard:
 #   planning
-#   -> running (1/M) -> validated (1/M)
-#   -> ...
-#   -> running (M/M) -> validated (M/M)
-#   -> done            (carries the full DashboardSpec)
+#   -> running   (completed=0, total=M)   # one bulk "widgets are being built" tick
+#   -> validated (index=i, completed=k)   # M of these, in completion order
+#   -> done                               # carries the full DashboardSpec
 # A fatal failure mid-stream (incl. a zero-widget plan) emits a single ``error``
 # event instead of ``done``.
 EventStage = Literal["planning", "running", "validated", "done", "error"]
@@ -136,8 +144,9 @@ class DashboardEvent(BaseModel):
     """One progress event in the dashboard generation stream."""
 
     stage: EventStage
-    index: int | None = None  # 1-based widget index (running/validated only)
+    index: int | None = None  # 1-based widget index (validated only)
     total: int | None = None  # total widget count, known once planning completes
+    completed: int | None = None  # widgets finalized so far (generating/validating)
     widget_title: str | None = None
     error: str | None = None  # per-widget sanitized error, or a fatal stream error
     spec: DashboardSpec | None = None  # populated only on the final ``done`` event
@@ -343,6 +352,7 @@ async def stream_dashboard_spec(
     run_query: QueryRunner | None = None,
     min_widgets: int = MIN_WIDGETS,
     max_widgets: int = MAX_WIDGETS,
+    max_concurrency: int = MAX_WIDGET_CONCURRENCY,
 ) -> AsyncIterator[DashboardEvent]:
     """Generate a dashboard spec, yielding progress events as the work proceeds.
 
@@ -351,10 +361,12 @@ async def stream_dashboard_spec(
     bounded self-repair retry — but emits ``DashboardEvent``s so callers can show
     real progress. The final ``done`` event carries the complete ``DashboardSpec``.
 
-    Events are emitted *before* the slow step they describe (``planning`` before
-    the LLM plan call, ``running`` before a widget's SQL is executed); the
-    ``validated`` event fires *after* a widget is validated/executed and carries
-    that widget's sanitized error if it failed.
+    Widget finalization runs concurrently with bounded fan-out
+    (``max_concurrency``), so progress is completion-counted: a single bulk
+    ``running`` tick follows ``planning``, then one ``validated`` event fires
+    as *each* widget lands (in completion order, carrying its original 1-based
+    ``index`` and a running ``completed`` tally, plus a sanitized error if it
+    failed). Widgets are still assembled into the spec in their planned order.
 
     Widget-floor enforcement (CLI-153): the ``MIN_WIDGETS`` floor is enforced in
     code, not just in the prompt. A plan that returns **zero** widgets ends the
@@ -420,27 +432,52 @@ async def stream_dashboard_spec(
         truncated = True
     total = len(widgets)
 
-    finalized: list[WidgetSpec] = []
-    for index, w in enumerate(widgets, start=1):
-        yield DashboardEvent(
-            stage="running", index=index, total=total, widget_title=w.title
-        )
-        spec_widget = await _finalize_widget(provider, system_prompt, w, run_query)
-        finalized.append(spec_widget)
-        yield DashboardEvent(
-            stage="validated",
-            index=index,
-            total=total,
-            widget_title=w.title,
-            error=spec_widget.error,
-        )
+    # One bulk tick so the UI flips into "building widgets" mode; per-widget
+    # progress then arrives as completion-counted ``validated`` events.
+    yield DashboardEvent(stage="running", total=total, completed=0)
+
+    finalized: dict[int, WidgetSpec] = {}
+    sem = asyncio.Semaphore(max(1, max_concurrency))
+
+    async def _run(idx: int, plan_widget: WidgetPlan) -> tuple[int, WidgetSpec]:
+        async with sem:
+            spec_widget = await _finalize_widget(
+                provider, system_prompt, plan_widget, run_query
+            )
+        return idx, spec_widget
+
+    tasks = [
+        asyncio.create_task(_run(index, w))
+        for index, w in enumerate(widgets, start=1)
+    ]
+    completed = 0
+    try:
+        for coro in asyncio.as_completed(tasks):
+            index, spec_widget = await coro
+            finalized[index] = spec_widget
+            completed += 1
+            yield DashboardEvent(
+                stage="validated",
+                index=index,
+                total=total,
+                completed=completed,
+                widget_title=spec_widget.title,
+                error=spec_widget.error,
+            )
+    finally:
+        # If the consumer disconnects mid-stream, don't leak in-flight work.
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+    ordered = [finalized[i] for i in range(1, total + 1)]
 
     spec = DashboardSpec(
         space_id=config.id,
         description=description,
         dashboard_filters=plan.dashboard_filters,
-        widgets=finalized,
-        widget_count=len(finalized),
+        widgets=ordered,
+        widget_count=len(ordered),
         llm_ms=llm_ms,
         truncated=truncated,
         note=note,
