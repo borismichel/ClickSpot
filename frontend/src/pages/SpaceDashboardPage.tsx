@@ -58,6 +58,7 @@ export default function SpaceDashboardPage() {
     renameDashboard,
     addItem,
     removeItem,
+    updateItemSql,
     updateLayouts,
     updateFilters,
     updatePinnedColumns,
@@ -366,6 +367,9 @@ export default function SpaceDashboardPage() {
                     refreshKey={refreshKey}
                     filters={activeDashboard.filters}
                     spaceView={spaceConfig?.id ? `gold.ds_${spaceConfig.id}` : undefined}
+                    onSqlChange={(sql) => {
+                      if (activeId) updateItemSql(activeId, item.id, sql);
+                    }}
                     onRemove={() => {
                       if (activeId) removeItem(activeId, item.id);
                     }}

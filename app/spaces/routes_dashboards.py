@@ -173,6 +173,18 @@ class AddSpaceDashItemRequest(BaseModel):
     context_kpis: list[dict] = []
 
 
+class UpdateSpaceDashItemRequest(BaseModel):
+    """Edit a saved widget in place (CLI-166/B4).
+
+    Only the SQL is user-editable from the saved card's inline editor today, but
+    ``viz`` is accepted for symmetry with the draft path. Both are optional so the
+    endpoint can grow other editable fields without breaking callers.
+    """
+
+    sql: str | None = Field(default=None, min_length=1, max_length=20000)
+    viz: str | None = None
+
+
 class SpaceLayoutItem(BaseModel):
     item_id: str
     x: int
@@ -485,6 +497,53 @@ async def api_remove_space_dash_item(space_id: str, dash_id: str, item_id: str):
         await db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(404, "Item not found")
+        await db.execute(
+            "UPDATE space_dashboards SET updated_at = ? WHERE id = ?", (_now(), dash_id)
+        )
+        await db.commit()
+        return await _get_space_dashboard(db, dash_id)
+    finally:
+        await db.close()
+
+
+@router.put("/{space_id}/dashboards/{dash_id}/items/{item_id}")
+async def api_update_space_dash_item(
+    space_id: str, dash_id: str, item_id: str, req: UpdateSpaceDashItemRequest
+):
+    """Persist an inline edit to a saved widget (CLI-166/B4).
+
+    Brings the draft card's view/edit-SQL affordance to saved dashboards: the SQL
+    is stored verbatim (it is run live and validated on execution, matching the
+    add-item path). The dashboard must belong to ``space_id`` and own the item.
+    """
+    from app.store import get_db
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT i.id FROM space_dashboard_items i "
+            "JOIN space_dashboards d ON d.id = i.dashboard_id "
+            "WHERE i.id = ? AND i.dashboard_id = ? AND d.space_id = ?",
+            (item_id, dash_id, space_id),
+        )
+        if not await cursor.fetchone():
+            raise HTTPException(404, "Item not found")
+
+        sets = []
+        params: list = []
+        if req.sql is not None:
+            sets.append("sql = ?")
+            params.append(req.sql)
+        if req.viz is not None:
+            sets.append("viz = ?")
+            params.append(req.viz)
+        if not sets:
+            raise HTTPException(400, "Nothing to update")
+
+        params.extend([item_id, dash_id])
+        await db.execute(
+            f"UPDATE space_dashboard_items SET {', '.join(sets)} WHERE id = ? AND dashboard_id = ?",
+            params,
+        )
         await db.execute(
             "UPDATE space_dashboards SET updated_at = ? WHERE id = ?", (_now(), dash_id)
         )
