@@ -33,6 +33,18 @@ import { spacing } from "../theme/tokens";
 const { Content } = Layout;
 const GRID_GUTTER: [number, number] = [spacing.md, spacing.md];
 
+// RGL responsive breakpoints/cols. Only the `lg` layout is authoritative: it
+// backs widgets[].layout, the persisted draft, and the CLI-164 save. Kept at
+// module scope so the grid props and the layout-persistence guard can't drift.
+const GRID_BREAKPOINTS = { lg: 1200, md: 996, sm: 768 } as const;
+const GRID_COLS = { lg: 12, md: 8, sm: 4 } as const;
+type GridBreakpoint = keyof typeof GRID_BREAKPOINTS;
+
+// Map a container width to the breakpoint RGL would pick (largest breakpoint
+// whose min-width is <= width; falls back to the narrowest).
+const breakpointFromWidth = (width: number): GridBreakpoint =>
+  width >= GRID_BREAKPOINTS.lg ? "lg" : width >= GRID_BREAKPOINTS.md ? "md" : "sm";
+
 interface SpaceOption {
   id: string;
   name: string;
@@ -304,6 +316,12 @@ export default function OneShotDashboardPage() {
 
   const abortRef = useRef<AbortController | null>(null);
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
+  // Mirror the latest container width into a ref during render so the (empty-dep)
+  // layout-change handler can read the current breakpoint without going stale.
+  // Updated in render (not an effect) so it's current before RGL's own effects
+  // fire onLayoutChange for a breakpoint reflow.
+  const containerWidthRef = useRef(containerWidth);
+  containerWidthRef.current = containerWidth;
 
   const spaceView = spaceId ? `gold.ds_${spaceId}` : undefined;
 
@@ -581,6 +599,11 @@ export default function OneShotDashboardPage() {
   }, []);
 
   const handleLayoutChange = useCallback((layout: RGLLayout) => {
+    // RGL fires onLayoutChange with the *current* breakpoint's reflowed layout on
+    // width/breakpoint changes. Only `lg` is authoritative, so persisting a md/sm
+    // reflow here would clobber the lg layout and corrupt drag/resize, the saved
+    // draft, and the CLI-164 save. Ignore callbacks while below the lg breakpoint.
+    if (breakpointFromWidth(containerWidthRef.current) !== "lg") return;
     setWidgets((prev) =>
       prev.map((wgt) => {
         const l = layout.find((ly) => ly.i === wgt.id);
@@ -1051,8 +1074,8 @@ export default function OneShotDashboardPage() {
                   className="layout"
                   width={containerWidth}
                   layouts={{ lg: gridLayout }}
-                  breakpoints={{ lg: 1200, md: 996, sm: 768 }}
-                  cols={{ lg: 12, md: 8, sm: 4 }}
+                  breakpoints={GRID_BREAKPOINTS}
+                  cols={GRID_COLS}
                   rowHeight={80}
                   margin={GRID_GUTTER}
                   onLayoutChange={handleLayoutChange}
