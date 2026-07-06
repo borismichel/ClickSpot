@@ -24,12 +24,106 @@ import { UnifiedFilterBar } from "../components/filters/UnifiedFilterBar";
 import type { FilterValueOption, UnifiedFilterColumn } from "../components/filters/UnifiedFilterBar";
 import { SpaceChatDrawer } from "../components/spaces/SpaceChatDrawer";
 import { SpaceDashboardCard } from "../components/spaces/SpaceDashboardCard";
-import type { SpaceColumnMeta, SpaceFilter } from "../types/dashboard";
+import type { SpaceColumnMeta, SpaceFilter, SpaceDashboardItem } from "../types/dashboard";
 import type { ChatMessage } from "../types/chat";
 import type { DataSpaceConfig } from "../hooks/useDataSpaces";
 import { decodeFilterUrlState, encodeFilterUrlState } from "../utils/filterUrlState";
+import { stackedLayout } from "./osd/stackedLayout";
+import { spacing } from "../theme/tokens";
 
 const { Header, Content } = Layout;
+
+// RGL responsive config, kept in lock-step with the One Shot Dashboard draft grid
+// so a saved dashboard renders identically to its Draft/Preview (CLI-190). Only the
+// `lg` layout is authoritative — it backs the persisted item geometry; md/sm are
+// derived and never persisted (see the lg-only guard in SpaceDashboardGrid).
+const GRID_GUTTER: [number, number] = [spacing.md, spacing.md];
+const GRID_BREAKPOINTS = { lg: 1200, md: 996, sm: 768 } as const;
+const GRID_COLS = { lg: 12, md: 8, sm: 4 } as const;
+type GridBreakpoint = keyof typeof GRID_BREAKPOINTS;
+
+// Map a container width to the breakpoint RGL would pick (largest breakpoint whose
+// min-width is <= width; falls back to the narrowest).
+const breakpointFromWidth = (width: number): GridBreakpoint =>
+  width >= GRID_BREAKPOINTS.lg ? "lg" : width >= GRID_BREAKPOINTS.md ? "md" : "sm";
+
+interface SpaceDashboardGridProps {
+  items: SpaceDashboardItem[];
+  gridLayout: RGLLayout;
+  filters: SpaceFilter[];
+  refreshKey: number;
+  spaceView?: string;
+  onLayoutChange: (layout: RGLLayout) => void;
+  onSqlChange: (itemId: string, sql: string) => void;
+  onRemove: (itemId: string) => void;
+}
+
+/**
+ * The saved-dashboard grid, isolated so `useContainerWidth` mounts *together with*
+ * the grid node (CLI-190, the CLI-178 fix applied here). Previously the hook lived
+ * in the page component, whose measurement effect ran during the `loading` spinner
+ * gate while the ref'd node didn't exist yet; the effect only re-runs on `mounted`
+ * changes (which never happen), so no ResizeObserver ever attached and `width`
+ * stayed pinned at RGL's `lg` default (~1280) — the saved dashboard "shrank" to
+ * 1280px on wider viewports while the Draft/Preview filled the screen. Mounting the
+ * hook with the node makes width track the real container, matching the draft.
+ */
+function SpaceDashboardGrid({
+  items,
+  gridLayout,
+  filters,
+  refreshKey,
+  spaceView,
+  onLayoutChange,
+  onSqlChange,
+  onRemove,
+}: SpaceDashboardGridProps) {
+  const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
+
+  // Below `lg`, supply explicit stacked per-breakpoint layouts so wide tiles collapse
+  // into a single full-width column instead of being clipped (CLI-178 parity).
+  const gridLayouts = {
+    lg: gridLayout,
+    md: stackedLayout(gridLayout, GRID_COLS.md),
+    sm: stackedLayout(gridLayout, GRID_COLS.sm),
+  };
+
+  return (
+    <div ref={gridContainerRef} style={{ maxWidth: "100%", overflowX: "hidden" }}>
+      {mounted ? (
+        <ResponsiveGridLayout
+          className="layout"
+          width={containerWidth}
+          layouts={gridLayouts}
+          breakpoints={GRID_BREAKPOINTS}
+          cols={GRID_COLS}
+          rowHeight={80}
+          margin={GRID_GUTTER}
+          onLayoutChange={(layout: RGLLayout) => {
+            // Only persist at the authoritative lg breakpoint; RGL derives md/sm from
+            // lg, and persisting a derived reflow would clobber lg geometry (CLI-179).
+            if (breakpointFromWidth(containerWidth) === "lg") onLayoutChange(layout);
+          }}
+          dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
+          resizeConfig={{ enabled: true, handles: ["se"] }}
+        >
+          {items.map((item) => (
+            <div key={item.id}>
+              <SpaceDashboardCard
+                item={item}
+                refreshKey={refreshKey}
+                filters={filters}
+                spaceView={spaceView}
+                onSqlChange={(sql) => onSqlChange(item.id, sql)}
+                onRemove={() => onRemove(item.id)}
+              />
+            </div>
+          ))}
+        </ResponsiveGridLayout>
+      ) : null}
+    </div>
+  );
+}
 
 export default function SpaceDashboardPage() {
   const { spaceId } = useParams<{ spaceId: string }>();
@@ -66,7 +160,6 @@ export default function SpaceDashboardPage() {
   } = useSpaceDashboards(spaceId ?? null);
 
   const { messages, isLoading: chatLoading, sendMessage, clearMessages } = useSpaceChat(spaceId ?? null);
-  const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
 
   useEffect(() => {
     const dashboardId = searchParams.get("dashboard");
@@ -324,7 +417,7 @@ export default function SpaceDashboardPage() {
         </Space>
       </Header>
 
-      <Content style={{ padding: 16, background: token.colorBgLayout }}>
+      <Content style={{ padding: 16, background: token.colorBgLayout, overflowX: "hidden" }}>
         {activeDashboard && activeDashboard.items.length > 0 && (
           <div style={{ padding: "0 0 4px 0" }}>
             <UnifiedFilterBar
@@ -338,66 +431,50 @@ export default function SpaceDashboardPage() {
           </div>
         )}
 
-        <div ref={gridContainerRef}>
-          {!activeDashboard ? (
-            <div style={{ textAlign: "center", paddingTop: 120 }}>
-              <Empty description="No dashboards for this space yet" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                  Create Dashboard
-                </Button>
-              </Empty>
-            </div>
-          ) : activeDashboard.items.length === 0 ? (
-            <div style={{ textAlign: "center", paddingTop: 120 }}>
-              <Empty
-                description="This dashboard is empty. Generate a full set of widgets from your data, or open the chat to add them one at a time."
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              >
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<ThunderboltOutlined />}
-                    onClick={() => navigate(`/generate?space=${spaceId}`)}
-                  >
-                    Generate dashboard
-                  </Button>
-                  <Button icon={<MessageOutlined />} onClick={() => setChatOpen(true)}>
-                    Open Chat
-                  </Button>
-                </Space>
-              </Empty>
-            </div>
-          ) : mounted ? (
-            <ResponsiveGridLayout
-              className="layout"
-              width={containerWidth}
-              layouts={{ lg: gridLayout }}
-              breakpoints={{ lg: 1200, md: 996, sm: 768 }}
-              cols={{ lg: 12, md: 8, sm: 4 }}
-              rowHeight={80}
-              onLayoutChange={handleLayoutChange}
-              dragConfig={{ enabled: true, handle: ".ant-card-head", bounded: false, threshold: 3 }}
-              resizeConfig={{ enabled: true, handles: ["se"] }}
+        {!activeDashboard ? (
+          <div style={{ textAlign: "center", paddingTop: 120 }}>
+            <Empty description="No dashboards for this space yet" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+                Create Dashboard
+              </Button>
+            </Empty>
+          </div>
+        ) : activeDashboard.items.length === 0 ? (
+          <div style={{ textAlign: "center", paddingTop: 120 }}>
+            <Empty
+              description="This dashboard is empty. Generate a full set of widgets from your data, or open the chat to add them one at a time."
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
             >
-              {activeDashboard.items.map((item) => (
-                <div key={item.id}>
-                  <SpaceDashboardCard
-                    item={item}
-                    refreshKey={refreshKey}
-                    filters={activeDashboard.filters}
-                    spaceView={spaceConfig?.id ? `gold.ds_${spaceConfig.id}` : undefined}
-                    onSqlChange={(sql) => {
-                      if (activeId) updateItemSql(activeId, item.id, sql);
-                    }}
-                    onRemove={() => {
-                      if (activeId) removeItem(activeId, item.id);
-                    }}
-                  />
-                </div>
-              ))}
-            </ResponsiveGridLayout>
-          ) : null}
-        </div>
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  onClick={() => navigate(`/generate?space=${spaceId}`)}
+                >
+                  Generate dashboard
+                </Button>
+                <Button icon={<MessageOutlined />} onClick={() => setChatOpen(true)}>
+                  Open Chat
+                </Button>
+              </Space>
+            </Empty>
+          </div>
+        ) : (
+          <SpaceDashboardGrid
+            items={activeDashboard.items}
+            gridLayout={gridLayout}
+            filters={activeDashboard.filters}
+            refreshKey={refreshKey}
+            spaceView={spaceConfig?.id ? `gold.ds_${spaceConfig.id}` : undefined}
+            onLayoutChange={handleLayoutChange}
+            onSqlChange={(itemId, sql) => {
+              if (activeId) updateItemSql(activeId, itemId, sql);
+            }}
+            onRemove={(itemId) => {
+              if (activeId) removeItem(activeId, itemId);
+            }}
+          />
+        )}
       </Content>
 
       <SpaceChatDrawer
