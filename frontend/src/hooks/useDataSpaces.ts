@@ -103,6 +103,31 @@ interface PreviewResult {
   error?: string;
 }
 
+/**
+ * Extract a human-readable message from a FastAPI error body. `detail` is a
+ * plain string for our raised HTTPExceptions (409/500), but for a 422 request
+ * validation error it's an array of `{loc, msg, type}` objects — throwing that
+ * array as an Error stringifies each entry to "[object Object]" and hides the
+ * real cause. Format the array into readable "field: message" lines instead.
+ */
+function apiErrorMessage(body: unknown, fallback: string): string {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const lines = detail
+      .map((d) => {
+        const loc = Array.isArray(d?.loc)
+          ? d.loc.filter((p: unknown) => p !== "body").join(".")
+          : "";
+        const msg = typeof d?.msg === "string" ? d.msg : "invalid value";
+        return loc ? `${loc}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (lines.length) return lines.join("; ");
+  }
+  return fallback;
+}
+
 export function useDataSpaces() {
   const [spaces, setSpaces] = useState<DataSpaceConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -130,8 +155,8 @@ export function useDataSpaces() {
       body: JSON.stringify(config),
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to create data space");
+      const err = await res.json().catch(() => ({}));
+      throw new Error(apiErrorMessage(err, "Failed to create data space"));
     }
     await fetchSpaces();
     return res.json();
@@ -144,8 +169,8 @@ export function useDataSpaces() {
       body: JSON.stringify(config),
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to update data space");
+      const err = await res.json().catch(() => ({}));
+      throw new Error(apiErrorMessage(err, "Failed to update data space"));
     }
     await fetchSpaces();
     return res.json();
