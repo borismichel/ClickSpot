@@ -300,18 +300,18 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                               One aggregate per grain key — e.g. alias <Typography.Text code>deal_count</Typography.Text> · expression <Typography.Text code>count()</Typography.Text>, or <Typography.Text code>sum(d.amount)</Typography.Text> (the joined dimension is aliased <Typography.Text code>d</Typography.Text>).
                             </Typography.Text>
                             {aggs.map((a, aidx) => (
-                              <Space key={aidx} style={{ display: "flex", marginBottom: 4 }} align="start">
+                              <div key={aidx} style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4, alignItems: "flex-start" }}>
                                 <Input
                                   value={a.alias}
                                   onChange={(e) => updateAgg(idx, aggs.map((x, i) => (i === aidx ? { ...x, alias: e.target.value } : x)))}
                                   placeholder="alias, e.g. deal_count"
-                                  style={{ width: 200 }}
+                                  style={{ width: 180, flexShrink: 0 }}
                                 />
                                 <Input
                                   value={a.expr}
                                   onChange={(e) => updateAgg(idx, aggs.map((x, i) => (i === aidx ? { ...x, expr: e.target.value } : x)))}
                                   placeholder="expression, e.g. count()"
-                                  style={{ width: 260, fontFamily: "monospace", fontSize: 12 }}
+                                  style={{ flex: 1, minWidth: 120, fontFamily: "monospace", fontSize: 12 }}
                                 />
                                 <Button
                                   type="text"
@@ -320,7 +320,7 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                                   icon={<DeleteOutlined />}
                                   onClick={() => updateAgg(idx, aggs.filter((_, i) => i !== aidx))}
                                 />
-                              </Space>
+                              </div>
                             ))}
                             <Button
                               type="dashed"
