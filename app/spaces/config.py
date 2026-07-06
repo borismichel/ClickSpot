@@ -8,7 +8,7 @@ used to generate a ClickHouse VIEW in the gold database.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -133,7 +133,14 @@ class DictDimension(BaseModel):
     prefix: str = Field(description="Column alias prefix, e.g. 'owner_'")
 
 
-DimensionJoin = BridgeDimension | FKDimension | DictDimension
+# Discriminated on `join_type` so a bad dimension reports only *its own*
+# validation errors (e.g. "'aggregate' strategy requires agg_expressions"),
+# instead of the union trying all three members and returning a 3x-larger
+# error array that the frontend rendered as an opaque "[object Object]".
+DimensionJoin = Annotated[
+    BridgeDimension | FKDimension | DictDimension,
+    Field(discriminator="join_type"),
+]
 
 
 class ComputedColumn(BaseModel):

@@ -93,6 +93,10 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
     updateDimension(idx, { columns: cols });
   };
 
+  const updateAgg = (idx: number, aggs: { alias: string; expr: string }[]) => {
+    updateDimension(idx, { agg_expressions: aggs } as Partial<DimensionJoin>);
+  };
+
   // Switch an FK dimension to dict or vice versa
   const switchToDict = (idx: number, disc: DiscoveredDimension) => {
     if (!disc.dict_name || !disc.dict_columns) return;
@@ -287,6 +291,49 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                           />
                         </div>
                       )}
+                      {(dim as unknown as Record<string, unknown>).strategy === "aggregate" && (() => {
+                        const aggs = ((dim as unknown as Record<string, unknown>).agg_expressions as { alias: string; expr: string }[] | null) ?? [];
+                        return (
+                          <div style={{ marginTop: 8 }}>
+                            <Typography.Text>Aggregate expressions:</Typography.Text>
+                            <Typography.Text type="secondary" style={{ display: "block", fontSize: 11, marginBottom: 4 }}>
+                              One aggregate per grain key — e.g. alias <Typography.Text code>deal_count</Typography.Text> · expression <Typography.Text code>count()</Typography.Text>, or <Typography.Text code>sum(d.amount)</Typography.Text> (the joined dimension is aliased <Typography.Text code>d</Typography.Text>).
+                            </Typography.Text>
+                            {aggs.map((a, aidx) => (
+                              <div key={aidx} style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4, alignItems: "flex-start" }}>
+                                <Input
+                                  value={a.alias}
+                                  onChange={(e) => updateAgg(idx, aggs.map((x, i) => (i === aidx ? { ...x, alias: e.target.value } : x)))}
+                                  placeholder="alias, e.g. deal_count"
+                                  style={{ width: 180, flexShrink: 0 }}
+                                />
+                                <Input
+                                  value={a.expr}
+                                  onChange={(e) => updateAgg(idx, aggs.map((x, i) => (i === aidx ? { ...x, expr: e.target.value } : x)))}
+                                  placeholder="expression, e.g. count()"
+                                  style={{ flex: 1, minWidth: 120, fontFamily: "monospace", fontSize: 12 }}
+                                />
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  onClick={() => updateAgg(idx, aggs.filter((_, i) => i !== aidx))}
+                                />
+                              </div>
+                            ))}
+                            <Button
+                              type="dashed"
+                              size="small"
+                              icon={<PlusOutlined />}
+                              onClick={() => updateAgg(idx, [...aggs, { alias: "", expr: "" }])}
+                              style={{ marginTop: 4 }}
+                            >
+                              Add expression
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                   <div style={{ marginBottom: 8 }}>
@@ -306,7 +353,8 @@ export function DimensionConfigurator({ available, loading, dimensions, onChange
                       />
                     </div>
                   )}
-                  {dim.join_type !== "dict" && (
+                  {dim.join_type !== "dict" &&
+                    (dim as unknown as Record<string, unknown>).strategy !== "aggregate" && (
                     <ColumnPicker
                       columns={available.find((a) => a.entity === dim.entity)?.columns ?? []}
                       selected={dim.columns}
