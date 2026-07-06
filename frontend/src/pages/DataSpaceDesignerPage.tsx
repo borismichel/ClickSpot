@@ -113,6 +113,27 @@ export default function DataSpaceDesignerPage() {
     default_filter_builder: defaultFilterBuilder,
   };
 
+  // Bridge dimensions with a strategy-dependent required field left blank produce
+  // an unavoidable backend 422 (CLI-187): 'latest' needs a timestamp column and
+  // 'aggregate' needs at least one complete aggregate expression. Catch these
+  // client-side so the user gets a targeted message instead of a failed request.
+  const dimensionErrors = useMemo(() => {
+    const errs: string[] = [];
+    dimensions.forEach((d) => {
+      if (d.join_type !== "bridge") return;
+      if (d.strategy === "latest" && !d.timestamp_col) {
+        errs.push(`Dimension “${d.entity}” uses the Latest strategy but has no timestamp column.`);
+      }
+      if (d.strategy === "aggregate") {
+        const aggs = d.agg_expressions ?? [];
+        if (aggs.length === 0 || aggs.some((a) => !a.alias.trim() || !a.expr.trim())) {
+          errs.push(`Dimension “${d.entity}” uses the Aggregate strategy but needs at least one complete aggregate expression (alias + expression).`);
+        }
+      }
+    });
+    return errs;
+  }, [dimensions]);
+
   // Auto-derive ID from Display Name until the user manually overrides it (new spaces only).
   const handleNameChange = (name: string) => {
     setSpaceName(name);
@@ -135,9 +156,9 @@ export default function DataSpaceDesignerPage() {
     switch (step) {
       case 0: return !!grainEntity;
       case 1: return grainColumns.length > 0;
-      case 2: return true; // dimensions optional
+      case 2: return dimensionErrors.length === 0; // dimensions optional, but must be valid
       case 3: return true; // computed optional
-      case 4: return !!spaceName && !!spaceId && idValid && !idCollision;
+      case 4: return !!spaceName && !!spaceId && idValid && !idCollision && dimensionErrors.length === 0;
       default: return false;
     }
   };
@@ -153,6 +174,10 @@ export default function DataSpaceDesignerPage() {
     }
     if (idCollision) {
       message.error("A space with this ID already exists");
+      return;
+    }
+    if (dimensionErrors.length > 0) {
+      message.error(dimensionErrors[0]);
       return;
     }
     setSaving(true);
@@ -251,12 +276,29 @@ export default function DataSpaceDesignerPage() {
           )}
 
           {step === 2 && (
-            <DimensionConfigurator
-              available={availableDims}
-              loading={dimsLoading}
-              dimensions={dimensions}
-              onChange={setDimensions}
-            />
+            <div>
+              {dimensionErrors.length > 0 && (
+                <Alert
+                  type="error"
+                  showIcon
+                  style={{ marginBottom: spacing.lg }}
+                  message="Finish configuring these dimensions"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: spacing.lg }}>
+                      {dimensionErrors.map((e, i) => (
+                        <li key={i}>{e}</li>
+                      ))}
+                    </ul>
+                  }
+                />
+              )}
+              <DimensionConfigurator
+                available={availableDims}
+                loading={dimsLoading}
+                dimensions={dimensions}
+                onChange={setDimensions}
+              />
+            </div>
           )}
 
           {step === 3 && (
