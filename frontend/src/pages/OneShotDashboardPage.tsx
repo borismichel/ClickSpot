@@ -29,6 +29,7 @@ import { DraftWidgetCard } from "../components/dashboard/DraftWidgetCard";
 import type { DraftWidget } from "../components/dashboard/DraftWidgetCard";
 import type { SpaceColumnMeta, SpaceFilter, VizType, WidgetEncoding } from "../types/dashboard";
 import { autoLayout, type WidgetRole } from "./osd/bandLayout";
+import { stackedLayout } from "./osd/stackedLayout";
 import { spacing } from "../theme/tokens";
 
 const { Content } = Layout;
@@ -243,6 +244,20 @@ function OsdDraftGrid({
 }: OsdDraftGridProps) {
   const { width: containerWidth, containerRef: gridContainerRef, mounted } = useContainerWidth();
 
+  // Below `lg`, RGL derives md/sm positions from the lg layout, so a wide tile
+  // (w:6) stays wider than an md(8)/sm(4) container and its columns become
+  // unreachable — plus the derived pack leaves KPI tiles offset rather than
+  // stacked (CLI-178). Supply explicit per-breakpoint layouts that stack every
+  // widget into a single full-width column in reading order (top-to-bottom,
+  // then left-to-right), so nothing is lost and the phone/tablet view reads as
+  // one clean column. onLayoutChange still only persists at `lg`, so these
+  // derived layouts never clobber the authoritative geometry (CLI-179).
+  const gridLayouts = {
+    lg: gridLayout,
+    md: stackedLayout(gridLayout, GRID_COLS.md),
+    sm: stackedLayout(gridLayout, GRID_COLS.sm),
+  };
+
   return (
     <div ref={gridContainerRef} style={{ maxWidth: "100%", overflowX: "hidden" }}>
       {widgets.length === 0 ? (
@@ -257,7 +272,7 @@ function OsdDraftGrid({
         <ResponsiveGridLayout
           className="layout"
           width={containerWidth}
-          layouts={{ lg: gridLayout }}
+          layouts={gridLayouts}
           breakpoints={GRID_BREAKPOINTS}
           cols={GRID_COLS}
           rowHeight={80}
