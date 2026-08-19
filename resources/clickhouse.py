@@ -1,3 +1,5 @@
+import time
+
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import OperationalError
 from dagster import ConfigurableResource
@@ -12,6 +14,7 @@ class ClickHouseResource(ConfigurableResource):
     username: str
     password: str
     database: str = "bronze"
+    reconnect_timeout: float = 120.0
 
     def _cache_key(self):
         return (self.host, self.port, self.username, self.password, self.database)
@@ -45,13 +48,48 @@ class ClickHouseResource(ConfigurableResource):
             except Exception:
                 pass
 
+    def _wait_for_server(self) -> bool:
+        """Poll until a fresh client answers ping(), up to reconnect_timeout seconds.
+
+        Covers the window where the server process was killed (e.g. OOM) and
+        docker is restarting it. On success the healthy client is cached so the
+        next get_client() reuses it.
+        """
+        delay = 1.0
+        waited = 0.0
+        while True:
+            try:
+                client = self._create_client()
+                if client.ping():
+                    _client_cache[self._cache_key()] = client
+                    return True
+                client.close()
+            except Exception:
+                pass
+            if waited >= self.reconnect_timeout:
+                return False
+            step = min(delay, self.reconnect_timeout - waited)
+            time.sleep(step)
+            waited += step
+            delay = min(delay * 2, 15.0)
+
     def _with_retry(self, op):
-        """Run op(client); on stale-connection errors, recreate client and retry once."""
-        try:
-            return op(self.get_client())
-        except OperationalError:
-            self._invalidate_client()
-            return op(self.get_client())
+        """Run op(client); on connection errors, wait for the server to come
+        back (it may be restarting after a crash) and retry.
+
+        Statement retries assume the failed statement did not commit. Bronze
+        inserts land in ReplacingMergeTree keyed on _record_id and silver/gold
+        builds go through disposable staging tables, so a rare double-apply is
+        absorbed downstream.
+        """
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                return op(self.get_client())
+            except OperationalError:
+                self._invalidate_client()
+                if attempt == attempts - 1 or not self._wait_for_server():
+                    raise
 
     def insert_records(self, table: str, rows: list[tuple]) -> int:
         """Insert rows as (record_id, extracted_at, properties_map, raw_json) tuples."""

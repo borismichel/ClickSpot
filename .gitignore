@@ -20,6 +20,7 @@ silver_config_custom.py
 
 # MkDocs build output (published to GitHub Pages by CI, not committed)
 site/
+docker-compose.override.yml
 
 # Local issue-tracker scratch (to-spec / triage skills; not for the public repo)
 .scratch/

@@ -54,7 +54,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6g
+          # Backstop above max_server_memory_usage (4 GB in
+          # clickhouse/config.xml). Assumes a 12 GiB Docker VM; on the old
+          # 7.6 GiB VM this was 4g/2.5GB — revert both together if the VM
+          # shrinks, larger values invited global OOM kills.
+          memory: 5g
     ulimits:
       nofile:
         soft: 262144
