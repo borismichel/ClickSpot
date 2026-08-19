@@ -43,21 +43,44 @@ python -m app.customer.onboarding
 
 ## 3. (Optional) Map non-standard properties
 
-`silver_config_custom.py` is for non-standard HubSpot properties on your portal: an
-ARR-specific deal amount, a custom dropdown. It's gitignored. Copy the example and add a
-tuple per property you want in silver:
+Non-standard HubSpot properties — an ARR-specific deal amount, a custom dropdown — become
+silver columns through the **Settings → Properties** tab in the frontend. Its sibling
+**Settings → Extraction** turns off whole objects you don't want extracted at all.
 
-```bash
-cp silver_config_custom.py.example silver_config_custom.py
-```
+A property change takes three steps, in this order:
 
-The onboarding wizard can also auto-suggest these by scanning
-`/crm/v3/properties/{deals,contacts}`.
+1. **Save** in the Properties tab. Chat, the MCP schema, and the Data Explorer pick up the
+   new column list immediately — no restart.
+2. **Reload Pipeline** — the button in the banner that appears after a save. It reloads
+   Dagster's code location over GraphQL (see
+   [`DAGSTER_GRAPHQL_URL`](../configuration/index.md)), which is what makes the pipeline
+   aware of the column at all.
+3. **Materialize `silver_job`** in Dagster so the column is rebuilt with data. (Tick
+   *Run bronze job after reload* in that banner instead if the property is new to bronze
+   too.)
+
+Between steps 1 and 3 the assistant knows about a column ClickHouse does not have yet, so
+queries against it fail until the rebuild finishes. That window is why the rebuild belongs
+immediately after the save.
+
+!!! warning "`silver_config_custom.py` is deprecated"
+    The gitignored sibling module still appends columns and still works, with a deprecation
+    warning at import. It cannot reach a container deployment at all — released images are
+    built from a clean checkout, so the file is never in them. Move existing tuples to the
+    Properties tab.
 
 !!! note "It works without any of this"
-    If neither `customer.json` nor `silver_config_custom.py` exists, chat still works; it
-    just produces generic SQL without portal-specific filters.
+    If `customer.json` holds no portal specifics, chat still works; it just produces generic
+    SQL without portal-specific filters.
 
-## Then run the pipeline
+## Then load your portal
 
-With the token in place, materialize the assets and the warehouse fills with your data. See [First run](first-run.md).
+**Setting the token does not load anything by itself.** Nothing is scheduled on startup —
+a fresh stack sits with an empty warehouse until you ask for an extraction:
+
+1. Open Dagster at <http://localhost:8194>.
+2. Materialize **`bronze_job`**. Sensors chain the rest: bronze → silver → gold → anon.
+
+The recurring `hourly_schedule` ships **stopped** by design, so nothing refreshes behind
+your back. Turn it on under **Automation → Schedules** in the same UI if you want hourly
+runs. Walkthrough: [First run](first-run.md).

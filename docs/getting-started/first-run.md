@@ -5,12 +5,18 @@ Once the stack is up, here's the path from a cold start to your first answered q
 ## 1. Materialize the warehouse
 
 1. Open Dagster at <http://localhost:8194>.
-2. Materialize all assets, or wait for the hourly schedule to do it for you.
+2. Materialize **`bronze_job`**.
 
 This runs the full medallion pipeline: bronze (raw HubSpot loads) → silver (typed
-dimensions, facts, bridges) → gold (aggregates) → anon (masked mirrors). On the demo seed
-it's already loaded; on a live portal this is where your CRM lands in ClickHouse. See
+dimensions, facts, bridges) → gold (aggregates) → anon (masked mirrors); sensors chain
+silver, gold, and anon off the bronze run. On the demo seed (`docker compose --profile demo
+up`, or `make seed`) it's already loaded and you can skip this; on a live portal this is
+where your CRM lands in ClickHouse. See
 [The medallion warehouse](../concepts/warehouse.md) for what each layer holds.
+
+Nothing schedules this for you: `hourly_schedule` ships stopped, so the first load is
+always a manual materialization. Enable it under **Automation → Schedules** if you want
+hourly refreshes.
 
 ## 2. Configure an LLM provider
 

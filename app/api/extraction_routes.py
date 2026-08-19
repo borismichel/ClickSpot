@@ -112,17 +112,46 @@ def put_extraction(body: ExtractionConfigBody) -> dict[str, Any]:
             )
     extraction.save(incoming)
 
-    # Phase B: invalidate the LLM schema cache so the next chat call rebuilds
-    # the prompt without the disabled tables.
+    # Phase B: invalidate the semantic layer cache (HubSpot property labels and
+    # descriptions) so the next refresh re-derives it without the disabled tables.
     try:
-        from pathlib import Path
-        cache = Path.home() / ".clickspot" / "schema_cache.json"
-        if cache.exists():
-            cache.unlink()
+        from app.semantic.layer import CACHE_FILE
+        if CACHE_FILE.exists():
+            CACHE_FILE.unlink()
     except Exception as e:
         log.warning("Failed to invalidate schema cache: %s", e)
 
+    _refresh_served_schema()
+
     return _resolved_view()
+
+
+def _refresh_served_schema() -> None:
+    """Bring this process's view of the warehouse schema in line with the save.
+
+    The table catalog is derived from the composed silver column lists at import
+    time, and the chat schema prompt is memoized on top of it, so without this a
+    property change stayed invisible to chat, the SQL validator, and /schema
+    until the backend was restarted — the UI reported success while the
+    assistant disagreed.
+
+    Consistency is with the saved *configuration*, not with ClickHouse: the
+    silver rebuild that gives the new columns data is a separate, operator-driven
+    step (save -> reload the code location -> rebuild silver). Failures are logged
+    rather than raised — the save itself already succeeded and must not be
+    reported as failed.
+    """
+    try:
+        from app.config import rebuild_tables
+        rebuild_tables()
+    except Exception as e:
+        log.warning("Failed to rebuild table catalog after extraction save: %s", e)
+        return
+    try:
+        from app.llm.providers import refresh_schema_prompt
+        refresh_schema_prompt()
+    except Exception as e:
+        log.warning("Failed to refresh schema prompt after extraction save: %s", e)
 
 
 # Columns we refuse to let the user remove via the Properties tab. These are

@@ -73,7 +73,35 @@ def _compose_columns(core: list, dim_name: str, legacy: list) -> list:
     return out
 
 
-_EXTRA_DIM_DEALS: list = []  # placeholder; actual merge happens via _compose_columns below
+# Dims whose column list is user-extensible, keyed by silver table name. Each
+# entry holds the dim dict itself, its pristine core column list, and the legacy
+# extras appended for that dim. Kept so the composition can be re-run after the
+# Settings UI writes a new selection — see `recompose_columns()`.
+_COMPOSABLE: dict[str, tuple[dict, list, list]] = {}
+
+
+def _compose_into(dim: dict, dim_name: str, legacy: list) -> None:
+    """Register `dim` as user-extensible and compose its columns for the first time."""
+    core = list(dim["columns"])
+    _COMPOSABLE[dim_name] = (dim, core, legacy)
+    dim["columns"] = _compose_columns(core, dim_name, legacy)
+
+
+def recompose_columns() -> None:
+    """Re-derive every user-extensible dim's columns from the current customer config.
+
+    Called after the Settings UI saves a new property selection so long-running
+    processes pick it up without a restart. Composition always starts from the
+    pristine core list, never from the previously composed one, so removals and
+    replacements do not accumulate across calls. Each dim's list is swapped in a
+    single assignment, so a concurrent reader sees either the old list or the new
+    one, never a half-built one.
+    """
+    for dim_name, (dim, core, legacy) in _COMPOSABLE.items():
+        dim["columns"] = _compose_columns(core, dim_name, legacy)
+
+
+_EXTRA_DIM_DEALS: list = []  # placeholder; actual merge happens via _compose_into below
 _EXTRA_DIM_CONTACTS: list = []
 
 DIM_CONTACTS = {
@@ -139,7 +167,7 @@ DIM_CONTACTS = {
         ("recent_deal_close_date",                    "recent_deal_close_date",                    "DateTime"),
     ],
 }
-DIM_CONTACTS["columns"] = _compose_columns(DIM_CONTACTS["columns"], "dim_contacts", _LEGACY_CONTACTS)
+_compose_into(DIM_CONTACTS, "dim_contacts", _LEGACY_CONTACTS)
 
 DIM_COMPANIES = {
     "bronze_table": "hs_companies",
@@ -195,7 +223,7 @@ DIM_COMPANIES = {
         ("hubspot_owner_assigneddate",           "hubspot_owner_assigneddate",           "DateTime"),
     ],
 }
-DIM_COMPANIES["columns"] = _compose_columns(DIM_COMPANIES["columns"], "dim_companies", [])
+_compose_into(DIM_COMPANIES, "dim_companies", [])
 
 DIM_DEALS = {
     "bronze_table": "hs_deals",
@@ -264,7 +292,7 @@ DIM_DEALS = {
         ("hubspot_owner_assigneddate",        "hubspot_owner_assigneddate",        "DateTime"),
     ],
 }
-DIM_DEALS["columns"] = _compose_columns(DIM_DEALS["columns"], "dim_deals", _LEGACY_DEALS)
+_compose_into(DIM_DEALS, "dim_deals", _LEGACY_DEALS)
 
 DIM_LEADS = {
     "bronze_table": "hs_leads",
@@ -316,7 +344,7 @@ DIM_LEADS = {
         ("createdate",                    "hs_createdate",                 "DateTime"),
     ],
 }
-DIM_LEADS["columns"] = _compose_columns(DIM_LEADS["columns"], "dim_leads", [])
+_compose_into(DIM_LEADS, "dim_leads", [])
 
 # Owners -- flat structure from /crm/v3/owners (no properties map)
 DIM_OWNERS = {
