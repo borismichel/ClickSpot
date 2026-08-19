@@ -27,11 +27,18 @@ docker run --rm -p 8080:8080 -e ANTHROPIC_API_KEY=sk-... ghcr.io/borismichel/cli
 
 ## Self-host with Docker Compose
 
-`docker compose up` brings up the whole stack (ClickHouse, backend, Dagster, frontend) and
-seeds the demo warehouse on first boot.
+`docker compose up` brings up the whole stack (ClickHouse, backend, Dagster, frontend) with
+an empty warehouse.
 
 ```bash
 docker compose up
+```
+
+To explore without a HubSpot portal, add the demo profile — it loads the bundled synthetic
+warehouse once, then exits:
+
+```bash
+docker compose --profile demo up
 ```
 
 Open <http://localhost:8193>. To enable chat, pass a key:
@@ -40,8 +47,9 @@ Open <http://localhost:8193>. To enable chat, pass a key:
 ANTHROPIC_API_KEY=sk-... docker compose up   # or OPENAI_API_KEY=sk-...
 ```
 
-Got a HubSpot portal? Add `HUBSPOT_TOKEN=...` to load your own data instead of the demo
-set. Full walkthrough: [Install & run](install.md) → [Connect HubSpot](connect-hubspot.md).
+Got a HubSpot portal? Set `HUBSPOT_TOKEN` in `.env`, leave `--profile demo` off, and
+materialize `bronze_job` from the Dagster UI to load it. Full walkthrough:
+[Install & run](install.md) → [Connect HubSpot](connect-hubspot.md).
 
 ## Run from source
 

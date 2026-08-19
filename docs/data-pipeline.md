@@ -46,7 +46,7 @@ Bronze is the only layer with an external input, and there are two ways to popul
 | Source | How | Needs HubSpot? | When to use |
 |--------|-----|----------------|-------------|
 | **Live HubSpot extraction** | The Dagster `bronze_job` calls HubSpot's CRM APIs (see [Bronze Layer](#bronze-layer)). | Yes — `HUBSPOT_TOKEN` + `HUBSPOT_HUB_ID`. | Loading a real portal's data, refreshed hourly. |
-| **Offline seed loader** | `make seed` (or `python scripts/seed.py`) maps the bundled `demo-data/clickspot-demo-data.csv` into bronze, then runs silver → gold → anon. | No — no token, no portal. | Demos, screenshots, local testing, and CI. The default for the preloaded `:demo` image and `docker compose up`. |
+| **Offline seed loader** | `make seed` (or `python scripts/seed.py`) maps the bundled `demo-data/clickspot-demo-data.csv` into bronze, then runs silver → gold → anon. | No — no token, no portal. | Demos, screenshots, local testing, and CI. The default for the preloaded `:demo` image and `docker compose --profile demo up`. |
 
 The seed loader writes the same bronze shape the live extractor produces (`properties Map(String, String)` + `_raw` JSON) and mints deterministic synthetic owner/pipeline/stage/object IDs so `dictGet()` label resolution works end-to-end. It's idempotent — re-running replaces rather than duplicates, because bronze tables are `ReplacingMergeTree` keyed on `_record_id`. Use `make seed-bronze` (or `--bronze-only`) to load just the bronze layer. See [`demo-data/README.md`](https://github.com/borismichel/ClickSpot/blob/main/demo-data/README.md) for the dataset shape.
 

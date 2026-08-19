@@ -25,6 +25,11 @@ x-app-env: &app-env
   # frontend port stays loopback-bound (see frontend.ports), so this does not
   # widen who can reach key writes. Override for non-default networks.
   CLICKSPOT_TRUSTED_HOSTS: "${CLICKSPOT_TRUSTED_HOSTS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+  # Settings -> Properties reloads the Dagster code location (and can launch
+  # bronze) over GraphQL. The app default targets localhost:8194, which is
+  # correct from source but dead inside the backend container — Dagster is a
+  # separate service here. Address it by compose service name.
+  DAGSTER_GRAPHQL_URL: "${DAGSTER_GRAPHQL_URL:-http://dagster:8194/graphql}"
 
 services:
   clickhouse:
@@ -75,6 +80,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # Opt-in. `docker compose up` used to run this unconditionally, which
+    # silently mixed synthetic demo records into a real portal's warehouse on
+    # every restart. Demo users add `--profile demo`; portal deployments get a
+    # clean warehouse by default.
+    profiles: ["demo"]
     environment:
       <<: *app-env
     command: ["python", "scripts/seed.py"]
@@ -116,6 +126,14 @@ services:
     command: ["dagster", "dev", "-h", "0.0.0.0", "-p", "8194"]
     volumes:
       - clickspot_dagster_home:/home/app/dagster_home
+      # Same ~/.clickspot as the backend. customer.json is read/write on BOTH
+      # sides: the Settings UI writes extraction.silver_properties here (and
+      # silver_config.py composes the dim column lists from it at import time,
+      # so Dagster — which builds silver — must read the same file), while the
+      # bronze HubSpot resource writes back the auto-detected hubspot_region.
+      # Unshared, each container kept a private copy in its writable layer and
+      # neither side's writes were ever visible to the other.
+      - clickspot_config:/home/app/.clickspot
     ports:
       - "127.0.0.1:8194:8194"   # Dagster UI (optional, loopback only)
     depends_on:

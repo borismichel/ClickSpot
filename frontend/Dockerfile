@@ -28,4 +28,7 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 EXPOSE 80
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=5 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost/ || exit 1
+    # 127.0.0.1, not localhost: nginx `listen 80;` binds IPv4 only, while
+    # localhost resolves to ::1 first in this image — the check then fails
+    # with ECONNREFUSED and the container sits permanently unhealthy.
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1

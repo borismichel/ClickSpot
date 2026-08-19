@@ -6,21 +6,29 @@ containers at all.
 
 ## Run with Docker (recommended)
 
-Brings up the whole stack (ClickHouse, backend, Dagster, frontend) and loads the demo
-warehouse on first boot:
+Brings up the whole stack (ClickHouse, backend, Dagster, frontend) with an empty warehouse:
 
 ```bash
 docker compose up
 ```
 
-Open <http://localhost:8193>. Clicking works right away. For chat, set a key first:
+To explore without a HubSpot portal, add the demo profile — it loads the bundled synthetic
+warehouse (bronze → silver → gold → anon) once, then exits:
+
+```bash
+docker compose --profile demo up
+```
+
+Open <http://localhost:8193>. For chat, set a key first:
 
 ```bash
 ANTHROPIC_API_KEY=sk-... docker compose up   # or OPENAI_API_KEY=sk-...
 ```
 
-Got a HubSpot portal? Add `HUBSPOT_TOKEN=...` to load your own data instead of the demo
-set. Released images pull from GHCR (public, no login) with `docker compose pull`.
+Got a HubSpot portal? Set `HUBSPOT_TOKEN` and `HUBSPOT_HUB_ID` in `.env`, leave
+`--profile demo` off, and materialize `bronze_job` from the Dagster UI at
+<http://localhost:8194> to load it (the hourly schedule ships stopped — enable it there for
+recurring runs). Released images pull from GHCR (public, no login) with `docker compose pull`.
 
 | Service | URL | Notes |
 |---------|-----|-------|
