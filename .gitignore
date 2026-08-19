@@ -20,3 +20,4 @@ silver_config_custom.py
 
 # MkDocs build output (published to GitHub Pages by CI, not committed)
 site/
+docker-compose.override.yml

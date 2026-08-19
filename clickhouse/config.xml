@@ -2,4 +2,11 @@
     <merge_tree>
         <index_granularity>4096</index_granularity>
     </merge_tree>
+    <!-- Hard server-wide cap. The Docker VM is shared with other stacks; the
+         kernel OOM-killed clickhouse-serv at ~2.9 GB RSS. Under this cap an
+         over-budget query fails with MEMORY_LIMIT_EXCEEDED (retryable)
+         instead of the whole server being SIGKILLed mid-query.
+         Sized for a 12 GiB Docker VM (Docker Desktop > Resources > Memory);
+         with the VM at its old 7.7 GiB, drop this back to 2500000000. -->
+    <max_server_memory_usage>4000000000</max_server_memory_usage>
 </clickhouse>

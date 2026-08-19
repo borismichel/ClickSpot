@@ -27,7 +27,7 @@ Docker-free local setup (Linux): `./bootstrap.sh` (Python + frontend deps + a pi
 
 ClickHouse init (run once): `python scripts/init_clickhouse.py` (both `bootstrap.sh --seed` and `start.sh` run this for you).
 
-ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`; unset = auto `local` on Linux / `docker` elsewhere): `local` (Docker-free single binary on port 8124), `docker` (`docker compose up -d clickhouse`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
+ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`; unset = auto `local` on Linux / `docker` elsewhere): `local` (Docker-free single binary on port 8124), `docker` (`docker compose up -d clickhouse`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`, `max_server_memory_usage=4GB` — the shared Docker VM OOM-kills the server otherwise) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
 
 ## Env Vars
 
