@@ -100,6 +100,20 @@ can't be auto-downloaded; Docker Desktop required). Force a mode in `.env`:
 | `docker` | Container from `docker-compose.yml`, any OS (default on macOS/Windows) |
 | `external` | Point at a ClickHouse you already manage |
 
+### Windows
+
+`start.sh` needs a bash shell, so on native Windows use its PowerShell sibling instead:
+
+```powershell
+.\start.ps1
+```
+
+Same services, same ports. It defaults to the `docker` ClickHouse mode (Docker Desktop
+required) and also accepts `external`; the Docker-free `local` mode is Linux-only — for
+that, use WSL and run `./start.sh` inside it. If PowerShell blocks the script, run once
+with `powershell -ExecutionPolicy Bypass -File start.ps1` or unblock your user scope with
+`Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+
 ## Next steps
 
 - Loading your own portal? [Connect HubSpot](connect-hubspot.md).

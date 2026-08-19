@@ -25,6 +25,8 @@ Visual QA / screenshots: this is a shared host — **always launch headless Chro
 
 Docker-free local setup (Linux): `./bootstrap.sh` (Python + frontend deps + a pinned single-binary ClickHouse under `.clickhouse/`), then `./start.sh`. When `CLICKSPOT_CLICKHOUSE_MODE` is unset, `start.sh` auto-picks `local` on Linux (managed via `scripts/clickhouse-local.sh`) and `docker` on macOS/Windows, where the binary can't be auto-downloaded.
 
+Native Windows: `.\start.ps1` — PowerShell sibling of `start.sh` (same services/ports, Windows venv layout `.venv\Scripts`, process-tree cleanup via `taskkill /T`). Supports `docker` (default) and `external` modes only; `local` is Linux-only, use WSL + `./start.sh` for that.
+
 ClickHouse init (run once): `python scripts/init_clickhouse.py` (both `bootstrap.sh --seed` and `start.sh` run this for you).
 
 ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`; unset = auto `local` on Linux / `docker` elsewhere): `local` (Docker-free single binary on port 8124), `docker` (`docker compose up -d clickhouse`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`, `max_server_memory_usage=4GB` — the shared Docker VM OOM-kills the server otherwise) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
