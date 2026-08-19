@@ -334,11 +334,20 @@ jobs:
       - name: Smoke — compose stack (fresh-clone path, ${{ matrix.platform.arch }})
         run: |
           set -euo pipefail
-          # Zero-knob default path: no HUBSPOT_TOKEN, no LLM key.
-          docker compose up -d
+
+          echo "Default service set must NOT include the seeder (portal deployments"
+          echo "must never get synthetic demo records injected by a bare \`up\`)..."
+          docker compose config --services | grep -qx seed \
+            && { echo "seed is in the default service set"; exit 1; }
+          docker compose --profile demo config --services | grep -qx seed \
+            || { echo "seed missing from the demo profile"; exit 1; }
+
+          # Zero-knob demo path: no HUBSPOT_TOKEN, no LLM key.
+          docker compose --profile demo up -d
 
           echo "One-shot seed must finish successfully (bronze -> silver -> gold -> anon)..."
-          seed_cid=$(docker compose ps -aq seed)
+          seed_cid=$(docker compose --profile demo ps -aq seed)
+          test -n "$seed_cid" || { echo "no seed container was created"; exit 1; }
           if ! timeout 420 docker wait "$seed_cid" >/dev/null; then
             echo "seed did not complete in time"; docker compose logs; exit 1
           fi
@@ -368,5 +377,5 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          docker compose down -v || true
+          docker compose --profile demo down -v || true
           docker rm -f clickspot-demo || true

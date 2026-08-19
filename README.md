@@ -99,24 +99,31 @@ ClickSpot extracts HubSpot CRM data hourly via Dagster, transforms it through a 
 Three ways in, all live. Docker is the primary path; running from source needs no containers at all.
 
 1. **[Preloaded demo](#try-it-in-60-seconds)** — `ghcr.io/borismichel/clickspot:demo`, a synthetic warehouse baked in. Zero setup, no token, instant click (add an LLM key to chat).
-2. **[Self-host with Docker](#run-with-docker-recommended)** — `docker compose up` brings up the full stack and seeds the demo warehouse on first boot; add `HUBSPOT_TOKEN` to load your own data.
+2. **[Self-host with Docker](#run-with-docker-recommended)** — `docker compose up` brings up the full stack with an empty warehouse; add `--profile demo` for the synthetic data set, or `HUBSPOT_TOKEN` for your own portal.
 3. **[Run from source](#run-from-source)** — Docker-free `./bootstrap.sh` with a pinned single-binary ClickHouse.
 
 ### Run with Docker (recommended)
 
-Brings up the whole stack (ClickHouse, backend, Dagster, frontend) and loads the demo warehouse on first boot:
+Brings up the whole stack (ClickHouse, backend, Dagster, frontend) with an empty warehouse:
 
 ```bash
 docker compose up
 ```
 
-Open <http://localhost:8193>. Clicking works right away. For chat, set a key first:
+To explore without a HubSpot portal, add the demo profile — it loads the bundled synthetic
+warehouse (bronze → silver → gold → anon) once, then exits:
+
+```bash
+docker compose --profile demo up
+```
+
+Open <http://localhost:8193>. For chat, set a key first:
 
 ```bash
 ANTHROPIC_API_KEY=sk-... docker compose up   # or OPENAI_API_KEY=sk-...
 ```
 
-Got a HubSpot portal? Add `HUBSPOT_TOKEN=...` to load your own data instead of the demo set. Released images pull from GHCR (public, no login) with `docker compose pull`.
+Got a HubSpot portal? Set `HUBSPOT_TOKEN` and `HUBSPOT_HUB_ID` in `.env`, leave `--profile demo` off, and materialize `bronze_job` from the Dagster UI at <http://localhost:8194> to load it (the hourly schedule ships stopped — enable it there for recurring runs). Released images pull from GHCR (public, no login) with `docker compose pull`.
 
 | Service | URL | Notes |
 |---------|-----|-------|
