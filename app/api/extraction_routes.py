@@ -119,7 +119,7 @@ def put_extraction(body: ExtractionConfigBody) -> dict[str, Any]:
         if CACHE_FILE.exists():
             CACHE_FILE.unlink()
     except Exception as e:
-        log.warning("Failed to invalidate schema cache: %s", e)
+        log.warning("Failed to invalidate the semantic layer cache: %s", e)
 
     _refresh_served_schema()
 

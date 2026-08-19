@@ -10,19 +10,29 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.customer import config as cc
+from app.semantic import layer as semantic_layer
 
 
 @pytest.fixture
 def isolated_config(tmp_path):
     cfgfile = tmp_path / "customer.json"
     cfgfile.write_text(json.dumps({"company_name": "Test"}))
-    with patch.object(cc, "CONFIG_FILE", cfgfile), patch.object(cc, "CONFIG_DIR", tmp_path):
+    with (
+        patch.object(cc, "CONFIG_FILE", cfgfile),
+        patch.object(cc, "CONFIG_DIR", tmp_path),
+        # A save unlinks the semantic layer cache. Redirect it too, or the tests
+        # delete the developer's real ~/.clickspot/schema_cache.json.
+        patch.object(semantic_layer, "CACHE_FILE", tmp_path / "schema_cache.json"),
+    ):
         yield cfgfile
-    # A save now refreshes the process-wide table catalog, which outlives this
-    # test. Rebuild once the patches are off so the catalog matches the real
-    # config again instead of leaking a warehouse schema invented here.
+    # A save refreshes process-wide state that outlives this test: the table
+    # catalog and the memoized schema prompt built on top of it. Redo both once
+    # the patches are off, so the next test sees the real config rather than a
+    # warehouse schema invented here.
     from app.config import rebuild_tables
+    from app.llm.providers import refresh_schema_prompt
     rebuild_tables()
+    refresh_schema_prompt()
 
 
 def test_get_extraction_returns_resolved_view(isolated_config):

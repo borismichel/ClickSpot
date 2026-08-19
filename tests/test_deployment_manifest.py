@@ -1,11 +1,15 @@
 """Deployment guarantees asserted against the Compose manifest.
 
-These are the four-container invariants that were each broken by a manifest
-written for a single-process mental model — one host, one home directory, one
-loopback interface. They are asserted here, not in a Docker test, because the
+These are the container-topology invariants that a manifest written for a
+single-process mental model — one host, one home directory, one loopback
+interface — got wrong. They are asserted here, not in a Docker test, because the
 manifest alone decides them: PyYAML resolves the merge keys the file uses to
 share its environment block, so the effective per-service environment is
 available without a daemon.
+
+The fourth expression of that same assumption, the frontend health probe, is
+deliberately absent: it lives in an image build rather than in anything the suite
+can reach, and is verified by watching the container reach a healthy state.
 """
 
 from __future__ import annotations
@@ -108,21 +112,3 @@ def test_deployment_overrides_stay_overridable_from_the_host(services, var):
     value = services["backend"]["environment"][var]
     assert _override_default(value) is not None, f"{var} is not a ${{VAR:-default}} interpolation"
 
-
-# ---------------------------------------------------------------------------
-# Health is a signal you can trust
-# ---------------------------------------------------------------------------
-
-
-def test_frontend_health_probe_addresses_the_ipv4_loopback(services):
-    """nginx `listen 80;` binds IPv4 only while `localhost` resolves to ::1
-    first in that image, so a hostname-based probe never passed. The probe lives
-    in the frontend image, not the manifest — assert it where it is written."""
-    dockerfile = MANIFEST.parent / "frontend" / "Dockerfile"
-    healthcheck = [
-        line for line in dockerfile.read_text().splitlines()
-        if "HEALTHCHECK" in line or line.strip().startswith("CMD")
-    ]
-    probe = "\n".join(healthcheck)
-    assert "127.0.0.1" in probe
-    assert "localhost" not in probe

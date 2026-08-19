@@ -68,12 +68,14 @@ Two things to know before you do:
 
 !!! warning "Already have demo records in a portal warehouse?"
     Gating the seeder stops new synthetic records; it does not remove ones already loaded.
-    The seed loader mints deterministic identifiers in fixed low numeric bands, far below
-    real HubSpot object IDs, so the two are separable — inspect with something like
-    `SELECT min(_record_id), max(_record_id) FROM bronze.hs_deals` before deciding what to
-    delete. Cleanup tooling is not part of ClickSpot; the safe route on a warehouse that
-    has never held anything but demo data is to drop the databases and re-materialize
-    `bronze_job`.
+    The seed loader mints object IDs from fixed low bands (`IdMinter._BASES` in
+    `scripts/seed.py`: owners from 100,000, companies from 2,000,000, then contacts, deals,
+    and the five activity types one million apart up to 9,000,000), all far below real
+    HubSpot object IDs, so the two are separable — count what you have with
+    `SELECT count() FROM bronze.hs_deals WHERE toUInt64OrZero(_record_id) < 10000000`
+    before deciding what to delete. Cleanup tooling is not part of ClickSpot; on a
+    warehouse that has only ever held demo data, dropping the databases and
+    re-materializing `bronze_job` is simpler and safer than a targeted delete.
 
 ## Run from source
 

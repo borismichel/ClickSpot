@@ -645,8 +645,8 @@ TABLES: dict[str, dict] = {
 }
 
 
-def rebuild_tables() -> dict[str, dict]:
-    """Re-derive ``TABLES`` from the current customer config and return it.
+def rebuild_tables() -> None:
+    """Re-derive ``TABLES`` from the current customer config, in place.
 
     The Settings UI can add or remove silver columns at runtime; without this the
     catalog (and everything downstream of it — the schema prompt, the SQL
@@ -667,4 +667,3 @@ def rebuild_tables() -> dict[str, dict]:
     TABLES.update(fresh)
     for stale in [name for name in TABLES if name not in fresh]:
         del TABLES[stale]
-    return TABLES
