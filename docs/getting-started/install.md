@@ -44,6 +44,39 @@ recurring runs). Released images pull from GHCR (public, no login) with `docker 
     specific host IP) and put it behind your own auth/reverse proxy. If you do, treat
     LLM-key writes as exposed too. See [Settings & environment](../configuration/index.md#trusted-hosts).
 
+### Upgrading an existing Docker deployment
+
+Everything above that changed between releases lives in `docker-compose.yml`, not in the
+application image, so an upgrade is `git pull` plus a recreate — no waiting on a published
+image:
+
+```bash
+git pull
+docker compose up -d --force-recreate
+```
+
+Two things to know before you do:
+
+- **The backend and Dagster now share one `~/.clickspot`.** Dagster previously kept a
+  private copy in its writable layer, which no other process could see. Adopting the shared
+  volume supersedes that copy. If it held anything you care about — a hand-edited
+  `customer.json`, say — copy it out first with
+  `docker compose cp dagster:/home/app/.clickspot/customer.json ./customer.json.bak`.
+- **The frontend health probe fix ships in the frontend image**, so it reaches you only
+  once a new image is published (`docker compose pull`). Until then that container keeps
+  reporting unhealthy while serving normally.
+
+!!! warning "Already have demo records in a portal warehouse?"
+    Gating the seeder stops new synthetic records; it does not remove ones already loaded.
+    The seed loader mints object IDs from fixed low bands (`IdMinter._BASES` in
+    `scripts/seed.py`: owners from 100,000, companies from 2,000,000, then contacts, deals,
+    and the five activity types one million apart up to 9,000,000), all far below real
+    HubSpot object IDs, so the two are separable — count what you have with
+    `SELECT count() FROM bronze.hs_deals WHERE toUInt64OrZero(_record_id) < 10000000`
+    before deciding what to delete. Cleanup tooling is not part of ClickSpot; on a
+    warehouse that has only ever held demo data, dropping the databases and
+    re-materializing `bronze_job` is simpler and safer than a targeted delete.
+
 ## Run from source
 
 Prefer running without containers? You'll need:

@@ -108,7 +108,7 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 - **Module** (`app/customer/config.py`): single source of truth for portal-specific runtime values (company name, currency, main pipeline, stage names, canonical revenue field). Lives in `~/.clickspot/customer.json` (0600). Defaults shipped in `DEFAULTS` make a fresh clone usable.
 - **Consumed by** `app/llm/schema_prompt.py::_block_business_context` + `_block_examples` — no portal-specific strings exist in the repo; the prompt templates against `customer.config.load()`.
 - **Auto-discovered on FastAPI startup**: `app/main.py` lifespan calls `customer_config.auto_discover(ch)` after silver loads and merges into `customer.json` *only for keys still at their default* — operator choices via `python -m app.customer.onboarding` are never overwritten.
-- **Per-portal silver extensions**: `silver_config_custom.py` (gitignored) appends extra deal/contact column tuples to the core lists. Worked example at `silver_config_custom.py.example`. A fresh clone has none.
+- **Per-portal silver extensions**: operators add or remove columns through Settings → Properties, which writes `extraction.silver_properties.<dim>` into `~/.clickspot/customer.json`; `silver_config._compose_columns` merges those into the core lists at import, and `silver_config.recompose_columns()` / `app.config.rebuild_tables()` re-derive them after a save so the running backend does not need a restart. The legacy `silver_config_custom.py` (gitignored, worked example at `silver_config_custom.py.example`) still appends deal/contact tuples with a deprecation warning; it cannot reach a container deployment, since released images are built from a clean checkout.
 
 ### Data Spaces
 
@@ -130,7 +130,7 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 
 - Adding a new CRM object: one line in `assets/crm.py` using `_make_crm_asset("object_type", "hs_table_name")`
 - Adding a new marketing object: one line in `assets/marketing.py` using `_make_marketing_asset`
-- Adding a silver property: add one tuple `(silver_name, bronze_key, type)` to the config dict in `silver_config.py`
+- Adding a silver property: for a core column shipped to everyone, add one tuple `(silver_name, bronze_key, type)` to the config dict in `silver_config.py`; per-portal columns go through Settings → Properties instead (save → reload the Dagster code location → materialize `silver_job`)
 - Adding a new silver dimension: add config block in `silver_config.py` + call `_make_dim_asset` in `assets/silver.py`
 - Adding a new dictionary: add entry to `DICT_CONFIGS` in `silver_config.py` (DDL + prompt auto-generated)
 - Resources are shared via Dagster injection: `"hubspot"`, `"ch"` (bronze), `"ch_silver"` (silver), `"ch_gold"` (gold)

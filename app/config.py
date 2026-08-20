@@ -8,6 +8,7 @@ Gold tables stay fully hand-rolled — their columns are computed in
 ``assets/gold/`` and have no silver counterpart.
 """
 
+import silver_config
 from silver_config import (
     DIM_COMPANIES,
     DIM_CONTACTS,
@@ -642,3 +643,27 @@ TABLES: dict[str, dict] = {
     **_HANDROLLED_SILVER,
     **_GOLD_TABLES,
 }
+
+
+def rebuild_tables() -> None:
+    """Re-derive ``TABLES`` from the current customer config, in place.
+
+    The Settings UI can add or remove silver columns at runtime; without this the
+    catalog (and everything downstream of it — the schema prompt, the SQL
+    validator, /api/v1/schema) would keep describing the column list captured at
+    import time until the process restarted.
+
+    ``TABLES`` is mutated in place rather than rebound because callers import the
+    dict object itself (``from app.config import TABLES``). Additions land before
+    removals so a concurrent reader never sees a table missing — worst case it
+    briefly sees a stale entry.
+    """
+    silver_config.recompose_columns()
+    fresh = {
+        **_derive_silver_tables(),
+        **_HANDROLLED_SILVER,
+        **_GOLD_TABLES,
+    }
+    TABLES.update(fresh)
+    for stale in [name for name in TABLES if name not in fresh]:
+        del TABLES[stale]

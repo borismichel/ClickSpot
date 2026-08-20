@@ -1,6 +1,8 @@
 # ClickSpot — full local stack. `docker compose up` from a fresh clone brings up
-# ClickHouse, the FastAPI backend, Dagster, and the frontend on localhost, then
-# loads the bundled synthetic warehouse once via the offline seed loader.
+# ClickHouse, the FastAPI backend, Dagster, and the frontend on localhost, with
+# an EMPTY warehouse. Nothing loads data on its own:
+#   docker compose --profile demo up  -> loads the bundled synthetic warehouse
+#   HUBSPOT_TOKEN + materialize bronze_job in Dagster -> loads your own portal
 #
 # Zero required knobs: every value below has a working default. Optional:
 #   ANTHROPIC_API_KEY / OPENAI_API_KEY  -> enables chat (clicking works without)

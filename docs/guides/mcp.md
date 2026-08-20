@@ -52,8 +52,8 @@ A few notes on the fields:
   resolve no matter which directory Claude Desktop launches the process from — you don't need a
   `cwd` field (Claude Desktop doesn't reliably honor it) or `PYTHONPATH`.
 - **`CLICKHOUSE_*`** match your running warehouse; the values above are the demo defaults
-  (`make seed` / the Compose stack). The server connects read-only (`readonly=2`), so it
-  can't write even if asked.
+  (`make seed`, or `docker compose --profile demo up`). The server connects read-only
+  (`readonly=2`), so it can't write even if asked.
 - **`HUBSPOT_HUB_ID`** and **`HUBSPOT_REGION`** are optional. Set them to get clickable
   HubSpot record URLs appended to results; leave them out and the data is still served, just
   without the deep links. `HUBSPOT_REGION` has to be explicit here because there's no
@@ -62,6 +62,12 @@ A few notes on the fields:
 Restart Claude Desktop after editing the config. The `clickspot` server shows up in its MCP
 list, and you can ask schema-aware questions that run as validated, read-only queries
 against the anonymized warehouse.
+
+!!! note "After a Settings → Properties change, restart the client"
+    The MCP server is its own process. It composes the silver column list when it starts,
+    so a property change saved in the app reaches in-app chat immediately but not an
+    already-running server. Restart Claude Desktop (or whichever client spawned it) once
+    the silver rebuild has finished, and call `get_schema` again.
 
 !!! tip "Start every session with the schema"
     Have the client call `get_schema` once at the start of a conversation. It loads the
