@@ -368,6 +368,26 @@ def test_successful_apply_refreshes_served_schema_and_clears_pending(no_active_a
     assert "custom_arr" in _deal_fields()
 
 
+def test_successful_apply_drops_a_removed_property_from_served_schema(no_active_apply, isolated_config):
+    """Removal works the same way in reverse: the column keeps being served
+    while the warehouse still holds it, and disappears once the rebuild lands."""
+    removable = "hs_v2_date_entered_decisionmakerboughtin"  # not a locked core column
+    removal_save = {
+        "objects": ALL_OBJECTS_ON,
+        "silver_properties": {"dim_deals": {"extra": [], "removed": [removable]}},
+    }
+    assert client.put("/api/v1/extraction", json=removal_save).status_code == 200
+    assert removable in _deal_fields()
+
+    res, _, _, _ = _start_apply()
+    sync_id = res.json()["sync_id"]
+
+    status = _poll_status(_apply_runs(sync_id)).json()
+    assert status["sync"]["state"] == "succeeded"
+    assert status["pending_apply"] is False
+    assert removable not in _deal_fields()
+
+
 def test_failed_apply_leaves_previous_schema_and_pending_intact(no_active_apply, isolated_config):
     assert client.put("/api/v1/extraction", json=CUSTOM_COLUMN_SAVE).status_code == 200
     before = dict(_deal_fields())

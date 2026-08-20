@@ -134,7 +134,7 @@ def start_apply() -> dict[str, Any]:
 
 
 def _maybe_finalize_apply(sync: dict[str, Any] | None) -> None:
-    """Land the backend-side half of an apply once the rebuild has.
+    """Finish the backend-side half of an apply once the rebuild has landed.
 
     As soon as the silver stage succeeds the warehouse holds the new columns,
     so the served schema (table catalog + memoized chat prompt) is refreshed to
