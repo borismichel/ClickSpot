@@ -83,3 +83,18 @@ def test_failure_with_unknown_step_still_reads_cleanly():
     assert failure_message("bronze", None) == "Sync failed while fetching data from HubSpot"
     assert failure_message("gold", "agg_deal_health") == "Sync failed while building metrics"
     assert failure_message("anon", None) == "Sync failed while refreshing the anonymized copy"
+
+
+def test_apply_stages_are_the_sync_stages_minus_the_fetch():
+    from app.sync_naming import APPLY_STAGES
+    assert APPLY_STAGES == STAGES[1:]
+    assert [job for _, job, _ in APPLY_STAGES] == ["silver_job", "gold_job", "anon_job"]
+
+
+def test_apply_failures_reuse_the_same_vocabulary():
+    assert (failure_message("silver", "dim_contacts", kind="apply")
+            == "Applying changes failed while preparing Contacts")
+    assert (failure_message("silver", "bridge_contact_company", kind="apply")
+            == "Applying changes failed while preparing internal tables")
+    assert (failure_message("anon", None, kind="apply")
+            == "Applying changes failed while refreshing the anonymized copy")

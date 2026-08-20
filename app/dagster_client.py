@@ -188,6 +188,23 @@ def reload_location(name: str) -> dict[str, Any]:
     return result
 
 
+def reload_all_locations() -> list[dict[str, Any]]:
+    """Reload every code location so definitions pick up the saved config.
+
+    Returns [{"name", "load_status"}, ...]; raises HTTPException on any failure.
+    """
+    entries = list_locations()
+    if not entries:
+        raise HTTPException(500, "No Dagster code locations found")
+    results: list[dict[str, Any]] = []
+    for entry in entries:
+        result = reload_location(entry["name"])
+        results.append(
+            {"name": entry["name"], "load_status": result.get("loadStatus", "UNKNOWN")}
+        )
+    return results
+
+
 def launch_job(job_name: str, tags: dict[str, str] | None = None) -> str:
     """Launch a job by name, return its run id. Raises HTTPException on failure."""
     loc, repo = primary_repo()

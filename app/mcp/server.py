@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from app.ch_errors import safe_clickhouse_error
-from app.config import TABLES
+from app.config import TABLES, rebuild_tables
 from app.llm.schema_prompt import build_schema_prompt
 from app.llm.sql_validator import ensure_limit
 from app.mcp.guardrails import (
@@ -112,6 +112,17 @@ def _rewrite_schema_prompt_to_anon(prompt: str) -> str:
     )
 
 
+def _fresh_catalog() -> None:
+    """Re-derive the table catalog from the current customer config.
+
+    This server is a separate long-running process; without this, a settings
+    change applied while it runs (Settings → "Apply changes") would stay
+    invisible here until a restart. The column lists live in customer.json, so
+    re-deriving is a local read — no HubSpot, no ClickHouse.
+    """
+    rebuild_tables()
+
+
 @mcp.resource("schema://prompt")
 def schema_prompt() -> str:
     """The full semantic prompt with activity references stripped.
@@ -120,6 +131,7 @@ def schema_prompt() -> str:
     mentioning activity tables so the MCP client doesn't see documentation for
     a blocked capability. The MCP preamble announces the exclusion up front.
     """
+    _fresh_catalog()
     base = build_schema_prompt(load_cache())
     stripped = ACTIVITY_STRIP_RE.sub("", base)
     return _MCP_PREAMBLE + _rewrite_schema_prompt_to_anon(stripped)
@@ -139,6 +151,7 @@ def schema_tables() -> str:
     gold → gold_anon). Activity tables are excluded — their bridges are in
     ALLOWED_TABLES only, not TABLES, so no filter needed there.
     """
+    _fresh_catalog()
     filtered: dict = {}
     for name, meta in TABLES.items():
         raw_db = meta.get("database", "silver")
@@ -177,6 +190,7 @@ def get_schema() -> str:
     Same content as the schema://prompt resource; exposed as a tool for
     clients that don't surface resources. One call is enough for a session.
     """
+    _fresh_catalog()
     base = build_schema_prompt(load_cache())
     stripped = ACTIVITY_STRIP_RE.sub("", base)
     return _MCP_PREAMBLE + _rewrite_schema_prompt_to_anon(stripped)

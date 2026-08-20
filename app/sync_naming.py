@@ -22,6 +22,12 @@ SYNC_MARKER_TAG = "clickspot/sync"
 SYNC_MARKER_VALUE = "ui"
 SYNC_ID_TAG = "clickspot/sync_id"
 
+# Distinguishes the two operations sharing the sync surface: a full "sync"
+# (bronze onward, fetches HubSpot) and an "apply" of settings changes (silver
+# onward, rebuilds from data already stored). Absent on pre-existing runs,
+# which are all syncs.
+SYNC_KIND_TAG = "clickspot/kind"
+
 # The four stages of a sync, in pipeline order: (stage key, job name, label).
 STAGES: list[tuple[str, str, str]] = [
     ("bronze", "bronze_job", "Fetching from HubSpot"),
@@ -29,6 +35,9 @@ STAGES: list[tuple[str, str, str]] = [
     ("gold", "gold_job", "Building metrics"),
     ("anon", "anon_job", "Refreshing the anonymized copy"),
 ]
+
+# An apply skips the HubSpot fetch — same stages, same labels, minus bronze.
+APPLY_STAGES: list[tuple[str, str, str]] = STAGES[1:]
 
 STAGE_BY_JOB = {job: stage for stage, job, _ in STAGES}
 
@@ -80,21 +89,26 @@ def operator_name(step_key: str) -> str | None:
     return _OPERATOR_NAMES.get(step_key)
 
 
-def failure_message(stage: str, step_key: str | None) -> str:
+# How each operation names itself in a failure sentence.
+_FAILURE_SUBJECT = {"sync": "Sync", "apply": "Applying changes"}
+
+
+def failure_message(stage: str, step_key: str | None, kind: str = "sync") -> str:
     """One sentence naming what broke, in the operator's language."""
+    subject = _FAILURE_SUBJECT.get(kind, "Sync")
     name = operator_name(step_key) if step_key else None
     if stage == "bronze":
         if name:
-            return f"Sync failed while fetching {name} from HubSpot"
-        return "Sync failed while fetching data from HubSpot"
+            return f"{subject} failed while fetching {name} from HubSpot"
+        return f"{subject} failed while fetching data from HubSpot"
     if stage == "silver":
         if name:
-            return f"Sync failed while preparing {name}"
-        return "Sync failed while preparing internal tables"
+            return f"{subject} failed while preparing {name}"
+        return f"{subject} failed while preparing internal tables"
     if stage == "gold":
-        return "Sync failed while building metrics"
+        return f"{subject} failed while building metrics"
     if stage == "anon":
         if name:
-            return f"Sync failed while refreshing the anonymized copy of {name}"
-        return "Sync failed while refreshing the anonymized copy"
-    return "Sync failed"
+            return f"{subject} failed while refreshing the anonymized copy of {name}"
+        return f"{subject} failed while refreshing the anonymized copy"
+    return f"{subject} failed"

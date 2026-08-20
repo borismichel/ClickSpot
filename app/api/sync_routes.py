@@ -1,12 +1,19 @@
-"""REST endpoints behind the Settings → Data sync tab.
+"""REST endpoints behind the Settings → Data sync tab and the
+pending-changes banner.
 
   POST /api/v1/sync         — start a full refresh (bronze → … → anon)
-  GET  /api/v1/sync/status  — the latest sync's stages, in operator language
+  POST /api/v1/sync/apply   — apply saved settings: reload definitions, then
+                              rebuild from data already stored (silver → … →
+                              anon, no HubSpot fetch)
+  GET  /api/v1/sync/status  — the latest operation's stages, in operator
+                              language
 
 A "sync" is still four separate Dagster runs chained by sensors — nothing is
 collapsed. What ties them together is the correlation tag stamped on the bronze
 run here and propagated by each chaining sensor (sensors.py), so all four runs
-come back from one tag-filtered query, in order, with their statuses.
+come back from one tag-filtered query, in order, with their statuses. An
+"apply" is the same mechanism starting one stage later, distinguished by the
+kind tag.
 
 "Last refreshed" deliberately does NOT live here: the existing /api/v1/metadata
 endpoint already serves per-table freshness timestamps and the frontend reads
@@ -17,16 +24,22 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
 from app import dagster_client as dagster
+from app import schema_refresh
+from app.customer import extraction
 from app.sync_naming import (
+    APPLY_STAGES,
     STAGES,
     SYNC_ID_TAG,
     SYNC_JOBS,
+    SYNC_KIND_TAG,
     SYNC_MARKER_TAG,
     SYNC_MARKER_VALUE,
     failure_message,
@@ -64,10 +77,126 @@ def start_sync() -> dict[str, Any]:
     sync_id = uuid.uuid4().hex[:12]
     run_id = dagster.launch_job(
         "bronze_job",
-        tags={SYNC_MARKER_TAG: SYNC_MARKER_VALUE, SYNC_ID_TAG: sync_id},
+        tags={SYNC_MARKER_TAG: SYNC_MARKER_VALUE, SYNC_ID_TAG: sync_id,
+              SYNC_KIND_TAG: "sync"},
     )
     log.info("Started sync %s (bronze run %s)", sync_id, run_id)
     return {"sync_id": sync_id, "run_id": run_id}
+
+
+# ---------------------------------------------------------------------------
+# Apply changes — reload definitions + rebuild from stored data
+# ---------------------------------------------------------------------------
+
+# The apply this process started, or None: {"sync_id", "token", "refreshed"}.
+# `token` is the pending-apply token captured at launch, so completion clears
+# only the pending state this apply was started for; `refreshed` makes the
+# served-schema refresh idempotent across status polls and the watcher thread.
+# After a backend restart this is gone — that's fine, because a restart
+# recomposes the served schema from the saved config anyway, and an operator
+# facing a leftover banner can re-apply harmlessly.
+_active_apply: dict[str, Any] | None = None
+
+APPLY_WATCH_INTERVAL_S = 5.0
+APPLY_WATCH_TIMEOUT_S = 30 * 60.0
+
+
+@router.post("/apply")
+def start_apply() -> dict[str, Any]:
+    """Make the saved settings live: reload the Dagster definitions, then
+    rebuild silver onward from data already in the warehouse.
+
+    Nothing is fetched from HubSpot — no credentials needed, and markedly
+    faster than a full sync. Harmless with no pending changes.
+    """
+    global _active_apply
+
+    running = dagster.in_progress_runs(SYNC_JOBS)
+    if running:
+        raise HTTPException(
+            409,
+            "A refresh is already running — wait for it to finish before applying changes.",
+        )
+
+    token = extraction.pending_apply_token()
+    reloaded = dagster.reload_all_locations()
+
+    sync_id = uuid.uuid4().hex[:12]
+    run_id = dagster.launch_job(
+        "silver_job",
+        tags={SYNC_MARKER_TAG: SYNC_MARKER_VALUE, SYNC_ID_TAG: sync_id,
+              SYNC_KIND_TAG: "apply"},
+    )
+    _active_apply = {"sync_id": sync_id, "token": token, "refreshed": False}
+    _start_apply_watcher(sync_id)
+    log.info("Started apply %s (silver run %s)", sync_id, run_id)
+    return {"sync_id": sync_id, "run_id": run_id, "reloaded": reloaded}
+
+
+def _maybe_finalize_apply(sync: dict[str, Any] | None) -> None:
+    """Land the backend-side half of an apply once the rebuild has.
+
+    As soon as the silver stage succeeds the warehouse holds the new columns,
+    so the served schema (table catalog + memoized chat prompt) is refreshed to
+    match. When the whole chain succeeds, the pending flag it was started for
+    is cleared. On failure the schema is left as it was — the warehouse swap is
+    atomic per table, so the previously working schema stays truthful.
+    """
+    global _active_apply
+    active = _active_apply
+    if not sync or sync.get("kind") != "apply":
+        return
+    if not active or active["sync_id"] != sync["sync_id"]:
+        return
+
+    silver_done = any(
+        s["stage"] == "silver" and s["status"] == "success" for s in sync["stages"]
+    )
+    if silver_done and not active["refreshed"]:
+        schema_refresh.refresh_served_schema()
+        active["refreshed"] = True
+        log.info("Apply %s: silver rebuild landed, served schema refreshed", sync["sync_id"])
+
+    if sync["state"] == "succeeded":
+        if active["token"]:
+            extraction.clear_pending_apply(active["token"])
+        _active_apply = None
+    elif sync["state"] == "failed":
+        _active_apply = None
+
+
+def _watch_apply(sync_id: str) -> None:
+    """Poll until the apply finishes so it completes even if nobody is watching
+    the UI. Status polls run the same finalize, so this thread can bail out on
+    repeated Dagster errors without stranding anything."""
+    deadline = time.monotonic() + APPLY_WATCH_TIMEOUT_S
+    errors = 0
+    while time.monotonic() < deadline:
+        time.sleep(APPLY_WATCH_INTERVAL_S)
+        try:
+            sync = _latest_sync()
+        except HTTPException as e:
+            errors += 1
+            if errors >= 5:
+                log.warning("Apply watcher %s giving up on Dagster: %s", sync_id, e.detail)
+                return
+            continue
+        errors = 0
+        if not sync or sync["sync_id"] != sync_id:
+            return
+        _maybe_finalize_apply(sync)
+        if sync["state"] != "running":
+            return
+    log.warning("Apply watcher %s timed out after %ss", sync_id, APPLY_WATCH_TIMEOUT_S)
+
+
+def _start_apply_watcher(sync_id: str) -> None:
+    threading.Thread(
+        target=_watch_apply,
+        args=(sync_id,),
+        name=f"apply-watcher-{sync_id}",
+        daemon=True,
+    ).start()
 
 
 def _stage_status(dagster_status: str) -> str:
@@ -90,7 +219,8 @@ def _failed_step_key(run_id: str) -> str | None:
 
 
 def _latest_sync() -> dict[str, Any] | None:
-    """Assemble the most recent sync from its tag-correlated runs."""
+    """Assemble the most recent operation (sync or apply) from its
+    tag-correlated runs."""
     runs = dagster.runs_by_tag(SYNC_MARKER_TAG, SYNC_MARKER_VALUE)
     if not runs:
         return None
@@ -101,6 +231,10 @@ def _latest_sync() -> dict[str, Any] | None:
         return None
     sync_runs = [r for r in runs if r["tags"].get(SYNC_ID_TAG) == sync_id]
 
+    # Runs without a kind tag predate the apply surface — they are all syncs.
+    kind = "apply" if runs[0]["tags"].get(SYNC_KIND_TAG) == "apply" else "sync"
+    stage_list = APPLY_STAGES if kind == "apply" else STAGES
+
     # One run per job — keep the newest (a retried stage would appear twice).
     run_by_job: dict[str, dict[str, Any]] = {}
     for run in reversed(sync_runs):
@@ -109,7 +243,7 @@ def _latest_sync() -> dict[str, Any] | None:
     stages: list[dict[str, Any]] = []
     error: dict[str, Any] | None = None
     state = "running"
-    for stage, job, label in STAGES:
+    for stage, job, label in stage_list:
         run = run_by_job.get(job)
         if run is None:
             stages.append({"stage": stage, "label": label, "status": "pending",
@@ -128,7 +262,7 @@ def _latest_sync() -> dict[str, Any] | None:
             error = {
                 "stage": stage,
                 "stage_label": label,
-                "message": failure_message(stage, step_key),
+                "message": failure_message(stage, step_key, kind),
                 "failed_step": step_key,
                 "run_id": run["runId"],
                 "run_url": dagster.run_url(run["runId"]),
@@ -139,7 +273,8 @@ def _latest_sync() -> dict[str, Any] | None:
     elif run_by_job.get("anon_job", {}).get("status") == "SUCCESS":
         state = "succeeded"
 
-    return {"sync_id": sync_id, "state": state, "stages": stages, "error": error}
+    return {"sync_id": sync_id, "kind": kind, "state": state, "stages": stages,
+            "error": error}
 
 
 @router.get("/status")
@@ -155,11 +290,19 @@ def sync_status() -> dict[str, Any]:
     except HTTPException as e:
         dagster_error = str(e.detail)
 
+    # Status polls double as the fallback finalizer: if the watcher thread died
+    # (or Dagster was briefly unreachable), the next poll lands the refresh.
+    try:
+        _maybe_finalize_apply(sync)
+    except Exception as e:
+        log.warning("Apply finalize failed during status poll: %s", e)
+
     return {
         "hubspot_configured": _hubspot_configured(),
         "not_configured_reason": None if _hubspot_configured() else NOT_CONFIGURED_MESSAGE,
         "dagster_ui_url": dagster.ui_url(),
         "dagster_error": dagster_error,
         "sync_running": sync_running,
+        "pending_apply": extraction.pending_apply_token() is not None,
         "sync": sync,
     }

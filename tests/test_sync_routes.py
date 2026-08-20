@@ -11,14 +11,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import dagster_client
+from app.api import sync_routes
 from app.main import app
-from app.sync_naming import SYNC_ID_TAG, SYNC_MARKER_TAG, SYNC_MARKER_VALUE
+from app.sync_naming import (
+    SYNC_ID_TAG,
+    SYNC_KIND_TAG,
+    SYNC_MARKER_TAG,
+    SYNC_MARKER_VALUE,
+)
 
 client = TestClient(app)
 
 
-def _run(job, status, sync_id="abc123", run_id=None, tagged=True):
+def _run(job, status, sync_id="abc123", run_id=None, tagged=True, kind=None):
     tags = {SYNC_MARKER_TAG: SYNC_MARKER_VALUE, SYNC_ID_TAG: sync_id} if tagged else {}
+    if tagged and kind:
+        tags[SYNC_KIND_TAG] = kind
     return {
         "runId": run_id or f"{job}-{sync_id}",
         "status": status,
@@ -205,6 +213,196 @@ def test_failure_on_internal_table_uses_generic_phrase(hubspot_token):
     error = res.json()["sync"]["error"]
     assert error["message"] == "Sync failed while preparing internal tables"
     assert "bridge_contact_company" not in error["message"]
+
+
+# ---------------------------------------------------------------------------
+# Apply changes — reload definitions, rebuild from data already stored (no
+# HubSpot fetch), and bring this backend's served schema in line once the
+# rebuild lands.
+# ---------------------------------------------------------------------------
+
+
+ALL_OBJECTS_ON = {
+    "contacts": True, "companies": True, "deals": True, "leads": True,
+    "owners": True, "deal_pipelines": True, "lead_pipelines": True,
+    "activities": {"calls": True, "meetings": True, "emails": True, "notes": True, "tasks": True},
+    "campaigns": True, "forms": True, "form_submissions": True,
+}
+
+CUSTOM_COLUMN_SAVE = {
+    "objects": ALL_OBJECTS_ON,
+    "silver_properties": {
+        "dim_deals": {
+            "extra": [{"column": "custom_arr", "property": "annual_recurring_revenue",
+                       "type": "Nullable(Float64)"}],
+            "removed": [],
+        },
+    },
+}
+
+
+@pytest.fixture
+def no_active_apply():
+    """Reset the module-level record of the apply this process started."""
+    sync_routes._active_apply = None
+    yield
+    sync_routes._active_apply = None
+
+
+def _start_apply():
+    """POST /sync/apply with Dagster mocked out and the watcher thread stubbed."""
+    with (
+        patch.object(dagster_client, "in_progress_runs", return_value=[]),
+        patch.object(dagster_client, "reload_all_locations",
+                     return_value=[{"name": "hs2ch", "load_status": "LOADED"}]) as reload_all,
+        patch.object(dagster_client, "launch_job", return_value="run-silver") as launch,
+        patch.object(sync_routes, "_start_apply_watcher") as watcher,
+    ):
+        res = client.post("/api/v1/sync/apply")
+    return res, reload_all, launch, watcher
+
+
+def _apply_runs(sync_id, silver="SUCCESS", gold="SUCCESS", anon="SUCCESS"):
+    runs = []
+    if anon:
+        runs.append(_run("anon_job", anon, sync_id=sync_id, kind="apply"))
+    if gold:
+        runs.append(_run("gold_job", gold, sync_id=sync_id, kind="apply"))
+    runs.append(_run("silver_job", silver, sync_id=sync_id, kind="apply"))
+    return runs
+
+
+def _poll_status(runs, running=False):
+    with (
+        patch.object(dagster_client, "in_progress_runs",
+                     return_value=[r for r in runs if r["status"] == "STARTED"] if running else []),
+        patch.object(dagster_client, "runs_by_tag", return_value=runs),
+        patch.object(dagster_client, "run_step_stats", return_value=[]),
+    ):
+        return client.get("/api/v1/sync/status")
+
+
+def _deal_fields():
+    res = client.get("/api/v1/schema")
+    assert res.status_code == 200, res.text
+    return res.json()["tables"]["dim_deals"]["fields"]
+
+
+def test_apply_reloads_definitions_then_launches_silver_with_tags(no_active_apply, no_hubspot_token):
+    """No HubSpot credentials needed — nothing is fetched. The rebuild starts
+    at the silver job; sensors chain the rest, carrying the correlation tags."""
+    res, reload_all, launch, watcher = _start_apply()
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["run_id"] == "run-silver"
+    assert data["sync_id"]
+
+    reload_all.assert_called_once()
+    job_name = launch.call_args.args[0]
+    tags = launch.call_args.kwargs["tags"]
+    assert job_name == "silver_job"
+    assert tags[SYNC_MARKER_TAG] == SYNC_MARKER_VALUE
+    assert tags[SYNC_ID_TAG] == data["sync_id"]
+    assert tags[SYNC_KIND_TAG] == "apply"
+    watcher.assert_called_once_with(data["sync_id"])
+
+
+def test_apply_while_a_run_is_in_flight_is_refused(no_active_apply):
+    with (
+        patch.object(dagster_client, "in_progress_runs",
+                     return_value=[_run("bronze_job", "STARTED")]),
+        patch.object(dagster_client, "reload_all_locations") as reload_all,
+        patch.object(dagster_client, "launch_job") as launch,
+    ):
+        res = client.post("/api/v1/sync/apply")
+    assert res.status_code == 409
+    reload_all.assert_not_called()
+    launch.assert_not_called()
+
+
+def test_apply_with_no_pending_changes_is_harmless(no_active_apply, isolated_config):
+    res, _, launch, _ = _start_apply()
+    assert res.status_code == 200
+    launch.assert_called_once()
+
+
+def test_status_reports_apply_stages_without_a_fetch_stage(no_active_apply, hubspot_token):
+    runs = _apply_runs("app001", silver="STARTED", gold=None, anon=None)
+    res = _poll_status(runs, running=True)
+    sync = res.json()["sync"]
+    assert sync["kind"] == "apply"
+    assert [s["stage"] for s in sync["stages"]] == ["silver", "gold", "anon"]
+    assert [s["status"] for s in sync["stages"]] == ["running", "pending", "pending"]
+    assert sync["stages"][0]["label"] == "Preparing tables"
+
+
+def test_apply_failure_speaks_the_same_operator_language(no_active_apply, hubspot_token, monkeypatch):
+    monkeypatch.setenv("DAGSTER_UI_URL", "https://dagster.example.com")
+    runs = _apply_runs("app002", silver="FAILURE", gold=None, anon=None)
+    with (
+        patch.object(dagster_client, "in_progress_runs", return_value=[]),
+        patch.object(dagster_client, "runs_by_tag", return_value=runs),
+        patch.object(dagster_client, "run_step_stats", return_value=[
+            {"stepKey": "dim_contacts", "status": "FAILURE"},
+        ]),
+    ):
+        res = client.get("/api/v1/sync/status")
+    sync = res.json()["sync"]
+    assert sync["state"] == "failed"
+    assert sync["error"]["message"] == "Applying changes failed while preparing Contacts"
+    assert sync["error"]["run_url"] == "https://dagster.example.com/runs/silver_job-app002"
+
+
+def test_successful_apply_refreshes_served_schema_and_clears_pending(no_active_apply, isolated_config):
+    """The full loop: save → schema unchanged → apply → rebuild succeeds →
+    the new column is served and the pending flag clears, no restart anywhere."""
+    assert client.put("/api/v1/extraction", json=CUSTOM_COLUMN_SAVE).status_code == 200
+    assert "custom_arr" not in _deal_fields()
+
+    res, _, _, _ = _start_apply()
+    sync_id = res.json()["sync_id"]
+
+    status = _poll_status(_apply_runs(sync_id)).json()
+    assert status["sync"]["state"] == "succeeded"
+    assert status["pending_apply"] is False
+    assert "custom_arr" in _deal_fields()
+
+
+def test_failed_apply_leaves_previous_schema_and_pending_intact(no_active_apply, isolated_config):
+    assert client.put("/api/v1/extraction", json=CUSTOM_COLUMN_SAVE).status_code == 200
+    before = dict(_deal_fields())
+
+    res, _, _, _ = _start_apply()
+    sync_id = res.json()["sync_id"]
+
+    status = _poll_status(_apply_runs(sync_id, silver="FAILURE", gold=None, anon=None)).json()
+    assert status["sync"]["state"] == "failed"
+    assert status["pending_apply"] is True
+    assert _deal_fields() == before
+
+
+def test_a_change_saved_mid_apply_keeps_the_pending_flag(no_active_apply, isolated_config):
+    """The apply only clears the pending state it was started for — a save that
+    lands while the rebuild is running must survive the completion."""
+    assert client.put("/api/v1/extraction", json=CUSTOM_COLUMN_SAVE).status_code == 200
+    res, _, _, _ = _start_apply()
+    sync_id = res.json()["sync_id"]
+
+    # Operator saves something else while the rebuild is still running.
+    second = {
+        "objects": ALL_OBJECTS_ON,
+        "silver_properties": {
+            "dim_contacts": {
+                "extra": [{"column": "shoe_size", "property": "shoe_size", "type": "String"}],
+                "removed": [],
+            },
+        },
+    }
+    assert client.put("/api/v1/extraction", json=second).status_code == 200
+
+    status = _poll_status(_apply_runs(sync_id)).json()
+    assert status["sync"]["state"] == "succeeded"
+    assert status["pending_apply"] is True
 
 
 def test_status_only_reports_the_latest_sync(hubspot_token):
