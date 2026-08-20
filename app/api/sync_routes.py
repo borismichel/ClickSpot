@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from app import dagster_client as dagster
 from app import schema_refresh
 from app.customer import extraction
+from app.warehouse_init import ensure_schema_best_effort
 from app.sync_naming import (
     APPLY_STAGES,
     STAGES,
@@ -64,22 +65,6 @@ def _hubspot_configured() -> bool:
     return bool(os.environ.get("HUBSPOT_TOKEN", "").strip())
 
 
-def _init_warehouse_schema() -> None:
-    """Make sure the ClickHouse databases + bronze tables exist before launching.
-
-    Covers the fresh-compose path where the operator's first action is Sync now:
-    the stack starts with only the empty `bronze` database from CLICKHOUSE_DB,
-    and bronze assets insert without creating tables. All init DDL is
-    IF NOT EXISTS, so this is a no-op on an initialized warehouse. Best-effort:
-    an `external`-mode user may lack CREATE DATABASE rights on a warehouse that
-    was initialized out of band, and that must not block their sync.
-    """
-    try:
-        from app.db import get_client
-        from app.warehouse_init import ensure_schema
-        ensure_schema(get_client())
-    except Exception as e:
-        log.warning("ClickHouse schema init before launch skipped: %s", e)
 
 
 @router.post("")
@@ -95,7 +80,10 @@ def start_sync() -> dict[str, Any]:
             "A sync is already running — wait for it to finish before starting another.",
         )
 
-    _init_warehouse_schema()
+    # Fresh-compose path: the stack starts with only the empty `bronze`
+    # database from CLICKHOUSE_DB, and bronze assets insert without creating
+    # tables — make sure the schema exists before bronze launches.
+    ensure_schema_best_effort("before sync launch")
 
     sync_id = uuid.uuid4().hex[:12]
     run_id = dagster.launch_job(
@@ -141,7 +129,7 @@ def start_apply() -> dict[str, Any]:
             "A refresh is already running — wait for it to finish before applying changes.",
         )
 
-    _init_warehouse_schema()
+    ensure_schema_best_effort("before apply launch")
 
     token = extraction.pending_apply_token()
     reloaded = dagster.reload_all_locations()

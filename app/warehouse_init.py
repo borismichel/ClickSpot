@@ -11,12 +11,41 @@ builds need databases only the init DDL creates.
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Iterator
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 log = logging.getLogger("app.warehouse_init")
 
 INIT_SQL_PATH = Path(__file__).resolve().parent.parent / "scripts" / "init_clickhouse.sql"
+
+
+def bootstrap_client():
+    """A short-lived client for schema init only, with NO default database.
+
+    app.db's shared client connects with database="silver" — on the fresh
+    stack this module exists for, silver doesn't exist yet, so that client
+    fails with UNKNOWN_DATABASE before any DDL could run. Same credential
+    stance as app.db: refuse to fall back to the 'default' superuser.
+    """
+    user = os.environ.get("CLICKHOUSE_USER")
+    password = os.environ.get("CLICKHOUSE_PASSWORD")
+    if not user or password is None:
+        raise RuntimeError(
+            "CLICKHOUSE_USER and CLICKHOUSE_PASSWORD must be set (see .env.example)."
+        )
+    import clickhouse_connect
+
+    return clickhouse_connect.get_client(
+        host=os.environ.get("CLICKHOUSE_HOST", "localhost"),
+        port=int(os.environ.get("CLICKHOUSE_PORT", 8123)),
+        username=user,
+        password=password,
+    )
 
 
 def iter_statements(sql_text: str) -> Iterator[str]:
@@ -43,3 +72,23 @@ def ensure_schema(client) -> int:
             raise
         count += 1
     return count
+
+
+def ensure_schema_best_effort(context: str) -> bool:
+    """Run ensure_schema on a bootstrap client; warn instead of raising.
+
+    Init failure must never block a startup or a sync launch: from source
+    ClickHouse may not be up yet (start.sh runs the same DDL), and an
+    `external`-mode warehouse user may lack CREATE DATABASE rights on a
+    warehouse that was initialized out of band.
+    """
+    try:
+        client = bootstrap_client()
+        try:
+            ensure_schema(client)
+        finally:
+            client.close()
+        return True
+    except Exception as e:
+        log.warning("ClickHouse schema init skipped (%s): %s", context, e)
+        return False
