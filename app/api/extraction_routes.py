@@ -16,6 +16,7 @@ import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app import dagster_client as dagster
 from app.customer import extraction
 from app.customer.extraction_rules import OBJECT_GROUPS, describe_cascade
 
@@ -333,146 +334,33 @@ def get_properties(object_type: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Dagster reload (Phase D)
+# Dagster reload (Phase D) — GraphQL plumbing lives in app.dagster_client,
+# shared with the Sync tab (app/api/sync_routes.py).
 # ---------------------------------------------------------------------------
-
-
-DAGSTER_GRAPHQL_URL = os.environ.get("DAGSTER_GRAPHQL_URL", "http://localhost:8194/graphql")
-
-_LIST_LOCATIONS_QUERY = """
-{
-  workspaceOrError {
-    ... on Workspace {
-      locationEntries {
-        name
-        loadStatus
-        locationOrLoadError {
-          __typename
-          ... on RepositoryLocation {
-            repositories { name }
-          }
-          ... on PythonError {
-            message
-          }
-        }
-      }
-    }
-    ... on PythonError { message }
-  }
-}
-""".strip()
-
-_RELOAD_MUTATION = """
-mutation($name: String!) {
-  reloadRepositoryLocation(repositoryLocationName: $name) {
-    __typename
-    ... on WorkspaceLocationEntry { name loadStatus }
-    ... on ReloadNotSupported { message }
-    ... on RepositoryLocationNotFound { message }
-    ... on PythonError { message }
-  }
-}
-""".strip()
-
-_LAUNCH_RUN_MUTATION = """
-mutation($selector: JobOrPipelineSelector!, $runConfigData: RunConfigData) {
-  launchPipelineExecution(
-    executionParams: { selector: $selector, runConfigData: $runConfigData, mode: "default" }
-  ) {
-    __typename
-    ... on LaunchRunSuccess { run { runId status } }
-    ... on PythonError { message }
-    ... on InvalidStepError { invalidStepKey }
-    ... on InvalidOutputError { stepKey invalidOutputName }
-    ... on RunConfigValidationInvalid { errors { message } }
-    ... on RunConflict { message }
-    ... on PresetNotFoundError { message }
-    ... on ConflictingExecutionParamsError { message }
-  }
-}
-""".strip()
-
-
-def _dagster_post(query: str, variables: dict | None = None, timeout: int = 30) -> dict:
-    """POST to Dagster GraphQL, surfacing both transport and GraphQL errors."""
-    try:
-        resp = requests.post(
-            DAGSTER_GRAPHQL_URL,
-            json={"query": query, "variables": variables or {}},
-            timeout=timeout,
-        )
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(503, f"Dagster GraphQL unreachable at {DAGSTER_GRAPHQL_URL}: {e}")
-    if resp.status_code >= 500:
-        raise HTTPException(502, f"Dagster GraphQL {resp.status_code}: {resp.text[:300]}")
-    try:
-        data = resp.json()
-    except Exception:
-        raise HTTPException(502, f"Dagster GraphQL returned non-JSON: {resp.text[:300]}")
-    if data.get("errors"):
-        # GraphQL query/mutation errors come back as 200 + an `errors` array OR
-        # 400 + an `errors` array. Either way, surface the first message.
-        msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
-        raise HTTPException(500, f"Dagster GraphQL error: {msgs}")
-    return data.get("data") or {}
 
 
 @router.post("/reload")
 def reload_pipeline(body: ReloadRequest) -> dict[str, Any]:
     """Reload Dagster code location, optionally launching bronze_job after."""
-    data = _dagster_post(_LIST_LOCATIONS_QUERY)
-    workspace = data.get("workspaceOrError") or {}
-    entries = workspace.get("locationEntries") or []
+    entries = dagster.list_locations()
     if not entries:
         raise HTTPException(500, "No Dagster code locations found")
 
-    location_names = [e["name"] for e in entries]
-    # Pick a (location, repo) pair for the bronze launch.
-    primary_loc = entries[0]["name"]
-    primary_repo = None
-    loc_or_err = entries[0].get("locationOrLoadError") or {}
-    repos = loc_or_err.get("repositories") or []
-    if repos:
-        primary_repo = repos[0]["name"]
-
     reload_results: list[dict[str, Any]] = []
-    for loc in location_names:
-        rdata = _dagster_post(_RELOAD_MUTATION, {"name": loc})
-        result = rdata.get("reloadRepositoryLocation") or {}
-        tn = result.get("__typename")
-        if tn in ("ReloadNotSupported", "RepositoryLocationNotFound", "PythonError"):
-            raise HTTPException(
-                500,
-                f"Reload of '{loc}' failed: {tn} — {result.get('message', '')}",
-            )
-        reload_results.append({"name": loc, "load_status": result.get("loadStatus", "UNKNOWN")})
+    for entry in entries:
+        result = dagster.reload_location(entry["name"])
+        reload_results.append(
+            {"name": entry["name"], "load_status": result.get("loadStatus", "UNKNOWN")}
+        )
 
     run_launched = False
     run_id: str | None = None
     if body.run_bronze:
-        if not primary_repo:
-            log.warning("Skipping bronze launch — could not determine repository name")
-        else:
-            try:
-                ldata = _dagster_post(
-                    _LAUNCH_RUN_MUTATION,
-                    {
-                        "selector": {
-                            "repositoryLocationName": primary_loc,
-                            "repositoryName": primary_repo,
-                            "jobName": "bronze_job",
-                        },
-                        "runConfigData": {},
-                    },
-                )
-                lres = ldata.get("launchPipelineExecution") or {}
-                if lres.get("__typename") == "LaunchRunSuccess":
-                    run_launched = True
-                    run_id = (lres.get("run") or {}).get("runId")
-                else:
-                    log.warning("Bronze launch returned %s: %s", lres.get("__typename"), lres)
-            except HTTPException as e:
-                log.warning("Bronze launch failed: %s", e.detail)
+        try:
+            run_id = dagster.launch_job("bronze_job")
+            run_launched = True
+        except HTTPException as e:
+            log.warning("Bronze launch failed: %s", e.detail)
 
     return {
         "reloaded": reload_results,

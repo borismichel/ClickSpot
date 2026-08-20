@@ -15,6 +15,7 @@ from app.api.conversation_routes import router as conversation_router
 from app.api.onboarding_routes import router as onboarding_router
 from app.api.extraction_routes import router as extraction_router
 from app.api.mcp_routes import router as mcp_router
+from app.api.sync_routes import router as sync_router
 from app.spaces.routes import router as spaces_router
 
 logging.basicConfig(level=logging.INFO)
@@ -105,6 +106,7 @@ app.include_router(conversation_router)
 app.include_router(onboarding_router)
 app.include_router(extraction_router)
 app.include_router(mcp_router)
+app.include_router(sync_router)
 app.include_router(spaces_router)
 
 

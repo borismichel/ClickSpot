@@ -32,6 +32,12 @@ x-app-env: &app-env
   # correct from source but dead inside the backend container — Dagster is a
   # separate service here. Address it by compose service name.
   DAGSTER_GRAPHQL_URL: "${DAGSTER_GRAPHQL_URL:-http://dagster:8194/graphql}"
+  # Where the operator's BROWSER reaches the Dagster UI — used for the "view
+  # technical details" links on the Settings -> Data sync tab. Unlike
+  # DAGSTER_GRAPHQL_URL this must NOT be the compose service name (meaningless
+  # to a browser); the default matches the loopback publish of the dagster
+  # service below. Deployments behind a hostname or reverse proxy set it.
+  DAGSTER_UI_URL: "${DAGSTER_UI_URL:-http://localhost:8194}"
 
 services:
   clickhouse:
