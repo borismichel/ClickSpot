@@ -87,6 +87,7 @@ def _resolved_view() -> dict[str, Any]:
         "enabled_assoc_tables": sorted(extraction.get_enabled_assoc_tables()),
         "enabled_silver_tables": sorted(extraction.get_enabled_silver_tables()),
         "enabled_gold_tables": sorted(extraction.get_enabled_gold_tables()),
+        "pending_apply": extraction.pending_apply_token() is not None,
     }
 
 
@@ -111,7 +112,8 @@ def put_extraction(body: ExtractionConfigBody) -> dict[str, Any]:
                 f"Cannot remove locked core column(s) {bad} from {dim} — these are required "
                 "by gold aggregates. Add new columns instead.",
             )
-    extraction.save(incoming)
+    before = extraction.load()
+    saved = extraction.save(incoming)
 
     # Phase B: invalidate the semantic layer cache (HubSpot property labels and
     # descriptions) so the next refresh re-derives it without the disabled tables.
@@ -122,37 +124,15 @@ def put_extraction(body: ExtractionConfigBody) -> dict[str, Any]:
     except Exception as e:
         log.warning("Failed to invalidate the semantic layer cache: %s", e)
 
-    _refresh_served_schema()
+    # The served schema is deliberately NOT refreshed here. It follows the
+    # warehouse, and the warehouse follows the rebuild — which the operator
+    # launches with "Apply changes" (POST /api/v1/sync/apply). The pending flag
+    # is what surfaces that gap; refreshing on save would have chat describing
+    # columns that hold no data yet, and a failed rebuild would strand it there.
+    if saved != before:
+        extraction.mark_pending_apply()
 
     return _resolved_view()
-
-
-def _refresh_served_schema() -> None:
-    """Bring this process's view of the warehouse schema in line with the save.
-
-    The table catalog is derived from the composed silver column lists at import
-    time, and the chat schema prompt is memoized on top of it, so without this a
-    property change stayed invisible to chat, the SQL validator, and /schema
-    until the backend was restarted — the UI reported success while the
-    assistant disagreed.
-
-    Consistency is with the saved *configuration*, not with ClickHouse: the
-    silver rebuild that gives the new columns data is a separate, operator-driven
-    step (save -> reload the code location -> rebuild silver). Failures are logged
-    rather than raised — the save itself already succeeded and must not be
-    reported as failed.
-    """
-    try:
-        from app.config import rebuild_tables
-        rebuild_tables()
-    except Exception as e:
-        log.warning("Failed to rebuild table catalog after extraction save: %s", e)
-        return
-    try:
-        from app.llm.providers import refresh_schema_prompt
-        refresh_schema_prompt()
-    except Exception as e:
-        log.warning("Failed to refresh schema prompt after extraction save: %s", e)
 
 
 # Columns we refuse to let the user remove via the Properties tab. These are
@@ -342,16 +322,7 @@ def get_properties(object_type: str) -> dict[str, Any]:
 @router.post("/reload")
 def reload_pipeline(body: ReloadRequest) -> dict[str, Any]:
     """Reload Dagster code location, optionally launching bronze_job after."""
-    entries = dagster.list_locations()
-    if not entries:
-        raise HTTPException(500, "No Dagster code locations found")
-
-    reload_results: list[dict[str, Any]] = []
-    for entry in entries:
-        result = dagster.reload_location(entry["name"])
-        reload_results.append(
-            {"name": entry["name"], "load_status": result.get("loadStatus", "UNKNOWN")}
-        )
+    reload_results = dagster.reload_all_locations()
 
     run_launched = False
     run_id: str | None = None

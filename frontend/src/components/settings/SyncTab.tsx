@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Alert, Button, Card, Divider, Space, Steps, Switch, Typography, message } from "antd";
-import { SyncOutlined, LinkOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Divider, Space, Switch, Typography, message } from "antd";
+import { SyncOutlined } from "@ant-design/icons";
 import { api } from "../../lib/apiClient";
 import { formatRelativeTime } from "../../utils/formatRelativeTime";
 import { formatTimeUntil } from "../../utils/formatTimeUntil";
-import type { MetadataResponse } from "../../types/api";
+import type { MetadataResponse, SyncStatusResponse } from "../../types/api";
+import { SyncProgress } from "./SyncProgress";
 
 /**
  * Settings → Data sync — the operator's one-button refresh. Speaks HubSpot,
@@ -12,58 +13,10 @@ import type { MetadataResponse } from "../../types/api";
  * object, and the orchestrator is one click away rather than required reading.
  */
 
-interface SyncStage {
-  stage: string;
-  label: string;
-  status: "pending" | "running" | "success" | "failure";
-  run_id: string | null;
-  run_url: string | null;
-}
-
-interface SyncErrorInfo {
-  stage: string;
-  stage_label: string;
-  message: string;
-  failed_step: string | null;
-  run_id: string;
-  run_url: string;
-}
-
-interface SyncInfo {
-  sync_id: string;
-  state: "running" | "succeeded" | "failed";
-  stages: SyncStage[];
-  error: SyncErrorInfo | null;
-}
-
-interface ScheduleInfo {
-  enabled: boolean;
-  /** Epoch seconds of the next tick; null while the schedule is off. */
-  next_run_timestamp: number | null;
-}
-
-interface SyncStatus {
-  hubspot_configured: boolean;
-  not_configured_reason: string | null;
-  dagster_ui_url: string;
-  dagster_error: string | null;
-  sync_running: boolean;
-  sync: SyncInfo | null;
-  /** null when the orchestrator can't say — the switch greys out. */
-  schedule: ScheduleInfo | null;
-}
-
 const POLL_MS = 4000;
 // Idle polling keeps the switch honest about changes made in the Dagster UI,
 // and surfaces a scheduled sync's progress while the tab is open.
 const IDLE_POLL_MS = 30000;
-
-const STEP_STATUS: Record<SyncStage["status"], "wait" | "process" | "finish" | "error"> = {
-  pending: "wait",
-  running: "process",
-  success: "finish",
-  failure: "error",
-};
 
 /** Newest freshness timestamp the metadata endpoint reports, or null. */
 function lastRefreshedFrom(meta: MetadataResponse): string | null {
@@ -74,7 +27,7 @@ function lastRefreshedFrom(meta: MetadataResponse): string | null {
 }
 
 export function SyncTab() {
-  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -92,7 +45,7 @@ export function SyncTab() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const s = await api.get<SyncStatus>("/api/v1/sync/status");
+      const s = await api.get<SyncStatusResponse>("/api/v1/sync/status");
       setStatus(s);
       setLoadError(null);
     } catch (e) {
@@ -241,32 +194,12 @@ export function SyncTab() {
       </Card>
 
       {sync && (
-        <Card size="small" title="Latest sync" style={{ marginBottom: 16 }}>
-          <Steps
-            size="small"
-            labelPlacement="vertical"
-            items={sync.stages.map((s) => ({
-              title: s.label,
-              status: STEP_STATUS[s.status],
-            }))}
-          />
-          {sync.state === "succeeded" && (
-            <Alert type="success" showIcon style={{ marginTop: 16 }}
-              message="Your data is up to date" />
-          )}
-          {sync.state === "failed" && sync.error && (
-            <Alert
-              type="error"
-              showIcon
-              style={{ marginTop: 16 }}
-              message={sync.error.message}
-              description={
-                <a href={sync.error.run_url} target="_blank" rel="noreferrer">
-                  <LinkOutlined /> View technical details in the orchestrator
-                </a>
-              }
-            />
-          )}
+        <Card
+          size="small"
+          title={sync.kind === "apply" ? "Latest settings update" : "Latest sync"}
+          style={{ marginBottom: 16 }}
+        >
+          <SyncProgress sync={sync} />
         </Card>
       )}
 

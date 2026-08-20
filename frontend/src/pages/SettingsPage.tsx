@@ -1,7 +1,6 @@
-import { useState, useMemo } from "react";
-import { Layout, Tabs, Button, Alert, Space, Checkbox, message, theme } from "antd";
+import { useState, useMemo, useCallback } from "react";
+import { Layout, Tabs, theme } from "antd";
 import { useSearchParams } from "react-router-dom";
-import { ReloadOutlined } from "@ant-design/icons";
 import { AppHeader } from "../components/AppHeader";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { OnboardingTab } from "../components/settings/OnboardingTab";
@@ -11,8 +10,8 @@ import { PropertyTab } from "../components/settings/PropertyTab";
 import { AIProviderTab } from "../components/settings/AIProviderTab";
 import { MCPTab } from "../components/settings/MCPTab";
 import { ArchitectureTab } from "../components/settings/ArchitectureTab";
+import { ApplyChangesBanner } from "../components/settings/ApplyChangesBanner";
 import { useCustomerConfig } from "../hooks/useCustomerConfig";
-import { api } from "../lib/apiClient";
 
 const { Content } = Layout;
 
@@ -22,9 +21,7 @@ export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "onboarding";
   const { config } = useCustomerConfig();
-  const [pendingReload, setPendingReload] = useState(false);
-  const [runBronze, setRunBronze] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   const headerSummary = useMemo(() => {
     if (!config) return "";
@@ -46,24 +43,8 @@ export default function SettingsPage() {
     return parts.join(" · ");
   }, [config]);
 
-  const onMarkDirty = () => setPendingReload(true);
-
-  const handleReload = async () => {
-    setReloading(true);
-    try {
-      const data = await api.post<{ run_launched?: boolean }>("/api/v1/extraction/reload", {
-        run_bronze: runBronze,
-      });
-      message.success(
-        data.run_launched ? "Dagster reloaded. Bronze job launched." : "Dagster reloaded.",
-      );
-      setPendingReload(false);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "Reload failed");
-    } finally {
-      setReloading(false);
-    }
-  };
+  const onMarkDirty = () => setDirty(true);
+  const onApplied = useCallback(() => setDirty(false), []);
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -71,34 +52,7 @@ export default function SettingsPage() {
         actions={headerSummary ? <span style={{ color: token.colorTextTertiary, fontSize: 13 }}>{headerSummary}</span> : undefined}
       />
       <Content style={{ padding: "24px 32px", background: token.colorBgLayout }}>
-        {pendingReload && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="Settings saved — Dagster has not reloaded yet"
-            description={
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <span>
-                  Pipeline behavior won't change until the Dagster code location reloads.
-                </span>
-                <Space>
-                  <Checkbox checked={runBronze} onChange={(e) => setRunBronze(e.target.checked)}>
-                    Run bronze job after reload
-                  </Checkbox>
-                  <Button
-                    type="primary"
-                    icon={<ReloadOutlined />}
-                    loading={reloading}
-                    onClick={handleReload}
-                  >
-                    Reload Pipeline
-                  </Button>
-                </Space>
-              </Space>
-            }
-          />
-        )}
+        <ApplyChangesBanner localDirty={dirty} onApplied={onApplied} />
         <div style={{ background: token.colorBgContainer, borderRadius: token.borderRadiusLG, padding: token.paddingLG }}>
           <Tabs
             activeKey={activeTab}

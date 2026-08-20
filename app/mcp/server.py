@@ -21,7 +21,8 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from app.ch_errors import safe_clickhouse_error
-from app.config import TABLES
+from app.config import TABLES, rebuild_tables
+from app.customer import extraction
 from app.llm.schema_prompt import build_schema_prompt
 from app.llm.sql_validator import ensure_limit
 from app.mcp.guardrails import (
@@ -112,6 +113,35 @@ def _rewrite_schema_prompt_to_anon(prompt: str) -> str:
     )
 
 
+def _fresh_catalog() -> None:
+    """Re-derive the table catalog from the current customer config, but only
+    once the config is live.
+
+    This server is a separate long-running process; without this, a settings
+    change applied while it runs (Settings → "Apply changes") would stay
+    invisible here until a restart. The column lists live in customer.json, so
+    re-deriving is a local read — no HubSpot, no ClickHouse.
+
+    The pending-apply gate mirrors the backend's refresh-on-rebuild-success
+    rule: while a save is waiting for (or failed) its apply, the warehouse does
+    not hold the new columns yet, so this server keeps serving the schema it
+    already has rather than describing tables as they are merely configured.
+    The flag clears when an apply lands, and the next schema request here picks
+    the change up.
+    """
+    if extraction.pending_apply_token() is None:
+        rebuild_tables()
+
+
+def _schema_text() -> str:
+    """The full anon-rewritten schema guide — shared by the schema://prompt
+    resource and the get_schema tool."""
+    _fresh_catalog()
+    base = build_schema_prompt(load_cache())
+    stripped = ACTIVITY_STRIP_RE.sub("", base)
+    return _MCP_PREAMBLE + _rewrite_schema_prompt_to_anon(stripped)
+
+
 @mcp.resource("schema://prompt")
 def schema_prompt() -> str:
     """The full semantic prompt with activity references stripped.
@@ -120,9 +150,7 @@ def schema_prompt() -> str:
     mentioning activity tables so the MCP client doesn't see documentation for
     a blocked capability. The MCP preamble announces the exclusion up front.
     """
-    base = build_schema_prompt(load_cache())
-    stripped = ACTIVITY_STRIP_RE.sub("", base)
-    return _MCP_PREAMBLE + _rewrite_schema_prompt_to_anon(stripped)
+    return _schema_text()
 
 
 @mcp.resource("schema://privacy_policy")
@@ -139,6 +167,7 @@ def schema_tables() -> str:
     gold → gold_anon). Activity tables are excluded — their bridges are in
     ALLOWED_TABLES only, not TABLES, so no filter needed there.
     """
+    _fresh_catalog()
     filtered: dict = {}
     for name, meta in TABLES.items():
         raw_db = meta.get("database", "silver")
@@ -177,9 +206,7 @@ def get_schema() -> str:
     Same content as the schema://prompt resource; exposed as a tool for
     clients that don't surface resources. One call is enough for a session.
     """
-    base = build_schema_prompt(load_cache())
-    stripped = ACTIVITY_STRIP_RE.sub("", base)
-    return _MCP_PREAMBLE + _rewrite_schema_prompt_to_anon(stripped)
+    return _schema_text()
 
 
 @mcp.tool()

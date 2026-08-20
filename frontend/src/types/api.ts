@@ -89,3 +89,50 @@ export interface MetadataResponse {
   row_counts: Record<string, number>;
   silver_loaded_at: Record<string, string>;
 }
+
+// --- Sync / apply surface (Settings → Data sync + pending-changes banner) ---
+
+export interface SyncStage {
+  stage: string;
+  label: string;
+  status: "pending" | "running" | "success" | "failure";
+  run_id: string | null;
+  run_url: string | null;
+}
+
+export interface SyncErrorInfo {
+  stage: string;
+  stage_label: string;
+  message: string;
+  failed_step: string | null;
+  run_id: string;
+  run_url: string;
+}
+
+export interface SyncInfo {
+  sync_id: string;
+  /** "sync" fetches from HubSpot (4 stages); "apply" rebuilds from stored data (3). */
+  kind: "sync" | "apply";
+  state: "running" | "succeeded" | "failed";
+  stages: SyncStage[];
+  error: SyncErrorInfo | null;
+}
+
+export interface ScheduleInfo {
+  enabled: boolean;
+  /** Epoch seconds of the next tick; null while the schedule is off. */
+  next_run_timestamp: number | null;
+}
+
+export interface SyncStatusResponse {
+  hubspot_configured: boolean;
+  not_configured_reason: string | null;
+  dagster_ui_url: string;
+  dagster_error: string | null;
+  sync_running: boolean;
+  /** A settings save is waiting for "Apply changes" to make it live. */
+  pending_apply: boolean;
+  sync: SyncInfo | null;
+  /** null when the orchestrator can't say — the switch greys out. */
+  schedule: ScheduleInfo | null;
+}

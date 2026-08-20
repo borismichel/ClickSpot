@@ -3,36 +3,10 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.customer import config as cc
-from app.semantic import layer as semantic_layer
-
-
-@pytest.fixture
-def isolated_config(tmp_path):
-    cfgfile = tmp_path / "customer.json"
-    cfgfile.write_text(json.dumps({"company_name": "Test"}))
-    with (
-        patch.object(cc, "CONFIG_FILE", cfgfile),
-        patch.object(cc, "CONFIG_DIR", tmp_path),
-        # A save unlinks the semantic layer cache. Redirect it too, or the tests
-        # delete the developer's real ~/.clickspot/schema_cache.json.
-        patch.object(semantic_layer, "CACHE_FILE", tmp_path / "schema_cache.json"),
-    ):
-        yield cfgfile
-    # A save refreshes process-wide state that outlives this test: the table
-    # catalog and the memoized schema prompt built on top of it. Redo both once
-    # the patches are off, so the next test sees the real config rather than a
-    # warehouse schema invented here.
-    from app.config import rebuild_tables
-    from app.llm.providers import refresh_schema_prompt
-    rebuild_tables()
-    refresh_schema_prompt()
 
 
 def test_get_extraction_returns_resolved_view(isolated_config):
@@ -104,9 +78,11 @@ def test_locked_columns_endpoint(isolated_config):
 
 
 # ---------------------------------------------------------------------------
-# Schema freshness — a save must reach the schema this process serves, with no
-# restart in between. The regression these guard is the one an operator saw as
-# "Settings said it saved, chat still doesn't know about my column".
+# Pending state — a save records that the change is not live yet, and leaves
+# the served schema untouched until "Apply changes" lands the rebuild. The
+# schema-follows-apply half lives in test_sync_routes.py; here we pin the
+# save half: pending is raised exactly when something changed, and the schema
+# this process serves keeps describing the warehouse as it still is.
 # ---------------------------------------------------------------------------
 
 ALL_OBJECTS_ON = {
@@ -133,9 +109,12 @@ def _deal_fields(client) -> dict:
     return res.json()["tables"]["dim_deals"]["fields"]
 
 
-def test_saved_extra_column_appears_in_served_schema(isolated_config):
+def test_save_raises_pending_and_leaves_served_schema_untouched(isolated_config):
+    """The saved column must NOT appear in the served schema yet — the
+    warehouse doesn't hold it until the rebuild lands. What the save does raise
+    is the pending-apply flag the Settings banner is built on."""
     client = TestClient(app)
-    assert "custom_arr" not in _deal_fields(client)
+    assert client.get("/api/v1/extraction").json()["pending_apply"] is False
 
     res = _save(client, {
         "dim_deals": {
@@ -145,42 +124,29 @@ def test_saved_extra_column_appears_in_served_schema(isolated_config):
         },
     })
     assert res.status_code == 200, res.text
+    assert res.json()["pending_apply"] is True
 
-    fields = _deal_fields(client)
-    assert "custom_arr" in fields
-    assert fields["custom_arr"]["type"] == "Nullable(Float64)"
-
-
-def test_saved_removal_drops_column_from_served_schema(isolated_config):
-    client = TestClient(app)
-    assert REMOVABLE_DEAL_COLUMN in _deal_fields(client)
-
-    res = _save(client, {"dim_deals": {"extra": [], "removed": [REMOVABLE_DEAL_COLUMN]}})
-    assert res.status_code == 200, res.text
-
-    assert REMOVABLE_DEAL_COLUMN not in _deal_fields(client)
-
-
-def test_saved_extra_column_is_dropped_again_when_removed(isolated_config):
-    """Refresh works in both directions within one process — adding then taking
-    the column away leaves no residue from the first save."""
-    client = TestClient(app)
-    _save(client, {
-        "dim_deals": {
-            "extra": [{"column": "custom_arr", "property": "annual_recurring_revenue",
-                       "type": "Nullable(Float64)"}],
-            "removed": [],
-        },
-    })
-    assert "custom_arr" in _deal_fields(client)
-
-    _save(client, {})
     assert "custom_arr" not in _deal_fields(client)
 
 
-def test_rejected_locked_removal_leaves_served_schema_untouched(isolated_config):
-    """The locked-column guard runs before anything is saved or refreshed, so a
-    rejected save cannot half-apply."""
+def test_save_with_no_change_does_not_raise_pending(isolated_config):
+    """Re-saving the current selection must not nag the operator to apply."""
+    client = TestClient(app)
+    res = _save(client, {})
+    assert res.status_code == 200, res.text
+    assert res.json()["pending_apply"] is False
+
+
+def test_pending_survives_an_unchanged_resave(isolated_config):
+    client = TestClient(app)
+    _save(client, {"dim_deals": {"extra": [], "removed": [REMOVABLE_DEAL_COLUMN]}})
+    res = _save(client, {"dim_deals": {"extra": [], "removed": [REMOVABLE_DEAL_COLUMN]}})
+    assert res.json()["pending_apply"] is True
+
+
+def test_rejected_locked_removal_leaves_schema_and_pending_untouched(isolated_config):
+    """The locked-column guard runs before anything is saved, so a rejected
+    save cannot half-apply — and must not raise the pending banner either."""
     client = TestClient(app)
     before = dict(_deal_fields(client))
 
@@ -189,6 +155,7 @@ def test_rejected_locked_removal_leaves_served_schema_untouched(isolated_config)
 
     assert _deal_fields(client) == before
     assert "dealname" in _deal_fields(client)
+    assert client.get("/api/v1/extraction").json()["pending_apply"] is False
 
 
 def test_malformed_property_entry_is_skipped(isolated_config):

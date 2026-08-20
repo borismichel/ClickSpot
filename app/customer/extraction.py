@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import uuid
 from typing import Any
 
 from app.customer import config as customer_config
@@ -198,6 +199,43 @@ def save(block: dict[str, Any]) -> dict[str, Any]:
     cfg["extraction"] = normalized
     customer_config.save(cfg)
     return normalized
+
+
+# ---------------------------------------------------------------------------
+# Pending-apply flag — "saved but not live yet"
+# ---------------------------------------------------------------------------
+# A settings save takes effect only after the operator applies it (reload the
+# Dagster definitions + rebuild silver onward). The flag records that gap so
+# the UI can show it; it holds a fresh token per save rather than a boolean so
+# a completed apply clears only the pending state it was started for — a save
+# landing mid-apply keeps the banner up.
+
+PENDING_APPLY_KEY = "extraction_pending_apply"
+
+
+def pending_apply_token() -> str | None:
+    """The current pending-apply token, or None if nothing is pending."""
+    token = customer_config.load().get(PENDING_APPLY_KEY)
+    return str(token) if token else None
+
+
+def mark_pending_apply() -> str:
+    """Record that the saved configuration is not live yet; returns the token."""
+    token = uuid.uuid4().hex[:12]
+    cfg = customer_config.load()
+    cfg[PENDING_APPLY_KEY] = token
+    customer_config.save(cfg)
+    return token
+
+
+def clear_pending_apply(token: str) -> bool:
+    """Clear the pending flag iff it still carries `token`. Returns True if cleared."""
+    cfg = customer_config.load()
+    if not token or cfg.get(PENDING_APPLY_KEY) != token:
+        return False
+    del cfg[PENDING_APPLY_KEY]
+    customer_config.save(cfg)
+    return True
 
 
 def is_object_enabled(name: str) -> bool:
