@@ -12,9 +12,25 @@ from fastapi.testclient import TestClient
 
 from app import dagster_client
 from app.main import app
-from app.sync_naming import SYNC_ID_TAG, SYNC_MARKER_TAG, SYNC_MARKER_VALUE
+from app.sync_naming import (
+    SYNC_ID_TAG,
+    SYNC_MARKER_TAG,
+    SYNC_MARKER_VALUE,
+    SYNC_SCHEDULE_NAME,
+)
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def stopped_schedule(monkeypatch):
+    """Default the schedule lookup to a stopped schedule so status tests never
+    reach out to a real Dagster; individual tests re-patch for their scenario."""
+    monkeypatch.setattr(
+        dagster_client,
+        "schedule_state",
+        lambda name: {"id": "sched-1", "status": "STOPPED", "next_tick_timestamp": None},
+    )
 
 
 def _run(job, status, sync_id="abc123", run_id=None, tagged=True):
@@ -111,6 +127,7 @@ def test_status_with_no_syncs_yet(no_hubspot_token):
     assert data["hubspot_configured"] is False
     assert data["not_configured_reason"]
     assert data["dagster_ui_url"] == "http://localhost:8194"
+    assert data["schedule"] == {"enabled": False, "next_run_timestamp": None}
 
 
 def test_status_degrades_when_the_orchestrator_is_unreachable(hubspot_token):
@@ -127,6 +144,7 @@ def test_status_degrades_when_the_orchestrator_is_unreachable(hubspot_token):
     data = res.json()
     assert "unreachable" in data["dagster_error"]
     assert data["sync"] is None
+    assert data["schedule"] is None
     assert data["hubspot_configured"] is True
 
 
@@ -224,3 +242,83 @@ def test_status_only_reports_the_latest_sync(hubspot_token):
     sync = res.json()["sync"]
     assert sync["sync_id"] == "new111"
     assert [s["status"] for s in sync["stages"]] == ["running", "pending", "pending", "pending"]
+
+
+# ---------------------------------------------------------------------------
+# Automatic updates (the hourly schedule, as an operator-facing switch)
+# ---------------------------------------------------------------------------
+
+
+def test_status_reports_a_running_schedule_with_its_next_run(hubspot_token, monkeypatch):
+    monkeypatch.setattr(
+        dagster_client,
+        "schedule_state",
+        lambda name: {"id": "sched-1", "status": "RUNNING", "next_tick_timestamp": 1766240400.0},
+    )
+    with (
+        patch.object(dagster_client, "in_progress_runs", return_value=[]),
+        patch.object(dagster_client, "runs_by_tag", return_value=[]),
+    ):
+        res = client.get("/api/v1/sync/status")
+    assert res.json()["schedule"] == {"enabled": True, "next_run_timestamp": 1766240400.0}
+
+
+def test_status_survives_a_failed_schedule_lookup(hubspot_token, monkeypatch):
+    """A broken schedule lookup greys out the switch (schedule: null) but must
+    not blank the sync progress, which comes from independent queries."""
+    from fastapi import HTTPException
+
+    def boom(name):
+        raise HTTPException(502, "Dagster schedule lookup failed: PythonError")
+
+    monkeypatch.setattr(dagster_client, "schedule_state", boom)
+    runs = [_run("bronze_job", "SUCCESS")]
+    with (
+        patch.object(dagster_client, "in_progress_runs", return_value=[]),
+        patch.object(dagster_client, "runs_by_tag", return_value=runs),
+    ):
+        res = client.get("/api/v1/sync/status")
+    data = res.json()
+    assert data["schedule"] is None
+    assert data["dagster_error"] is None
+    assert data["sync"] is not None
+
+
+def test_turning_on_without_hubspot_credentials_is_refused(no_hubspot_token):
+    with patch.object(dagster_client, "start_schedule") as start:
+        res = client.put("/api/v1/sync/schedule", json={"enabled": True})
+    assert res.status_code == 409
+    assert "HUBSPOT_TOKEN" in res.json()["detail"]
+    start.assert_not_called()
+
+
+def test_turning_on_starts_the_schedule(hubspot_token):
+    with patch.object(dagster_client, "start_schedule", return_value="RUNNING") as start:
+        res = client.put("/api/v1/sync/schedule", json={"enabled": True})
+    assert res.status_code == 200
+    assert res.json() == {"enabled": True}
+    start.assert_called_once_with(SYNC_SCHEDULE_NAME)
+
+
+def test_turning_off_stops_the_schedule_and_needs_no_credentials(no_hubspot_token):
+    """Off must always be reachable — an operator whose token was removed can
+    still stop the automation that depends on it."""
+    with patch.object(dagster_client, "stop_schedule", return_value="STOPPED") as stop:
+        res = client.put("/api/v1/sync/schedule", json={"enabled": False})
+    assert res.status_code == 200
+    assert res.json() == {"enabled": False}
+    stop.assert_called_once_with(SYNC_SCHEDULE_NAME)
+
+
+def test_turning_off_leaves_a_sync_in_progress_alone(hubspot_token):
+    """Stopping the schedule stops future ticks only — the toggle never
+    consults or cancels in-flight runs."""
+    with (
+        patch.object(dagster_client, "stop_schedule", return_value="STOPPED"),
+        patch.object(dagster_client, "in_progress_runs") as in_progress,
+        patch.object(dagster_client, "launch_job") as launch,
+    ):
+        res = client.put("/api/v1/sync/schedule", json={"enabled": False})
+    assert res.status_code == 200
+    in_progress.assert_not_called()
+    launch.assert_not_called()
