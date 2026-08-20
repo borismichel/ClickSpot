@@ -3,6 +3,7 @@ import { Alert, Button, Card, Divider, Space, Steps, Switch, Typography, message
 import { SyncOutlined, LinkOutlined } from "@ant-design/icons";
 import { api } from "../../lib/apiClient";
 import { formatRelativeTime } from "../../utils/formatRelativeTime";
+import { formatTimeUntil } from "../../utils/formatTimeUntil";
 import type { MetadataResponse } from "../../types/api";
 
 /**
@@ -63,16 +64,6 @@ const STEP_STATUS: Record<SyncStage["status"], "wait" | "process" | "finish" | "
   success: "finish",
   failure: "error",
 };
-
-/** "in under a minute" / "in 12 minutes" / "in about an hour" for an epoch-ms
- * timestamp — the forward-looking sibling of formatRelativeTime. */
-function formatTimeUntil(ts: number, now: number = Date.now()): string {
-  const min = Math.round((ts - now) / 60000);
-  if (min <= 1) return "in under a minute";
-  if (min < 60) return `in ${min} minutes`;
-  const hr = Math.round(min / 60);
-  return hr === 1 ? "in about an hour" : `in about ${hr} hours`;
-}
 
 /** Newest freshness timestamp the metadata endpoint reports, or null. */
 function lastRefreshedFrom(meta: MetadataResponse): string | null {
