@@ -45,7 +45,6 @@ from resources.clickhouse import ClickHouseResource  # noqa: E402
 load_dotenv()
 
 DEFAULT_CSV = _REPO_ROOT / "demo-data" / "clickspot-demo-data.csv"
-INIT_SQL = _REPO_ROOT / "scripts" / "init_clickhouse.sql"
 
 # Synthetic portal config — surfaced in click-through URLs etc. Arbitrary.
 DEMO_OWNER_EMAIL_DOMAIN = "clickspot-demo.com"
@@ -539,11 +538,8 @@ def load_bronze(builder: SeedBuilder, ch: ClickHouseResource) -> dict[str, int]:
 
 def run_init(client) -> None:
     """Execute scripts/init_clickhouse.sql (creates databases + bronze tables)."""
-    for statement in INIT_SQL.read_text().split(";"):
-        lines = [l for l in statement.strip().splitlines() if not l.strip().startswith("--")]
-        stmt = "\n".join(lines).strip()
-        if stmt:
-            client.command(stmt)
+    from app.warehouse_init import ensure_schema
+    ensure_schema(client)
 
 
 def materialize_layers(host, port, user, password) -> None:

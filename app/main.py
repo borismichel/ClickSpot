@@ -28,6 +28,19 @@ async def lifespan(app: FastAPI):
     from app.store import init_db
     await init_db()
 
+    # Startup: make sure the ClickHouse databases and bronze tables exist.
+    # Every statement is IF NOT EXISTS, so this is a no-op after first boot —
+    # it exists for the fresh `docker compose up` path (no demo profile), where
+    # nothing else runs the init DDL and the first bronze materialization
+    # would otherwise fail. Best-effort: from source ClickHouse may not be up
+    # yet, and start.sh runs the same DDL anyway.
+    try:
+        from app.db import get_client
+        from app.warehouse_init import ensure_schema
+        ensure_schema(get_client())
+    except Exception as e:
+        log.warning(f"ClickHouse schema init skipped: {e}")
+
     # Startup: load saved data spaces
     try:
         from app.spaces.registry import load_saved_spaces

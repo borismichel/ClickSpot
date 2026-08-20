@@ -49,6 +49,14 @@ def _run(job, status, sync_id="abc123", run_id=None, tagged=True, kind=None):
     }
 
 
+@pytest.fixture(autouse=True)
+def no_real_schema_init(monkeypatch):
+    """Launch endpoints run the idempotent ClickHouse schema init first; stub
+    it so these tests never open a real ClickHouse connection. Tests that pin
+    the init behavior re-patch with their own recorder."""
+    monkeypatch.setattr(sync_routes, "_init_warehouse_schema", lambda: None)
+
+
 @pytest.fixture
 def hubspot_token(monkeypatch):
     monkeypatch.setenv("HUBSPOT_TOKEN", "pat-na1-test")
@@ -86,6 +94,39 @@ def test_start_launches_bronze_with_correlation_tags(hubspot_token):
     assert job_name == "bronze_job"
     assert tags[SYNC_MARKER_TAG] == SYNC_MARKER_VALUE
     assert tags[SYNC_ID_TAG] == data["sync_id"]
+
+
+def test_start_initializes_the_warehouse_schema_before_launching(
+    hubspot_token, monkeypatch
+):
+    """Fresh-compose path: ClickHouse holds only the empty `bronze` database,
+    so Sync now must run the IF NOT EXISTS init DDL before bronze launches."""
+    order = []
+    monkeypatch.setattr(
+        sync_routes, "_init_warehouse_schema", lambda: order.append("init")
+    )
+    with (
+        patch.object(dagster_client, "in_progress_runs", return_value=[]),
+        patch.object(
+            dagster_client,
+            "launch_job",
+            side_effect=lambda *a, **k: order.append("launch") or "run-1",
+        ),
+    ):
+        res = client.post("/api/v1/sync")
+    assert res.status_code == 200
+    assert order == ["init", "launch"]
+
+
+def test_schema_init_is_best_effort_and_never_blocks_a_launch(monkeypatch):
+    """An external-mode warehouse user may lack CREATE DATABASE rights on an
+    already-initialized warehouse — init failure must not raise."""
+    from app import db as app_db
+
+    monkeypatch.setattr(
+        app_db, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("no CH"))
+    )
+    sync_routes._init_warehouse_schema()  # must not raise
 
 
 def test_start_while_a_sync_is_running_does_not_launch_a_second(hubspot_token):

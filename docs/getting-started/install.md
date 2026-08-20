@@ -28,7 +28,9 @@ ANTHROPIC_API_KEY=sk-... docker compose up   # or OPENAI_API_KEY=sk-...
 Got a HubSpot portal? Set `HUBSPOT_TOKEN` and `HUBSPOT_HUB_ID` in `.env`, leave
 `--profile demo` off, and materialize `bronze_job` from the Dagster UI at
 <http://localhost:8194> to load it (the hourly schedule ships stopped — enable it there for
-recurring runs). Released images pull from GHCR (public, no login) with `docker compose pull`.
+recurring runs). No schema setup is needed first: the backend initializes the ClickHouse
+databases and bronze tables automatically on startup (idempotent `IF NOT EXISTS` DDL).
+Released images pull from GHCR (public, no login) with `docker compose pull`.
 
 | Service | URL | Notes |
 |---------|-----|-------|

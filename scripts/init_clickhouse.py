@@ -1,11 +1,24 @@
 """Run scripts/init_clickhouse.sql against the ClickHouse instance.
 Usage: python scripts/init_clickhouse.py
 Uses CLICKHOUSE_HOST, CLICKHOUSE_PORT, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD from .env.
+
+The backend runs the same DDL automatically on startup and before each sync
+launch (app/warehouse_init.py) — this script remains for shell bootstrap paths
+and for initializing an `external`-mode ClickHouse by hand.
 """
 import os
+import sys
 from pathlib import Path
+
 import clickhouse_connect
 from dotenv import load_dotenv
+
+# Make the repo root importable when run as `python scripts/init_clickhouse.py`.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from app.warehouse_init import ensure_schema  # noqa: E402
 
 load_dotenv()
 
@@ -16,17 +29,5 @@ client = clickhouse_connect.get_client(
     password=os.environ["CLICKHOUSE_PASSWORD"],
 )
 
-sql = Path(__file__).parent / "init_clickhouse.sql"
-for statement in sql.read_text().split(";"):
-    # Strip comments and whitespace; skip if nothing left
-    lines = [l for l in statement.strip().splitlines() if not l.strip().startswith("--")]
-    stmt = "\n".join(lines).strip()
-    if stmt:
-        try:
-            client.command(stmt)
-            print(f"OK: {stmt[:60]}...")
-        except Exception as e:
-            print(f"FAILED: {stmt[:60]}...\nError: {e}")
-            raise
-
-print("ClickHouse bronze layer initialized.")
+count = ensure_schema(client)
+print(f"ClickHouse bronze layer initialized ({count} statements).")
