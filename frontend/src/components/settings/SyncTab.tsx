@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Alert, Button, Card, Space, Typography, message } from "antd";
+import { Alert, Button, Card, Divider, Space, Switch, Typography, message } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import { api } from "../../lib/apiClient";
 import { formatRelativeTime } from "../../utils/formatRelativeTime";
+import { formatTimeUntil } from "../../utils/formatTimeUntil";
 import type { MetadataResponse, SyncStatusResponse } from "../../types/api";
 import { SyncProgress } from "./SyncProgress";
 
@@ -13,6 +14,9 @@ import { SyncProgress } from "./SyncProgress";
  */
 
 const POLL_MS = 4000;
+// Idle polling keeps the switch honest about changes made in the Dagster UI,
+// and surfaces a scheduled sync's progress while the tab is open.
+const IDLE_POLL_MS = 30000;
 
 /** Newest freshness timestamp the metadata endpoint reports, or null. */
 function lastRefreshedFrom(meta: MetadataResponse): string | null {
@@ -26,6 +30,7 @@ export function SyncTab() {
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const wasActive = useRef(false);
 
@@ -54,21 +59,17 @@ export function SyncTab() {
   }, [loadStatus, loadFreshness]);
 
   const active = status !== null && (status.sync_running || status.sync?.state === "running");
-  // Keep polling while a sync is in flight, and while the orchestrator is
-  // unreachable — that's how the tab recovers on its own once it's back.
-  const shouldPoll = active || !!status?.dagster_error;
+  // Poll fast while a sync is in flight or the orchestrator is unreachable
+  // (that's how the tab recovers on its own once it's back), slowly otherwise.
+  const fastPoll = active || !!status?.dagster_error;
 
   // Refresh the freshness stamp once a running sync lands.
   useEffect(() => {
-    if (!shouldPoll) {
-      if (wasActive.current) loadFreshness();
-      wasActive.current = false;
-      return;
-    }
+    if (!fastPoll && wasActive.current) loadFreshness();
     wasActive.current = active;
-    const t = setInterval(loadStatus, POLL_MS);
+    const t = setInterval(loadStatus, fastPoll ? POLL_MS : IDLE_POLL_MS);
     return () => clearInterval(t);
-  }, [active, shouldPoll, loadStatus, loadFreshness]);
+  }, [active, fastPoll, loadStatus, loadFreshness]);
 
   const startSync = async () => {
     setStarting(true);
@@ -83,6 +84,19 @@ export function SyncTab() {
     }
   };
 
+  const toggleSchedule = async (enabled: boolean) => {
+    setToggling(true);
+    try {
+      await api.put("/api/v1/sync/schedule", { enabled });
+      message.success(enabled ? "Automatic updates are on" : "Automatic updates are off");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "Could not change automatic updates");
+    } finally {
+      await loadStatus();
+      setToggling(false);
+    }
+  };
+
   if (status === null) {
     return loadError ? (
       <Alert type="error" showIcon message="Sync status unavailable" description={loadError} />
@@ -92,6 +106,11 @@ export function SyncTab() {
   }
 
   const sync = status.sync;
+  const schedule = status.schedule;
+  // Turning ON needs credentials like Sync now does; turning OFF must stay
+  // reachable even without them.
+  const switchDisabled =
+    !schedule || !!status.dagster_error || (!schedule.enabled && !status.hubspot_configured);
   const relative = lastRefreshed
     ? formatRelativeTime(new Date(lastRefreshed.replace(" ", "T")))
     : "";
@@ -147,6 +166,30 @@ export function SyncTab() {
           >
             {active ? "Sync in progress…" : "Sync now"}
           </Button>
+          <Divider style={{ margin: 0 }} />
+          <div>
+            <Space align="center">
+              <Switch
+                checked={schedule?.enabled ?? false}
+                loading={toggling}
+                disabled={switchDisabled}
+                onChange={toggleSchedule}
+              />
+              <Typography.Text>Keep my data up to date automatically</Typography.Text>
+            </Space>
+            {schedule?.enabled && schedule.next_run_timestamp !== null && (
+              <div style={{ marginTop: 4 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Next refresh {formatTimeUntil(schedule.next_run_timestamp * 1000)} (
+                  {new Date(schedule.next_run_timestamp * 1000).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  )
+                </Typography.Text>
+              </div>
+            )}
+          </div>
         </Space>
       </Card>
 
@@ -162,9 +205,9 @@ export function SyncTab() {
 
       <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
         A sync fetches the latest data from HubSpot and rebuilds every table,
-        including the anonymized copy used by MCP. It usually runs unattended on
-        the hourly schedule; this button is for when you want fresh numbers now.
-        The full pipeline remains available in{" "}
+        including the anonymized copy used by MCP. With automatic updates on it
+        runs unattended every hour; the button is for when you want fresh
+        numbers now. The full pipeline remains available in{" "}
         <a href={status.dagster_ui_url} target="_blank" rel="noreferrer">
           the orchestrator
         </a>{" "}

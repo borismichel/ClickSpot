@@ -118,6 +118,12 @@ export interface SyncInfo {
   error: SyncErrorInfo | null;
 }
 
+export interface ScheduleInfo {
+  enabled: boolean;
+  /** Epoch seconds of the next tick; null while the schedule is off. */
+  next_run_timestamp: number | null;
+}
+
 export interface SyncStatusResponse {
   hubspot_configured: boolean;
   not_configured_reason: string | null;
@@ -127,4 +133,6 @@ export interface SyncStatusResponse {
   /** A settings save is waiting for "Apply changes" to make it live. */
   pending_apply: boolean;
   sync: SyncInfo | null;
+  /** null when the orchestrator can't say — the switch greys out. */
+  schedule: ScheduleInfo | null;
 }

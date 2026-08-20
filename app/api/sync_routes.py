@@ -1,12 +1,13 @@
 """REST endpoints behind the Settings → Data sync tab and the
 pending-changes banner.
 
-  POST /api/v1/sync         — start a full refresh (bronze → … → anon)
-  POST /api/v1/sync/apply   — apply saved settings: reload definitions, then
-                              rebuild from data already stored (silver → … →
-                              anon, no HubSpot fetch)
-  GET  /api/v1/sync/status  — the latest operation's stages, in operator
-                              language
+  POST /api/v1/sync          — start a full refresh (bronze → … → anon)
+  POST /api/v1/sync/apply    — apply saved settings: reload definitions, then
+                               rebuild from data already stored (silver → … →
+                               anon, no HubSpot fetch)
+  GET  /api/v1/sync/status   — the latest operation's stages, in operator
+                               language
+  PUT  /api/v1/sync/schedule — turn the automatic hourly refresh on or off
 
 A "sync" is still four separate Dagster runs chained by sensors — nothing is
 collapsed. What ties them together is the correlation tag stamped on the bronze
@@ -30,6 +31,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app import dagster_client as dagster
 from app import schema_refresh
@@ -42,6 +44,7 @@ from app.sync_naming import (
     SYNC_KIND_TAG,
     SYNC_MARKER_TAG,
     SYNC_MARKER_VALUE,
+    SYNC_SCHEDULE_NAME,
     failure_message,
 )
 
@@ -277,6 +280,19 @@ def _latest_sync() -> dict[str, Any] | None:
             "error": error}
 
 
+def _schedule_info() -> dict[str, Any]:
+    """The switch's source of truth: what the orchestrator says the schedule
+    is doing right now, not what ClickSpot last asked for."""
+    state = dagster.schedule_state(SYNC_SCHEDULE_NAME)
+    enabled = state["status"] == "RUNNING"
+    return {
+        "enabled": enabled,
+        # futureTicks is computed from the cron whether or not the schedule is
+        # running, so only surface it when a tick will actually fire.
+        "next_run_timestamp": state["next_tick_timestamp"] if enabled else None,
+    }
+
+
 @router.get("/status")
 def sync_status() -> dict[str, Any]:
     # An unreachable orchestrator must not blank the whole tab — the freshness
@@ -297,6 +313,15 @@ def sync_status() -> dict[str, Any]:
     except Exception as e:
         log.warning("Apply finalize failed during status poll: %s", e)
 
+    # A schedule-only failure (e.g. the code location mid-reload) greys out the
+    # switch without discarding the sync progress fetched above.
+    schedule: dict[str, Any] | None = None
+    if dagster_error is None:
+        try:
+            schedule = _schedule_info()
+        except HTTPException as e:
+            log.warning("Schedule state unavailable: %s", e.detail)
+
     return {
         "hubspot_configured": _hubspot_configured(),
         "not_configured_reason": None if _hubspot_configured() else NOT_CONFIGURED_MESSAGE,
@@ -305,4 +330,26 @@ def sync_status() -> dict[str, Any]:
         "sync_running": sync_running,
         "pending_apply": extraction.pending_apply_token() is not None,
         "sync": sync,
+        "schedule": schedule,
     }
+
+
+class ScheduleToggle(BaseModel):
+    enabled: bool
+
+
+@router.put("/schedule")
+def set_schedule(body: ScheduleToggle) -> dict[str, Any]:
+    """Turn the automatic hourly refresh on or off.
+
+    Off is never guarded: it must stay reachable even without credentials, and
+    stopping the schedule only stops future ticks — a sync already in flight
+    is not touched."""
+    if body.enabled:
+        if not _hubspot_configured():
+            raise HTTPException(409, NOT_CONFIGURED_MESSAGE)
+        status = dagster.start_schedule(SYNC_SCHEDULE_NAME)
+    else:
+        status = dagster.stop_schedule(SYNC_SCHEDULE_NAME)
+    log.info("Automatic updates turned %s", "on" if body.enabled else "off")
+    return {"enabled": status == "RUNNING"}

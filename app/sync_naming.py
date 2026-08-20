@@ -15,9 +15,13 @@ still travels alongside the message for whoever follows the details link.
 
 from __future__ import annotations
 
-# Correlation tags stamped on the run that starts a sync and propagated by the
-# chaining sensors (see sensors.py). SYNC_MARKER_* is constant so the latest
-# sync is findable with one tag-filtered query; SYNC_ID_TAG separates syncs.
+# Correlation tags stamped on the run that starts a sync — by the Sync now
+# button (sync_routes.py) and by the hourly schedule (schedules.py) alike —
+# and propagated by the chaining sensors (see sensors.py). SYNC_MARKER_* is
+# constant so the latest sync is findable with one tag-filtered query (the
+# Dagster runs filter cannot OR two values of one key, so both sources share
+# the value; "ui" predates the schedule and stays for wire compatibility).
+# SYNC_ID_TAG separates syncs.
 SYNC_MARKER_TAG = "clickspot/sync"
 SYNC_MARKER_VALUE = "ui"
 SYNC_ID_TAG = "clickspot/sync_id"
@@ -27,6 +31,12 @@ SYNC_ID_TAG = "clickspot/sync_id"
 # onward, rebuilds from data already stored). Absent on pre-existing runs,
 # which are all syncs.
 SYNC_KIND_TAG = "clickspot/kind"
+
+# Dagster name of the hourly refresh schedule, kept as the name the original
+# ScheduleDefinition derived from its job ("<job>_schedule") so a schedule an
+# operator already started keeps its state across an upgrade. Operators never
+# see it — the Settings switch is the operator-facing surface.
+SYNC_SCHEDULE_NAME = "bronze_job_schedule"
 
 # The four stages of a sync, in pipeline order: (stage key, job name, label).
 STAGES: list[tuple[str, str, str]] = [
