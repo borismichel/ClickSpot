@@ -26,8 +26,10 @@ in [Install & run](getting-started/install.md#run-with-docker-recommended).
 
 ## How fresh is the data?
 
-Dagster runs the full medallion pipeline hourly. You can also materialize assets on demand
-from the Dagster UI. See [The medallion warehouse](concepts/warehouse.md).
+As fresh as your last sync. **Settings → Data sync** shows the last-refreshed time, a
+**Sync now** button, and a switch for automatic hourly refreshes (off by default). Assets
+can also be materialized on demand from the Dagster UI. See
+[The medallion warehouse](concepts/warehouse.md).
 
 ## Which LLM providers are supported?
 

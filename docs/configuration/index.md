@@ -48,7 +48,11 @@ the loopback-bound demo on any Docker runtime without extra setup.
 
 ## Adding data
 
-**New HubSpot property.** Add one tuple in `silver_config.py`:
+**New HubSpot property.** For your own portal, use **Settings → Properties** in the
+frontend: save the column, then click **Apply changes** in the banner that appears — it
+rebuilds the tables and refreshes what the assistant knows in one step (see
+[Connect HubSpot](../getting-started/connect-hubspot.md)). Only a *core* column meant to
+ship to every installation belongs in `silver_config.py`:
 
 ```python
 DIM_DEALS["columns"].append(("new_field", "hs_property_name", "String"))

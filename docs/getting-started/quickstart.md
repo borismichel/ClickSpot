@@ -48,7 +48,7 @@ ANTHROPIC_API_KEY=sk-... docker compose up   # or OPENAI_API_KEY=sk-...
 ```
 
 Got a HubSpot portal? Set `HUBSPOT_TOKEN` in `.env`, leave `--profile demo` off, and
-materialize `bronze_job` from the Dagster UI to load it. Full walkthrough:
+click **Sync now** under **Settings → Data sync** to load it. Full walkthrough:
 [Install & run](install.md) → [Connect HubSpot](connect-hubspot.md).
 
 ## Run from source

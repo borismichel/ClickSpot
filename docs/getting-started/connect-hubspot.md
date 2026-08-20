@@ -47,21 +47,21 @@ Non-standard HubSpot properties — an ARR-specific deal amount, a custom dropdo
 silver columns through the **Settings → Properties** tab in the frontend. Its sibling
 **Settings → Extraction** turns off whole objects you don't want extracted at all.
 
-A property change takes three steps, in this order:
+A property change takes two steps:
 
-1. **Save** in the Properties tab. Chat, the MCP schema, and the Data Explorer pick up the
-   new column list immediately — no restart.
-2. **Reload Pipeline** — the button in the banner that appears after a save. It reloads
-   Dagster's code location over GraphQL (see
-   [`DAGSTER_GRAPHQL_URL`](../configuration/index.md)), which is what makes the pipeline
-   aware of the column at all.
-3. **Materialize `silver_job`** in Dagster so the column is rebuilt with data. (Tick
-   *Run bronze job after reload* in that banner instead if the property is new to bronze
-   too.)
+1. **Save** in the Properties tab. The change is recorded, and a banner appears on the
+   Settings page: *"Settings saved — your changes are not live yet."*
+2. **Apply changes** — the button in that banner. One click makes the edit live end to
+   end: it reloads the pipeline's configuration, rebuilds your tables from data already
+   synced (silver → gold → anon; nothing is fetched from HubSpot, so no token is needed
+   and it's much faster than a full sync), and then refreshes the schema the assistant
+   sees. Progress and any failure show up in the banner and on the
+   **Settings → Data sync** tab.
 
-Between steps 1 and 3 the assistant knows about a column ClickHouse does not have yet, so
-queries against it fail until the rebuild finishes. That window is why the rebuild belongs
-immediately after the save.
+Until the apply lands, chat, the MCP schema, and the Data Explorer deliberately keep
+describing the *old* column list — so the assistant never suggests a column the warehouse
+doesn't hold yet. Once the rebuild finishes, they all pick up the new columns without a
+restart.
 
 !!! warning "`silver_config_custom.py` is deprecated"
     The gitignored sibling module still appends columns and still works, with a deprecation
@@ -76,11 +76,19 @@ immediately after the save.
 ## Then load your portal
 
 **Setting the token does not load anything by itself.** Nothing is scheduled on startup —
-a fresh stack sits with an empty warehouse until you ask for an extraction:
+a fresh stack sits with an empty warehouse until you ask for a sync:
 
-1. Open Dagster at <http://localhost:8194>.
-2. Materialize **`bronze_job`**. Sensors chain the rest: bronze → silver → gold → anon.
+1. Open the frontend at <http://localhost:8193> and go to **Settings → Data sync**.
+2. Click **Sync now**. It runs the full pipeline — raw HubSpot loads, then the typed,
+   aggregated, and anonymized tables — with staged progress right on the tab. (The button
+   is disabled until `HUBSPOT_TOKEN` is set.)
 
-The recurring `hourly_schedule` ships **stopped** by design, so nothing refreshes behind
-your back. Turn it on under **Automation → Schedules** in the same UI if you want hourly
-runs. Walkthrough: [First run](first-run.md).
+Automatic refreshes ship **off** by design, so nothing runs behind your back. Flip
+**"Keep my data up to date automatically"** on the same tab to refresh hourly; it shows
+the next scheduled run time. Walkthrough: [First run](first-run.md).
+
+!!! note "The technical route still works"
+    The Data sync tab drives Dagster under the hood. If you prefer the orchestrator
+    directly, open Dagster at <http://localhost:8194> and materialize **`bronze_job`** —
+    sensors chain silver → gold → anon — and manage the hourly schedule under
+    **Automation → Schedules**. Both routes show up identically on the Data sync tab.
