@@ -105,7 +105,19 @@ def test_dagster_graphql_url_addresses_the_orchestrator_by_service_name(services
         assert "localhost" not in default and "127.0.0.1" not in default
 
 
-@pytest.mark.parametrize("var", ["DAGSTER_GRAPHQL_URL", "CLICKSPOT_TRUSTED_HOSTS"])
+def test_dagster_ui_url_is_browser_facing_not_a_service_name(services):
+    """The run links on the Data sync tab open in the operator's browser, where
+    the compose service name resolves to nothing. The default must match the
+    loopback publish of the dagster service."""
+    value = services["backend"]["environment"]["DAGSTER_UI_URL"]
+    default = _override_default(value)
+    assert default == "http://localhost:8194"
+    assert "dagster:" not in default
+
+
+@pytest.mark.parametrize(
+    "var", ["DAGSTER_GRAPHQL_URL", "DAGSTER_UI_URL", "CLICKSPOT_TRUSTED_HOSTS"]
+)
 def test_deployment_overrides_stay_overridable_from_the_host(services, var):
     """Non-default network layouts (or an externally hosted orchestrator) must
     stay reachable without editing the manifest."""

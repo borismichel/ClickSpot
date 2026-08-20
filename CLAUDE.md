@@ -121,9 +121,15 @@ Silver is intentionally dumb — 1:1 mapping from bronze properties to typed col
 - Reuses `app/llm/schema_prompt.build_schema_prompt` and `app/llm/sql_validator.ensure_limit` so external clients see the same dict hints, ILIKE guidance, and table whitelist as in-app chat.
 - Exposes the `silver_anon` / `gold_anon` databases (NEVER raw silver/gold). No LLM lives in the server; the MCP client drives SQL generation.
 
+### Sync surface (Settings → Data sync)
+
+- **Backend** (`app/api/sync_routes.py` + `app/dagster_client.py` + `app/sync_naming.py`): one-button full refresh for operators who think in HubSpot terms. `POST /api/v1/sync` launches `bronze_job` with `clickspot/sync` + `clickspot/sync_id` correlation tags; the chaining sensors (`sensors.py`) propagate `clickspot/*` tags onto each run they request, so all four runs of a sync come back from one tag-filtered GraphQL query. `GET /api/v1/sync/status` reports stage progress in operator language (`app/sync_naming.py` maps step keys → HubSpot names, generic phrase for bridge/internal tables) and degrades gracefully when Dagster is unreachable.
+- **Frontend** (`frontend/src/components/settings/SyncTab.tsx`): last-refreshed (from `/api/v1/metadata` freshness timestamps), Sync now button (disabled without `HUBSPOT_TOKEN` or while a run is in flight), 4-stage progress, failure alert with a deep link into the Dagster run (`DAGSTER_UI_URL`, browser-facing, separate from `DAGSTER_GRAPHQL_URL`).
+- `app/dagster_client.py` is the shared Dagster GraphQL client (locations, reload, launch-with-tags, runs queries) — also used by the Settings → Properties reload path.
+
 ### Wiring
 
-- `definitions.py` composes: all bronze + silver + gold + silver_anon + gold_anon assets; jobs `bronze_job`, `silver_job`, `gold_job`, `anon_job`; the `hourly_schedule` (runs `bronze_job`, default status STOPPED); sensors `trigger_silver_after_bronze` → `trigger_gold_after_silver` → `trigger_anon_after_gold`.
+- `definitions.py` composes: all bronze + silver + gold + silver_anon + gold_anon assets; jobs `bronze_job`, `silver_job`, `gold_job`, `anon_job`; the `hourly_schedule` (runs `bronze_job`, default status STOPPED); sensors `trigger_silver_after_bronze` → `trigger_gold_after_silver` → `trigger_anon_after_gold` (each propagates `clickspot/*` sync-correlation tags).
 - Resources: `hubspot`, `ch` (bronze), `ch_silver`, `ch_gold`, `ch_silver_anon`, `ch_gold_anon`.
 
 ## Key Patterns

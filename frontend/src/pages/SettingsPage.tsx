@@ -5,6 +5,7 @@ import { ReloadOutlined } from "@ant-design/icons";
 import { AppHeader } from "../components/AppHeader";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { OnboardingTab } from "../components/settings/OnboardingTab";
+import { SyncTab } from "../components/settings/SyncTab";
 import { ExtractionTab } from "../components/settings/ExtractionTab";
 import { PropertyTab } from "../components/settings/PropertyTab";
 import { AIProviderTab } from "../components/settings/AIProviderTab";
@@ -107,6 +108,11 @@ export default function SettingsPage() {
                 key: "onboarding",
                 label: "Onboarding",
                 children: <OnboardingTab onSaved={onMarkDirty} />,
+              },
+              {
+                key: "sync",
+                label: "Data sync",
+                children: <SyncTab />,
               },
               {
                 key: "extraction",
