@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from app import dagster_client as dagster
 from app import schema_refresh
 from app.customer import extraction
+from app.warehouse_init import ensure_schema_best_effort
 from app.sync_naming import (
     APPLY_STAGES,
     STAGES,
@@ -64,6 +65,8 @@ def _hubspot_configured() -> bool:
     return bool(os.environ.get("HUBSPOT_TOKEN", "").strip())
 
 
+
+
 @router.post("")
 def start_sync() -> dict[str, Any]:
     """Launch bronze with a fresh correlation tag; sensors take it from there."""
@@ -76,6 +79,11 @@ def start_sync() -> dict[str, Any]:
             409,
             "A sync is already running — wait for it to finish before starting another.",
         )
+
+    # Fresh-compose path: the stack starts with only the empty `bronze`
+    # database from CLICKHOUSE_DB, and bronze assets insert without creating
+    # tables — make sure the schema exists before bronze launches.
+    ensure_schema_best_effort("before sync launch")
 
     sync_id = uuid.uuid4().hex[:12]
     run_id = dagster.launch_job(
@@ -120,6 +128,8 @@ def start_apply() -> dict[str, Any]:
             409,
             "A refresh is already running — wait for it to finish before applying changes.",
         )
+
+    ensure_schema_best_effort("before apply launch")
 
     token = extraction.pending_apply_token()
     reloaded = dagster.reload_all_locations()

@@ -27,7 +27,7 @@ Docker-free local setup (Linux): `./bootstrap.sh` (Python + frontend deps + a pi
 
 Native Windows: `.\start.ps1` — PowerShell sibling of `start.sh` (same services/ports, Windows venv layout `.venv\Scripts`, process-tree cleanup via `taskkill /T`). Supports `docker` (default) and `external` modes only; `local` is Linux-only, use WSL + `./start.sh` for that.
 
-ClickHouse init (run once): `python scripts/init_clickhouse.py` (both `bootstrap.sh --seed` and `start.sh` run this for you).
+ClickHouse init: automatic — the backend runs the idempotent init DDL (`app/warehouse_init.py`, all `IF NOT EXISTS`) on FastAPI startup and before each sync/apply launch, so a fresh `docker compose up` needs no manual step. `python scripts/init_clickhouse.py` remains for external-mode setups; `bootstrap.sh --seed`, `start.sh`, and `make seed` also run it.
 
 ClickHouse, three modes via `CLICKSPOT_CLICKHOUSE_MODE` (set in `.env`; unset = auto `local` on Linux / `docker` elsewhere): `local` (Docker-free single binary on port 8124), `docker` (`docker compose up -d clickhouse`, image pinned to `clickhouse/clickhouse-server:26.2.5.45`), or `external` (you manage it). Server config + user profile come from `clickhouse/config.xml` (`index_granularity=4096`, `max_server_memory_usage=4GB` — the shared Docker VM OOM-kills the server otherwise) and `clickhouse/users.xml` (per-query memory cap 2 GB, spill thresholds 500 MB, `max_result_rows=100k`, `max_partitions_per_insert_block=500`) — mounted into the container in `docker` mode, applied to the local runtime otherwise.
 
