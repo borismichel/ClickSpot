@@ -29,8 +29,9 @@ def test_sync_tags_are_propagated_onto_the_requested_run():
 
 
 def test_untagged_runs_chain_with_no_tags():
-    """Hourly-schedule and manual Dagster runs keep working exactly as before."""
-    request = _chain(_context({"dagster/schedule_name": "hourly_schedule"}))
+    """Manual Dagster launches keep working exactly as before. (The hourly
+    schedule is no longer untagged — schedules.py stamps its runs.)"""
+    request = _chain(_context({"dagster/partition": "whatever"}))
     assert request.tags == {}
 
 

@@ -1,11 +1,12 @@
 from dagster import run_status_sensor, DagsterRunStatus, RunRequest
 from jobs import bronze_job, silver_job, gold_job, anon_job
 
-# A "Sync now" from the ClickSpot UI stamps clickspot/* correlation tags on the
-# bronze run (app/api/sync_routes.py). Each chaining sensor copies them onto
-# the run it requests, so all four runs of one sync are retrievable with a
-# single tag-filtered query — timestamps never have to be guessed at. Runs
-# without the tags (hourly schedule, manual Dagster launches) chain unchanged.
+# A sync's starting bronze run carries clickspot/* correlation tags, stamped
+# by "Sync now" (app/api/sync_routes.py) or by the hourly schedule
+# (schedules.py). Each chaining sensor copies them onto the run it requests,
+# so all four runs of one sync are retrievable with a single tag-filtered
+# query — timestamps never have to be guessed at. Runs without the tags
+# (manual Dagster launches) chain unchanged.
 _SYNC_TAG_PREFIX = "clickspot/"
 
 

@@ -143,6 +143,45 @@ query($filter: RunsFilter!, $limit: Int!) {
 }
 """.strip()
 
+_SCHEDULE_QUERY = """
+query($selector: ScheduleSelector!) {
+  scheduleOrError(scheduleSelector: $selector) {
+    __typename
+    ... on Schedule {
+      id
+      scheduleState { id status }
+      futureTicks(limit: 1) { results { timestamp } }
+    }
+    ... on ScheduleNotFoundError { message }
+    ... on PythonError { message }
+  }
+}
+""".strip()
+
+_START_SCHEDULE_MUTATION = """
+mutation($selector: ScheduleSelector!) {
+  startSchedule(scheduleSelector: $selector) {
+    __typename
+    ... on ScheduleStateResult { scheduleState { status } }
+    ... on ScheduleNotFoundError { message }
+    ... on UnauthorizedError { message }
+    ... on PythonError { message }
+  }
+}
+""".strip()
+
+_STOP_SCHEDULE_MUTATION = """
+mutation($id: String!) {
+  stopRunningSchedule(id: $id) {
+    __typename
+    ... on ScheduleStateResult { scheduleState { status } }
+    ... on ScheduleNotFoundError { message }
+    ... on UnauthorizedError { message }
+    ... on PythonError { message }
+  }
+}
+""".strip()
+
 _STEP_STATS_QUERY = """
 query($runId: ID!) {
   runOrError(runId: $runId) {
@@ -239,6 +278,62 @@ def in_progress_runs(job_names: tuple[str, ...]) -> list[dict[str, Any]]:
     Dagster UI, or the hourly schedule)."""
     runs = _query_runs({"statuses": list(IN_PROGRESS_STATUSES)}, 50)
     return [r for r in runs if r.get("jobName") in job_names]
+
+
+def _schedule_selector(name: str) -> dict[str, str]:
+    loc, repo = primary_repo()
+    if not repo:
+        raise HTTPException(500, "Could not determine Dagster repository name")
+    return {
+        "repositoryLocationName": loc,
+        "repositoryName": repo,
+        "scheduleName": name,
+    }
+
+
+def schedule_state(name: str) -> dict[str, Any]:
+    """A schedule's live instigator state, as the orchestrator reports it:
+    {"id", "status" ("RUNNING"|"STOPPED"), "next_tick_timestamp" (epoch s)}."""
+    data = dagster_post(_SCHEDULE_QUERY, {"selector": _schedule_selector(name)})
+    result = data.get("scheduleOrError") or {}
+    if result.get("__typename") != "Schedule":
+        raise HTTPException(
+            502,
+            f"Dagster schedule lookup for '{name}' failed: "
+            f"{result.get('__typename')} — {result.get('message', '')}",
+        )
+    ticks = (result.get("futureTicks") or {}).get("results") or []
+    return {
+        "id": result["id"],
+        "status": (result.get("scheduleState") or {}).get("status"),
+        "next_tick_timestamp": ticks[0]["timestamp"] if ticks else None,
+    }
+
+
+def _schedule_mutation_status(name: str, verb: str, result: dict[str, Any]) -> str:
+    if result.get("__typename") != "ScheduleStateResult":
+        raise HTTPException(
+            502,
+            f"Dagster refused to {verb} schedule '{name}': "
+            f"{result.get('__typename')} — {result.get('message', '')}",
+        )
+    return (result.get("scheduleState") or {}).get("status") or ""
+
+
+def start_schedule(name: str) -> str:
+    """Start a schedule; returns the resulting status ("RUNNING")."""
+    data = dagster_post(_START_SCHEDULE_MUTATION, {"selector": _schedule_selector(name)})
+    return _schedule_mutation_status(name, "start", data.get("startSchedule") or {})
+
+
+def stop_schedule(name: str) -> str:
+    """Stop a schedule; returns the resulting status ("STOPPED"). Only future
+    ticks stop — runs already launched are untouched."""
+    # The stop mutation addresses the schedule by its compound id, not a
+    # selector, so look the schedule up first.
+    state = schedule_state(name)
+    data = dagster_post(_STOP_SCHEDULE_MUTATION, {"id": state["id"]})
+    return _schedule_mutation_status(name, "stop", data.get("stopRunningSchedule") or {})
 
 
 def run_step_stats(run_id: str) -> list[dict[str, Any]]:
